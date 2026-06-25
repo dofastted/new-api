@@ -92,11 +92,42 @@ export interface ChannelAffinityInfo {
   using_group?: string
 }
 
+export interface SelectedChannelEndpoint {
+  id?: number
+  label?: string
+  url?: string
+}
+
+export interface ChannelDecisionContext {
+  total_candidates?: number
+  filtered_candidates?: number
+  priority?: number
+  weight?: number
+  total_weight?: number
+  selected_probability?: number
+}
+
+export interface ChannelChainEntry {
+  channel_id?: number
+  channel_name?: string
+  channel_type?: number
+  group?: string
+  reason?: string
+  selection?: string
+  attempt?: number
+  retry_index?: number
+  circuit_state?: string
+  endpoint?: string
+  error_code?: string
+  error_category?: string
+  decision?: ChannelDecisionContext
+}
+
 export interface LogOtherData {
   admin_info?: {
     is_multi_key?: boolean
     multi_key_index?: number
-    use_channel?: number[]
+    use_channel?: Array<number | string>
     local_count_tokens?: boolean
     channel_affinity?: ChannelAffinityInfo
     // Top-up audit fields (type=1, admin only)
@@ -133,6 +164,21 @@ export interface LogOtherData {
   request_path?: string
   request_conversion?: string[]
   ws?: boolean
+  request_format?:
+    | 'unknown'
+    | 'claude'
+    | 'openai'
+    | 'response'
+    | 'gemini'
+    | 'gemini_cli'
+    | string
+  channel_chain?: ChannelChainEntry[]
+  selected_endpoint?: SelectedChannelEndpoint
+  original_model?: string
+  upstream_model?: string
+  final_channel_id?: number
+  initial_channel_id?: number
+  body_shape?: string
   audio?: boolean
   audio_input?: number
   audio_output?: number

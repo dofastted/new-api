@@ -79,6 +79,11 @@ func formatUserLogs(logs []*Log, startIdx int) {
 			delete(otherMap, "audit_info")
 			// delete(otherMap, "reject_reason")
 			delete(otherMap, "stream_status")
+			delete(otherMap, "channel_chain")
+			delete(otherMap, "selected_endpoint")
+			delete(otherMap, "initial_channel_id")
+			delete(otherMap, "final_channel_id")
+			delete(otherMap, "body_shape")
 		}
 		logs[i].Other = common.MapToJsonStr(otherMap)
 		logs[i].Id = startIdx + i + 1

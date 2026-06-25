@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
-
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -120,27 +119,40 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 		return nil, err
 	}
 	channel := Channel{}
-	if len(abilities) > 0 {
-		// Randomly choose one
-		weightSum := uint(0)
-		for _, ability_ := range abilities {
-			weightSum += ability_.Weight + 10
-		}
-		// Randomly choose one
-		weight := common.GetRandomInt(int(weightSum))
-		for _, ability_ := range abilities {
-			weight -= int(ability_.Weight) + 10
-			//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
-			if weight <= 0 {
-				channel.Id = ability_.ChannelId
-				break
-			}
-		}
-	} else {
+	abilities = filterOpenCircuitAbilities(abilities)
+	if len(abilities) == 0 {
 		return nil, nil
+	}
+	// Randomly choose one
+	weightSum := uint(0)
+	for _, ability_ := range abilities {
+		weightSum += ability_.Weight + 10
+	}
+	// Randomly choose one
+	weight := common.GetRandomInt(int(weightSum))
+	for _, ability_ := range abilities {
+		weight -= int(ability_.Weight) + 10
+		//log.Printf("weight: %d, ability weight: %d", weight, *ability_.Weight)
+		if weight <= 0 {
+			channel.Id = ability_.ChannelId
+			break
+		}
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func filterOpenCircuitAbilities(abilities []Ability) []Ability {
+	if len(abilities) == 0 {
+		return abilities
+	}
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if !IsChannelCircuitOpen(ability.ChannelId) {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

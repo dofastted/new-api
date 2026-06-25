@@ -189,6 +189,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
+		c.Set("retry_index", retryParam.GetRetry())
 		channel, channelErr := getChannel(c, relayInfo, retryParam)
 		if channelErr != nil {
 			logger.LogError(c, channelErr.Error())
@@ -222,6 +223,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		if newAPIError == nil {
 			relayInfo.LastError = nil
+			service.RecordChannelSuccess(channel.Id)
 			return
 		}
 
@@ -308,6 +310,9 @@ func getChannel(c *gin.Context, info *relaycommon.RelayInfo, retryParam *service
 		}, nil
 	}
 	channel, selectGroup, err := service.CacheGetRandomSatisfiedChannel(retryParam)
+	if channel != nil {
+		service.AppendChannelSelectionTrace(c, channel, selectGroup, retryParam.GetRetry(), service.ChannelChainReasonRetrySelected, service.ChannelChainSelectionWeighted)
+	}
 
 	info.PriceData.GroupRatioInfo = helper.HandleGroupRatio(c, info)
 
@@ -362,6 +367,10 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
+	service.AppendChannelFailureTrace(c, channelError.ChannelId, channelError.ChannelType, channelError.ChannelName, err)
+	if service.ShouldRecordChannelCircuitFailure(err) {
+		service.RecordChannelFailure(channelError.ChannelId, string(err.GetErrorCode()))
+	}
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	if service.ShouldDisableChannel(err) && channelError.AutoBan {
@@ -388,6 +397,12 @@ func processChannelError(c *gin.Context, channelError types.ChannelError, err *t
 		other["channel_id"] = channelId
 		other["channel_name"] = c.GetString("channel_name")
 		other["channel_type"] = c.GetInt("channel_type")
+		if requestFormat := common.GetContextKeyString(c, constant.ContextKeyRequestFormat); requestFormat != "" {
+			other["request_format"] = requestFormat
+		}
+		if channelChain := service.ChannelChainForLog(c); len(channelChain) > 0 {
+			other["channel_chain"] = channelChain
+		}
 		adminInfo := make(map[string]interface{})
 		adminInfo["use_channel"] = c.GetStringSlice("use_channel")
 		isMultiKey := common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey)

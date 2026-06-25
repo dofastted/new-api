@@ -116,6 +116,11 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 		return nil, nil
 	}
 
+	channels = filterOpenCircuitChannelIDs(channels)
+	if len(channels) == 0 {
+		return nil, nil
+	}
+
 	if len(channels) == 1 {
 		if channel, ok := channelsIDM[channels[0]]; ok {
 			return channel, nil
@@ -189,6 +194,19 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+func filterOpenCircuitChannelIDs(channels []int) []int {
+	if len(channels) == 0 {
+		return channels
+	}
+	filtered := make([]int, 0, len(channels))
+	for _, channelID := range channels {
+		if !IsChannelCircuitOpen(channelID) {
+			filtered = append(filtered, channelID)
+		}
+	}
+	return filtered
 }
 
 func CacheGetChannel(id int) (*Channel, error) {

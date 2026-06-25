@@ -66,6 +66,9 @@ type ChannelMeta struct {
 	ChannelIsMultiKey    bool
 	ChannelMultiKeyIndex int
 	ChannelBaseUrl       string
+	ChannelEndpointId    int
+	ChannelEndpointLabel string
+	ChannelEndpointUrl   string
 	ApiType              int
 	ApiVersion           string
 	ApiKey               string
@@ -119,6 +122,7 @@ type RelayInfo struct {
 	UserEmail              string
 	UserQuota              int
 	RelayFormat            types.RelayFormat
+	RequestFormat          types.RequestFormat
 	SendResponseCount      int
 	ReceivedResponseCount  int
 	FinalPreConsumedQuota  int // 最终预消耗的配额
@@ -199,6 +203,9 @@ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
 		ChannelIsMultiKey:    common.GetContextKeyBool(c, constant.ContextKeyChannelIsMultiKey),
 		ChannelMultiKeyIndex: common.GetContextKeyInt(c, constant.ContextKeyChannelMultiKeyIndex),
 		ChannelBaseUrl:       common.GetContextKeyString(c, constant.ContextKeyChannelBaseUrl),
+		ChannelEndpointId:    common.GetContextKeyInt(c, constant.ContextKeyChannelEndpointId),
+		ChannelEndpointLabel: common.GetContextKeyString(c, constant.ContextKeyChannelEndpointLabel),
+		ChannelEndpointUrl:   common.GetContextKeyString(c, constant.ContextKeyChannelEndpointUrl),
 		ApiType:              apiType,
 		ApiVersion:           c.GetString("api_version"),
 		ApiKey:               common.GetContextKeyString(c, constant.ContextKeyChannelKey),
@@ -479,6 +486,7 @@ func genBaseRelayInfo(c *gin.Context, request dto.Request) *RelayInfo {
 
 		isFirstResponse: true,
 		RelayMode:       relayconstant.Path2RelayMode(c.Request.URL.Path),
+		RequestFormat:   types.RequestFormat(common.GetContextKeyString(c, constant.ContextKeyRequestFormat)),
 		RequestURLPath:  c.Request.URL.String(),
 		RequestHeaders:  cloneRequestHeaders(c),
 		IsStream:        isStream,
