@@ -37,10 +37,16 @@ import { IconSearch } from '@douyinfe/semi-icons';
 
 const OFFICIAL_RATIO_PRESET_ID = -100;
 const MODELS_DEV_PRESET_ID = -101;
+const OPENAI_OFFICIAL_PRESET_ID = -102;
+const CLAUDE_OFFICIAL_PRESET_ID = -103;
 const OFFICIAL_RATIO_PRESET_NAME = '官方倍率预设';
 const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设';
 const OFFICIAL_RATIO_PRESET_BASE_URL = 'https://basellm.github.io';
 const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev';
+const OPENAI_OFFICIAL_PRESET_NAME = 'OpenAI 官方价格';
+const CLAUDE_OFFICIAL_PRESET_NAME = 'Claude 官方价格';
+const OPENAI_OFFICIAL_PRESET_BASE_URL = 'https://developers.openai.com';
+const CLAUDE_OFFICIAL_PRESET_BASE_URL = 'https://platform.claude.com';
 
 const ChannelSelectorModal = forwardRef(
   (
@@ -79,10 +85,16 @@ const ChannelSelectorModal = forwardRef(
       return (
         id === OFFICIAL_RATIO_PRESET_ID ||
         id === MODELS_DEV_PRESET_ID ||
+        id === OPENAI_OFFICIAL_PRESET_ID ||
+        id === CLAUDE_OFFICIAL_PRESET_ID ||
         base === OFFICIAL_RATIO_PRESET_BASE_URL ||
         base === MODELS_DEV_PRESET_BASE_URL ||
+        base === OPENAI_OFFICIAL_PRESET_BASE_URL ||
+        base === CLAUDE_OFFICIAL_PRESET_BASE_URL ||
         name === OFFICIAL_RATIO_PRESET_NAME ||
-        name === MODELS_DEV_PRESET_NAME
+        name === MODELS_DEV_PRESET_NAME ||
+        name === OPENAI_OFFICIAL_PRESET_NAME ||
+        name === CLAUDE_OFFICIAL_PRESET_NAME
       );
     };
 

@@ -42,6 +42,18 @@ export const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设'
 export const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev'
 export const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json'
 
+export const OPENAI_OFFICIAL_CHANNEL_ID = -102
+export const OPENAI_OFFICIAL_CHANNEL_NAME = 'OpenAI 官方价格'
+export const OPENAI_OFFICIAL_CHANNEL_BASE_URL = 'https://developers.openai.com'
+export const OPENAI_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://developers.openai.com/api/docs/pricing.md'
+
+export const CLAUDE_OFFICIAL_CHANNEL_ID = -103
+export const CLAUDE_OFFICIAL_CHANNEL_NAME = 'Claude 官方价格'
+export const CLAUDE_OFFICIAL_CHANNEL_BASE_URL = 'https://platform.claude.com'
+export const CLAUDE_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://platform.claude.com/docs/en/about-claude/pricing.md'
+
 export const OPENROUTER_ENDPOINT = 'openrouter'
 
 // Backend channel type for OpenRouter (see constant/channel.go: ChannelTypeOpenRouter = 20)

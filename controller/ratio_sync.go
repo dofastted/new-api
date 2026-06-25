@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +41,14 @@ const (
 	modelsDevPresetID           = -101
 	modelsDevPresetName         = "models.dev 价格预设"
 	modelsDevPresetBaseURL      = "https://models.dev"
+	openAIOfficialPresetID      = -102
+	openAIOfficialPresetName    = "OpenAI 官方价格"
+	openAIOfficialPresetBaseURL = "https://developers.openai.com"
+	openAIOfficialEndpoint      = "https://developers.openai.com/api/docs/pricing.md"
+	claudeOfficialPresetID      = -103
+	claudeOfficialPresetName    = "Claude 官方价格"
+	claudeOfficialPresetBaseURL = "https://platform.claude.com"
+	claudeOfficialEndpoint      = "https://platform.claude.com/docs/en/about-claude/pricing.md"
 	modelsDevHost               = "models.dev"
 	modelsDevPath               = "/api.json"
 	modelsDevInputCostRatioBase = 1000.0
@@ -242,6 +251,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 				fullURL = chItem.BaseURL + endpoint
 			}
 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
+			isOpenAIOfficial := isOpenAIOfficialPricingEndpoint(fullURL)
+			isClaudeOfficial := isClaudeOfficialPricingEndpoint(fullURL)
 
 			uniqueName := chItem.Name
 			if chItem.ID != 0 {
@@ -302,8 +313,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
-			// Content-Type 和响应体大小校验
-			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") {
+			// Content-Type 和响应体大小校验。官方 OpenAI/Claude 价格源是 markdown，非 JSON 属于预期。
+			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") && !isOpenAIOfficial && !isClaudeOfficial {
 				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
 			}
 			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
@@ -314,6 +325,27 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
+			if isOpenAIOfficial {
+				converted, err := convertOpenAIOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), "OpenAI official pricing parse failed from "+chItem.Name+": "+err.Error())
+					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
+					return
+				}
+				ch <- upstreamResult{Name: uniqueName, Data: converted}
+				return
+			}
+
+			if isClaudeOfficial {
+				converted, err := convertClaudeOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), "Claude official pricing parse failed from "+chItem.Name+": "+err.Error())
+					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
+					return
+				}
+				ch <- upstreamResult{Name: uniqueName, Data: converted}
+				return
+			}
 			// type3: OpenRouter /v1/models -> convert per-token pricing to ratios
 			if isOpenRouter {
 				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
@@ -714,6 +746,274 @@ func isModelsDevAPIEndpoint(rawURL string) bool {
 	return path == modelsDevPath
 }
 
+func isOpenAIOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.ToLower(parsedURL.Hostname()) != "developers.openai.com" {
+		return false
+	}
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/api/docs/pricing" || path == "/api/docs/pricing.md"
+}
+
+func isClaudeOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.ToLower(parsedURL.Hostname()) != "platform.claude.com" {
+		return false
+	}
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/docs/en/about-claude/pricing" || path == "/docs/en/about-claude/pricing.md"
+}
+
+type officialTokenPricing struct {
+	Model            string
+	InputUSDPerMTok  float64
+	OutputUSDPerMTok float64
+	CacheReadRatio   *float64
+	CacheWriteRatio  *float64
+}
+
+func convertOfficialTokenPricingToRatioData(entries []officialTokenPricing) (map[string]any, error) {
+	modelRatioMap := make(map[string]any)
+	completionRatioMap := make(map[string]any)
+	cacheRatioMap := make(map[string]any)
+	createCacheRatioMap := make(map[string]any)
+
+	for _, entry := range entries {
+		modelName := strings.TrimSpace(entry.Model)
+		if modelName == "" || !isValidNonNegativeCost(entry.InputUSDPerMTok) || !isValidNonNegativeCost(entry.OutputUSDPerMTok) {
+			continue
+		}
+		if entry.InputUSDPerMTok == 0 && entry.OutputUSDPerMTok > 0 {
+			continue
+		}
+		if entry.InputUSDPerMTok == 0 {
+			modelRatioMap[modelName] = 0.0
+			continue
+		}
+
+		modelRatio := entry.InputUSDPerMTok * float64(ratio_setting.USD) / 1000
+		modelRatioMap[modelName] = roundRatioValue(modelRatio)
+		completionRatioMap[modelName] = roundRatioValue(entry.OutputUSDPerMTok / entry.InputUSDPerMTok)
+		if entry.CacheReadRatio != nil {
+			cacheRatioMap[modelName] = roundRatioValue(*entry.CacheReadRatio)
+		}
+		if entry.CacheWriteRatio != nil {
+			createCacheRatioMap[modelName] = roundRatioValue(*entry.CacheWriteRatio)
+		}
+	}
+
+	if len(modelRatioMap) == 0 {
+		return nil, fmt.Errorf("no valid official pricing entries found")
+	}
+
+	converted := make(map[string]any)
+	converted["model_ratio"] = modelRatioMap
+	if len(completionRatioMap) > 0 {
+		converted["completion_ratio"] = completionRatioMap
+	}
+	if len(cacheRatioMap) > 0 {
+		converted["cache_ratio"] = cacheRatioMap
+	}
+	if len(createCacheRatioMap) > 0 {
+		converted["create_cache_ratio"] = createCacheRatioMap
+	}
+	return converted, nil
+}
+
+var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^,\]]+),\s*([^,\]]+),\s*([^\]]+)\]`)
+
+func parseOptionalPriceToken(token string) (float64, bool) {
+	trimmed := strings.TrimSpace(token)
+	trimmed = strings.Trim(trimmed, `"`)
+	if trimmed == "" || trimmed == "-" || trimmed == "null" {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(trimmed, 64)
+	return value, err == nil && isValidNonNegativeCost(value)
+}
+
+func normalizeOpenAIModelName(raw string) string {
+	model := strings.TrimSpace(raw)
+	if idx := strings.Index(model, " ("); idx >= 0 {
+		model = model[:idx]
+	}
+	return strings.TrimSpace(model)
+}
+
+func openAIStandardPricingSection(content string) string {
+	start := strings.Index(content, `tier="standard"`)
+	if start < 0 {
+		return content
+	}
+	section := content[start:]
+	if end := strings.Index(section, `data-value="batch"`); end >= 0 {
+		return section[:end]
+	}
+	return section
+}
+
+func convertOpenAIOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read OpenAI pricing response: %w", err)
+	}
+	section := openAIStandardPricingSection(string(bodyBytes))
+	matches := openAIPricingRowPattern.FindAllStringSubmatch(section, -1)
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no OpenAI pricing rows found")
+	}
+
+	entries := make([]officialTokenPricing, 0, len(matches))
+	for _, match := range matches {
+		input, ok := parseOptionalPriceToken(match[2])
+		if !ok {
+			continue
+		}
+		cachedInput, hasCachedInput := parseOptionalPriceToken(match[3])
+		output, ok := parseOptionalPriceToken(match[4])
+		if !ok {
+			continue
+		}
+		var cacheReadRatio *float64
+		if hasCachedInput && input > 0 {
+			ratio := cachedInput / input
+			cacheReadRatio = &ratio
+		}
+		entries = append(entries, officialTokenPricing{
+			Model:            normalizeOpenAIModelName(match[1]),
+			InputUSDPerMTok:  input,
+			OutputUSDPerMTok: output,
+			CacheReadRatio:   cacheReadRatio,
+		})
+	}
+	return convertOfficialTokenPricingToRatioData(entries)
+}
+
+func parseUSDPerMTok(cell string) (float64, bool) {
+	cleaned := strings.TrimSpace(cell)
+	if cleaned == "" || cleaned == "-" {
+		return 0, false
+	}
+	idx := strings.Index(cleaned, "$ ")
+	if idx >= 0 {
+		cleaned = cleaned[idx+1:]
+	} else if idx = strings.Index(cleaned, "$"); idx >= 0 {
+		cleaned = cleaned[idx+1:]
+	}
+	cleaned = strings.TrimSpace(cleaned)
+	parts := strings.Fields(cleaned)
+	if len(parts) == 0 {
+		return 0, false
+	}
+	value, err := strconv.ParseFloat(strings.TrimPrefix(parts[0], "$"), 64)
+	return value, err == nil && isValidNonNegativeCost(value)
+}
+
+func cleanClaudeModelLabel(raw string) string {
+	model := strings.TrimSpace(raw)
+	if idx := strings.Index(model, "("); idx >= 0 {
+		model = strings.TrimSpace(model[:idx])
+	}
+	return strings.TrimSpace(model)
+}
+
+func claudeModelIDs(label string) []string {
+	switch strings.ToLower(cleanClaudeModelLabel(label)) {
+	case "claude fable 5":
+		return []string{"claude-fable-5"}
+	case "claude mythos 5":
+		return []string{"claude-mythos-5"}
+	case "claude opus 4.8":
+		return expandClaudeOpusVariantIDs("claude-opus-4-8")
+	case "claude opus 4.7":
+		return expandClaudeOpusVariantIDs("claude-opus-4-7")
+	case "claude opus 4.6":
+		return expandClaudeOpusVariantIDs("claude-opus-4-6")
+	case "claude opus 4.5":
+		return []string{"claude-opus-4-5", "claude-opus-4-5-20251101", "claude-opus-4-5-20251101-thinking"}
+	case "claude opus 4.1":
+		return []string{"claude-opus-4-1", "claude-opus-4-1-20250805", "claude-opus-4-1-20250805-thinking"}
+	case "claude opus 4":
+		return []string{"claude-opus-4", "claude-opus-4-20250514", "claude-opus-4-20250514-thinking"}
+	case "claude sonnet 4.6":
+		return []string{"claude-sonnet-4-6", "claude-sonnet-4-6-thinking"}
+	case "claude sonnet 4.5":
+		return []string{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20250929-thinking"}
+	case "claude sonnet 4":
+		return []string{"claude-sonnet-4", "claude-sonnet-4-20250514", "claude-sonnet-4-20250514-thinking"}
+	case "claude haiku 4.5":
+		return []string{"claude-haiku-4-5", "claude-haiku-4-5-20251001"}
+	case "claude haiku 3.5":
+		return []string{"claude-3-5-haiku", "claude-3-5-haiku-20241022"}
+	default:
+		return nil
+	}
+}
+
+func expandClaudeOpusVariantIDs(base string) []string {
+	variants := []string{base, base + "-thinking", base + "-max", base + "-high", base + "-medium", base + "-low"}
+	if strings.HasPrefix(base, "claude-opus-4-7") || strings.HasPrefix(base, "claude-opus-4-8") {
+		variants = append(variants, base+"-xhigh")
+	}
+	return variants
+}
+
+func convertClaudeOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Claude pricing response: %w", err)
+	}
+	lines := strings.Split(string(bodyBytes), "\n")
+	entries := make([]officialTokenPricing, 0)
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "| Claude ") {
+			continue
+		}
+		cells := strings.Split(trimmed, "|")
+		if len(cells) < 7 {
+			continue
+		}
+		modelIDs := claudeModelIDs(cells[1])
+		if len(modelIDs) == 0 {
+			continue
+		}
+		input, inputOK := parseUSDPerMTok(cells[2])
+		cacheWrite, cacheWriteOK := parseUSDPerMTok(cells[3])
+		cacheRead, cacheReadOK := parseUSDPerMTok(cells[5])
+		output, outputOK := parseUSDPerMTok(cells[6])
+		if !inputOK || !outputOK {
+			continue
+		}
+		var cacheReadRatio *float64
+		if cacheReadOK && input > 0 {
+			ratio := cacheRead / input
+			cacheReadRatio = &ratio
+		}
+		var cacheWriteRatio *float64
+		if cacheWriteOK && input > 0 {
+			ratio := cacheWrite / input
+			cacheWriteRatio = &ratio
+		}
+		for _, modelID := range modelIDs {
+			entries = append(entries, officialTokenPricing{
+				Model:            modelID,
+				InputUSDPerMTok:  input,
+				OutputUSDPerMTok: output,
+				CacheReadRatio:   cacheReadRatio,
+				CacheWriteRatio:  cacheWriteRatio,
+			})
+		}
+	}
+	return convertOfficialTokenPricingToRatioData(entries)
+}
+
 // convertOpenRouterToRatioData parses OpenRouter's /v1/models response and converts
 // per-token USD pricing into the local ratio format.
 // model_ratio = prompt_price_per_token * 1_000_000 * (USD / 1000)
@@ -1021,6 +1321,19 @@ func GetSyncableChannels(c *gin.Context) {
 		Status:  1,
 	})
 
+	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+		ID:      openAIOfficialPresetID,
+		Name:    openAIOfficialPresetName,
+		BaseURL: openAIOfficialPresetBaseURL,
+		Status:  1,
+	})
+
+	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+		ID:      claudeOfficialPresetID,
+		Name:    claudeOfficialPresetName,
+		BaseURL: claudeOfficialPresetBaseURL,
+		Status:  1,
+	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

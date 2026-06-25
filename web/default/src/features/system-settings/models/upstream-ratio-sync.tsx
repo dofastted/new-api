@@ -40,12 +40,16 @@ import {
 } from './conflict-confirm-dialog'
 import {
   DEFAULT_ENDPOINT,
+  CLAUDE_OFFICIAL_CHANNEL_ENDPOINT,
+  CLAUDE_OFFICIAL_CHANNEL_ID,
   MODELS_DEV_PRESET_ENDPOINT,
   MODELS_DEV_PRESET_ID,
   OFFICIAL_CHANNEL_ENDPOINT,
   OFFICIAL_CHANNEL_ID,
   OPENROUTER_CHANNEL_TYPE,
   OPENROUTER_ENDPOINT,
+  OPENAI_OFFICIAL_CHANNEL_ENDPOINT,
+  OPENAI_OFFICIAL_CHANNEL_ID,
 } from './constants'
 import {
   NUMERIC_SYNC_FIELDS,
@@ -78,12 +82,16 @@ type UpstreamRatioSyncProps = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// The two synthesized presets always carry stable negative IDs assigned by
+// Synthesized presets always carry stable negative IDs assigned by
 // `controller/ratio_sync.go`; matching by ID alone is sufficient and avoids
 // fragile name/base_url comparisons.
 function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
   if (channel.id === MODELS_DEV_PRESET_ID) return MODELS_DEV_PRESET_ENDPOINT
   if (channel.id === OFFICIAL_CHANNEL_ID) return OFFICIAL_CHANNEL_ENDPOINT
+  if (channel.id === OPENAI_OFFICIAL_CHANNEL_ID)
+    return OPENAI_OFFICIAL_CHANNEL_ENDPOINT
+  if (channel.id === CLAUDE_OFFICIAL_CHANNEL_ID)
+    return CLAUDE_OFFICIAL_CHANNEL_ENDPOINT
   if (channel.type === OPENROUTER_CHANNEL_TYPE) return OPENROUTER_ENDPOINT
   return DEFAULT_ENDPOINT
 }

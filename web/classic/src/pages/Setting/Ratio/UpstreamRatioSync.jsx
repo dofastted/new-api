@@ -59,6 +59,16 @@ const MODELS_DEV_PRESET_ID = -101;
 const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设';
 const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev';
 const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json';
+const OPENAI_OFFICIAL_PRESET_ID = -102;
+const OPENAI_OFFICIAL_PRESET_NAME = 'OpenAI 官方价格';
+const OPENAI_OFFICIAL_PRESET_BASE_URL = 'https://developers.openai.com';
+const OPENAI_OFFICIAL_PRESET_ENDPOINT =
+  'https://developers.openai.com/api/docs/pricing.md';
+const CLAUDE_OFFICIAL_PRESET_ID = -103;
+const CLAUDE_OFFICIAL_PRESET_NAME = 'Claude 官方价格';
+const CLAUDE_OFFICIAL_PRESET_BASE_URL = 'https://platform.claude.com';
+const CLAUDE_OFFICIAL_PRESET_ENDPOINT =
+  'https://platform.claude.com/docs/en/about-claude/pricing.md';
 
 function ConflictConfirmModal({ t, visible, items, loading, onOk, onCancel }) {
   const isMobile = useIsMobile();
@@ -174,10 +184,22 @@ export default function UpstreamRatioSync(props) {
               id === MODELS_DEV_PRESET_ID ||
               base === MODELS_DEV_PRESET_BASE_URL ||
               name === MODELS_DEV_PRESET_NAME;
+            const isOpenAIOfficialPreset =
+              id === OPENAI_OFFICIAL_PRESET_ID ||
+              base === OPENAI_OFFICIAL_PRESET_BASE_URL ||
+              name === OPENAI_OFFICIAL_PRESET_NAME;
+            const isClaudeOfficialPreset =
+              id === CLAUDE_OFFICIAL_PRESET_ID ||
+              base === CLAUDE_OFFICIAL_PRESET_BASE_URL ||
+              name === CLAUDE_OFFICIAL_PRESET_NAME;
             const isOpenRouter = channelType === 20;
             if (!merged[id]) {
               if (isModelsDevPreset) {
                 merged[id] = MODELS_DEV_PRESET_ENDPOINT;
+              } else if (isOpenAIOfficialPreset) {
+                merged[id] = OPENAI_OFFICIAL_PRESET_ENDPOINT;
+              } else if (isClaudeOfficialPreset) {
+                merged[id] = CLAUDE_OFFICIAL_PRESET_ENDPOINT;
               } else if (isOfficialRatioPreset) {
                 merged[id] = OFFICIAL_RATIO_PRESET_ENDPOINT;
               } else if (isOpenRouter) {
