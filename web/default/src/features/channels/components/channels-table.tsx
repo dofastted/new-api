@@ -16,85 +16,91 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useState, useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { useNavigate, useSearch } from '@tanstack/react-router'
+import { useCallback, useState, useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useSearch } from "@tanstack/react-router";
+import type { OnChangeFn, SortingState, Row } from "@tanstack/react-table";
+import { Eye, EyeOff } from "lucide-react";
+import { useMediaQuery } from "@/hooks";
+import { useTranslation } from "react-i18next";
+import { getLobeIcon } from "@/lib/lobe-icon";
+import { useTableUrlState, type NavigateFn } from "@/hooks/use-table-url-state";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
-  type OnChangeFn,
-  type SortingState,
-  type Row,
-} from '@tanstack/react-table'
-import { useMediaQuery } from '@/hooks'
-import { useTranslation } from 'react-i18next'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
-import { Input } from '@/components/ui/input'
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   DISABLED_ROW_DESKTOP,
   DISABLED_ROW_MOBILE,
   DataTablePage,
   useDebouncedColumnFilter,
   useDataTable,
-} from '@/components/data-table'
-import { getChannels, searchChannels, getGroups } from '../api'
+} from "@/components/data-table";
+import { getChannels, searchChannels, getGroups } from "../api";
 import {
   DEFAULT_PAGE_SIZE,
   CHANNEL_STATUS,
   CHANNEL_STATUS_OPTIONS,
-} from '../constants'
+} from "../constants";
 import {
   channelsQueryKeys,
   aggregateChannelsByTag,
   isTagAggregateRow,
   getChannelTypeIcon,
   getChannelTypeLabel,
-} from '../lib'
-import type { Channel, ChannelSortBy } from '../types'
-import { useChannelsColumns } from './channels-columns'
-import { useChannels } from './channels-provider'
-import { DataTableBulkActions } from './data-table-bulk-actions'
+} from "../lib";
+import type { Channel, ChannelSortBy } from "../types";
+import { useChannelsColumns } from "./channels-columns";
+import { ChannelCard } from "./channel-card";
+import { useChannels } from "./channels-provider";
+import { DataTableBulkActions } from "./data-table-bulk-actions";
 
-const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
+const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = "channels:column-visibility";
+const CHANNELS_VIEW_MODE_STORAGE_KEY = "channels:view-mode";
 
 const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
-  'id',
-  'name',
-  'priority',
-  'balance',
-  'response_time',
-  'test_time',
-])
+  "id",
+  "name",
+  "priority",
+  "balance",
+  "response_time",
+  "test_time",
+]);
 
 function isDisabledChannelRow(channel: Channel) {
   return (
     !isTagAggregateRow(channel) && channel.status !== CHANNEL_STATUS.ENABLED
-  )
+  );
 }
 
 export function ChannelsTable(
   props: {
-    emptyTitle?: string
-    emptyDescription?: string
-    searchPlaceholder?: string
-  } = {}
+    emptyTitle?: string;
+    emptyDescription?: string;
+    searchPlaceholder?: string;
+  } = {},
 ) {
-  const { t } = useTranslation()
-  const { enableTagMode, idSort } = useChannels()
-  const isMobile = useMediaQuery('(max-width: 640px)')
-  const search = useSearch({ strict: false })
-  const navigate = useNavigate()
+  const { t } = useTranslation();
+  const { enableTagMode, idSort, sensitiveVisible, setSensitiveVisible } =
+    useChannels();
+  const isMobile = useMediaQuery("(max-width: 640px)");
+  const search = useSearch({ strict: false });
+  const navigate = useNavigate();
   const navigateSearch = useCallback<NavigateFn>(
     (opts) => {
       void navigate({
         search: opts.search as never,
         replace: opts.replace,
-      })
+      });
     },
-    [navigate]
-  )
+    [navigate],
+  );
 
   // Table state
-  const [sorting, setSorting] = useState<SortingState>([])
+  const [sorting, setSorting] = useState<SortingState>([]);
 
   // URL state management
   const {
@@ -112,24 +118,24 @@ export function ChannelsTable(
       defaultPage: 1,
       defaultPageSize: isMobile ? 10 : DEFAULT_PAGE_SIZE,
     },
-    globalFilter: { enabled: true, key: 'filter' },
+    globalFilter: { enabled: true, key: "filter" },
     columnFilters: [
-      { columnId: 'status', searchKey: 'status', type: 'array' },
-      { columnId: 'type', searchKey: 'type', type: 'array' },
-      { columnId: 'group', searchKey: 'group', type: 'array' },
-      { columnId: 'model', searchKey: 'model', type: 'string' },
+      { columnId: "status", searchKey: "status", type: "array" },
+      { columnId: "type", searchKey: "type", type: "array" },
+      { columnId: "group", searchKey: "group", type: "array" },
+      { columnId: "model", searchKey: "model", type: "string" },
     ],
-  })
+  });
 
   // Extract filters from column filters
   const statusFilter =
-    (columnFilters.find((f) => f.id === 'status')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === "status")?.value as string[]) || [];
   const typeFilter = useMemo(
-    () => (columnFilters.find((f) => f.id === 'type')?.value as string[]) || [],
-    [columnFilters]
-  )
+    () => (columnFilters.find((f) => f.id === "type")?.value as string[]) || [],
+    [columnFilters],
+  );
   const groupFilter =
-    (columnFilters.find((f) => f.id === 'group')?.value as string[]) || []
+    (columnFilters.find((f) => f.id === "group")?.value as string[]) || [];
   const {
     value: modelFilter,
     inputValue: modelFilterInput,
@@ -139,43 +145,43 @@ export function ChannelsTable(
     resetInput: resetModelFilterInput,
   } = useDebouncedColumnFilter({
     columnFilters,
-    columnId: 'model',
+    columnId: "model",
     onColumnFiltersChange,
-  })
+  });
 
   // Determine whether to use search or regular list API
-  const shouldSearch = Boolean(globalFilter?.trim() || modelFilter.trim())
+  const shouldSearch = Boolean(globalFilter?.trim() || modelFilter.trim());
 
   const sortParams = useMemo(() => {
-    const activeSort = sorting[0]
+    const activeSort = sorting[0];
     if (
       !activeSort ||
       !CHANNEL_SORTABLE_COLUMNS.has(activeSort.id as ChannelSortBy)
     ) {
-      return {}
+      return {};
     }
 
     return {
       sort_by: activeSort.id as ChannelSortBy,
-      sort_order: activeSort.desc ? 'desc' : 'asc',
-    } as const
-  }, [sorting])
+      sort_order: activeSort.desc ? "desc" : "asc",
+    } as const;
+  }, [sorting]);
 
   const handleSortingChange: OnChangeFn<SortingState> = (updater) => {
     setSorting((previous) => {
-      const next = typeof updater === 'function' ? updater(previous) : updater
+      const next = typeof updater === "function" ? updater(previous) : updater;
       if (pagination.pageIndex > 0) {
-        onPaginationChange({ ...pagination, pageIndex: 0 })
+        onPaginationChange({ ...pagination, pageIndex: 0 });
       }
-      return next
-    })
-  }
+      return next;
+    });
+  };
 
   // Fetch groups for filter
   const { data: groupsData } = useQuery({
-    queryKey: ['groups'],
+    queryKey: ["groups"],
     queryFn: getGroups,
-  })
+  });
 
   const groupOptions = useMemo(
     () =>
@@ -183,8 +189,8 @@ export function ChannelsTable(
         label: g,
         value: g,
       })),
-    [groupsData]
-  )
+    [groupsData],
+  );
 
   // Fetch channels data
   // eslint-disable-next-line @tanstack/query/exhaustive-deps
@@ -193,15 +199,15 @@ export function ChannelsTable(
       keyword: globalFilter,
       model: modelFilter,
       group:
-        groupFilter.length > 0 && !groupFilter.includes('all')
+        groupFilter.length > 0 && !groupFilter.includes("all")
           ? groupFilter[0]
           : undefined,
       status:
-        statusFilter.length > 0 && !statusFilter.includes('all')
+        statusFilter.length > 0 && !statusFilter.includes("all")
           ? statusFilter[0]
           : undefined,
       type:
-        typeFilter.length > 0 && !typeFilter.includes('all')
+        typeFilter.length > 0 && !typeFilter.includes("all")
           ? Number(typeFilter[0])
           : undefined,
       tag_mode: enableTagMode,
@@ -216,15 +222,15 @@ export function ChannelsTable(
           keyword: globalFilter,
           model: modelFilter,
           group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
+            groupFilter.length > 0 && !groupFilter.includes("all")
               ? groupFilter[0]
               : undefined,
           status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
+            statusFilter.length > 0 && !statusFilter.includes("all")
               ? statusFilter[0]
               : undefined,
           type:
-            typeFilter.length > 0 && !typeFilter.includes('all')
+            typeFilter.length > 0 && !typeFilter.includes("all")
               ? Number(typeFilter[0])
               : undefined,
           tag_mode: enableTagMode,
@@ -232,19 +238,19 @@ export function ChannelsTable(
           ...sortParams,
           p: pagination.pageIndex + 1,
           page_size: pagination.pageSize,
-        })
+        });
       } else {
         return getChannels({
           group:
-            groupFilter.length > 0 && !groupFilter.includes('all')
+            groupFilter.length > 0 && !groupFilter.includes("all")
               ? groupFilter[0]
               : undefined,
           status:
-            statusFilter.length > 0 && !statusFilter.includes('all')
+            statusFilter.length > 0 && !statusFilter.includes("all")
               ? statusFilter[0]
               : undefined,
           type:
-            typeFilter.length > 0 && !typeFilter.includes('all')
+            typeFilter.length > 0 && !typeFilter.includes("all")
               ? Number(typeFilter[0])
               : undefined,
           tag_mode: enableTagMode,
@@ -252,28 +258,28 @@ export function ChannelsTable(
           ...sortParams,
           p: pagination.pageIndex + 1,
           page_size: pagination.pageSize,
-        })
+        });
       }
     },
     placeholderData: (previousData) => previousData,
-  })
+  });
 
   // Apply tag aggregation if tag mode is enabled
   const channels = useMemo(() => {
-    const rawChannels = data?.data?.items || []
+    const rawChannels = data?.data?.items || [];
 
     if (enableTagMode && rawChannels.length > 0) {
-      return aggregateChannelsByTag(rawChannels)
+      return aggregateChannelsByTag(rawChannels);
     }
 
-    return rawChannels
-  }, [data, enableTagMode])
+    return rawChannels;
+  }, [data, enableTagMode]);
 
-  const totalCount = data?.data?.total || 0
-  const typeCounts = data?.data?.type_counts
+  const totalCount = data?.data?.total || 0;
+  const typeCounts = data?.data?.type_counts;
 
   // Columns configuration
-  const columns = useChannelsColumns()
+  const columns = useChannelsColumns();
 
   // React Table instance
   const { table } = useDataTable({
@@ -300,11 +306,11 @@ export function ChannelsTable(
     manualFiltering: true,
     withExpandedRowModel: true,
     ensurePageInRange,
-  })
+  });
 
   // Prepare filter options from existing channel types only.
   const typeFilterOptions = useMemo(() => {
-    const counts = typeCounts || {}
+    const counts = typeCounts || {};
     const typeIds = Object.entries(counts)
       .map(([type, count]) => ({
         type: Number(type),
@@ -312,52 +318,55 @@ export function ChannelsTable(
       }))
       .filter((item) => item.type > 0 && item.count > 0)
       .sort((a, b) => {
-        const labelA = t(getChannelTypeLabel(a.type))
-        const labelB = t(getChannelTypeLabel(b.type))
-        return labelA.localeCompare(labelB)
-      })
+        const labelA = t(getChannelTypeLabel(a.type));
+        const labelB = t(getChannelTypeLabel(b.type));
+        return labelA.localeCompare(labelB);
+      });
 
-    const selectedType = typeFilter.find((value) => value !== 'all')
+    const selectedType = typeFilter.find((value) => value !== "all");
     if (selectedType) {
-      const selectedTypeId = Number(selectedType)
+      const selectedTypeId = Number(selectedType);
       const alreadyIncluded = typeIds.some(
-        (item) => item.type === selectedTypeId
-      )
+        (item) => item.type === selectedTypeId,
+      );
       if (selectedTypeId > 0 && !alreadyIncluded) {
         typeIds.push({
           type: selectedTypeId,
           count: Number(counts[selectedType]) || 0,
-        })
+        });
       }
     }
 
     const totalTypes = Object.values(counts).reduce(
       (sum, count) => sum + (Number(count) || 0),
-      0
-    )
+      0,
+    );
 
     return [
       {
-        label: 'All Types',
-        value: 'all',
+        label: "All Types",
+        value: "all",
         count: totalTypes,
       },
       ...typeIds.map((item) => {
-        const iconName = getChannelTypeIcon(item.type)
+        const iconName = getChannelTypeIcon(item.type);
         return {
           label: getChannelTypeLabel(item.type),
           value: String(item.type),
           count: item.count,
           iconNode: getLobeIcon(`${iconName}.Color`, 16),
-        }
+        };
       }),
-    ]
-  }, [t, typeCounts, typeFilter])
+    ];
+  }, [t, typeCounts, typeFilter]);
 
   const groupFilterOptions = [
-    { label: t('All Groups'), value: 'all' },
-    ...groupOptions,
-  ]
+    { label: t("All Groups"), value: "all" },
+    ...groupOptions.map((option) => ({
+      ...option,
+      label: sensitiveVisible ? option.label : "••••",
+    })),
+  ];
 
   return (
     <DataTablePage
@@ -365,60 +374,88 @@ export function ChannelsTable(
       columns={columns}
       isLoading={isLoading}
       isFetching={isFetching}
-      emptyTitle={t(props.emptyTitle ?? 'No Channels Found')}
+      emptyTitle={t(props.emptyTitle ?? "No Channels Found")}
       emptyDescription={t(
         props.emptyDescription ??
-          'No channels available. Create your first channel to get started.'
+          "No channels available. Create your first channel to get started.",
       )}
-      skeletonKeyPrefix='channel-skeleton'
+      skeletonKeyPrefix="channel-skeleton"
+      enableCardView
+      viewModeStorageKey={CHANNELS_VIEW_MODE_STORAGE_KEY}
+      renderCard={(row, { isSelected }) => (
+        <ChannelCard row={row} isSelected={isSelected} />
+      )}
+      cardGridClassName="grid grid-cols-1 gap-3 sm:gap-4 lg:grid-cols-3"
       applyHeaderSize
       toolbarProps={{
         searchPlaceholder: t(
-          props.searchPlaceholder ?? 'Filter by name, ID, or key...'
+          props.searchPlaceholder ?? "Filter by name, ID, or key...",
         ),
         searchDebounceMs: 500,
         onReset: () => {
-          resetModelFilterInput()
+          resetModelFilterInput();
         },
         additionalSearch: (
           <Input
-            placeholder={t('Filter by model...')}
+            placeholder={t("Filter by model...")}
             value={modelFilterInput}
             onChange={onModelFilterInputChange}
             onCompositionStart={onModelFilterCompositionStart}
             onCompositionEnd={onModelFilterCompositionEnd}
-            className='w-full sm:w-[150px] lg:w-[180px]'
+            className="w-full sm:w-[150px] lg:w-[180px]"
           />
         ),
         filters: [
           {
-            columnId: 'status',
-            title: t('Status'),
+            columnId: "status",
+            title: t("Status"),
             options: [...CHANNEL_STATUS_OPTIONS],
             singleSelect: true,
           },
           {
-            columnId: 'type',
-            title: t('Type'),
+            columnId: "type",
+            title: t("Type"),
             options: typeFilterOptions,
             singleSelect: true,
           },
           {
-            columnId: 'group',
-            title: t('Group'),
+            columnId: "group",
+            title: t("Group"),
             options: groupFilterOptions,
             singleSelect: true,
           },
         ],
+        preActions: (
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setSensitiveVisible(!sensitiveVisible)}
+                  aria-label={sensitiveVisible ? t("Hide") : t("Show")}
+                  className="text-muted-foreground hover:text-foreground size-8"
+                />
+              }
+            >
+              {sensitiveVisible ? <Eye /> : <EyeOff />}
+            </TooltipTrigger>
+            <TooltipContent>
+              {sensitiveVisible ? t("Hide") : t("Show")}
+            </TooltipContent>
+          </Tooltip>
+        ),
       }}
-      getRowClassName={(row, { isMobile }) =>
-        isDisabledChannelRow(row.original)
-          ? isMobile
-            ? DISABLED_ROW_MOBILE
-            : DISABLED_ROW_DESKTOP
-          : undefined
-      }
+      getRowClassName={(row, { isMobile }) => {
+        if (!isDisabledChannelRow(row.original)) {
+          return undefined;
+        }
+        if (isMobile) {
+          return DISABLED_ROW_MOBILE;
+        }
+        return DISABLED_ROW_DESKTOP;
+      }}
       bulkActions={<DataTableBulkActions table={table} />}
     />
-  )
+  );
 }

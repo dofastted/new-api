@@ -17,17 +17,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 /// <reference types="@rsbuild/core/types" />
+import "@visactor/vchart";
 
-declare module '@visactor/react-vchart' {
-  export const VChart: React.ComponentType<Record<string, unknown>>
+declare module "@visactor/react-vchart" {
+  export const VChart: React.ComponentType<Record<string, unknown>>;
 }
 
-declare module '@visactor/vchart' {
+declare module "@visactor/vchart" {
   export const ThemeManager: {
-    setCurrentTheme: (theme: string) => void
-  }
+    setCurrentTheme: (theme: string) => void;
+  };
 }
 
-declare module '@visactor/vchart-semi-theme' {
-  export const initVChartSemiTheme: (opts?: Record<string, unknown>) => void
+declare module "@visactor/vchart-semi-theme" {
+  export const initVChartSemiTheme: (opts?: Record<string, unknown>) => void;
 }
