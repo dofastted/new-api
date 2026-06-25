@@ -9,6 +9,8 @@ const (
 
 	ContextKeyOriginalModel    ContextKey = "original_model"
 	ContextKeyRequestStartTime ContextKey = "request_start_time"
+	ContextKeyRequestFormat    ContextKey = "request_format"
+	ContextKeyChannelChain     ContextKey = "channel_chain"
 
 	/* token related keys */
 	ContextKeyTokenUnlimited         ContextKey = "token_unlimited_quota"
@@ -36,6 +38,9 @@ const (
 	ContextKeyChannelStatusCodeMapping ContextKey = "status_code_mapping"
 	ContextKeyChannelIsMultiKey        ContextKey = "channel_is_multi_key"
 	ContextKeyChannelMultiKeyIndex     ContextKey = "channel_multi_key_index"
+	ContextKeyChannelEndpointId        ContextKey = "channel_endpoint_id"
+	ContextKeyChannelEndpointLabel     ContextKey = "channel_endpoint_label"
+	ContextKeyChannelEndpointUrl       ContextKey = "channel_endpoint_url"
 	ContextKeyChannelKey               ContextKey = "channel_key"
 
 	ContextKeyAutoGroup           ContextKey = "auto_group"

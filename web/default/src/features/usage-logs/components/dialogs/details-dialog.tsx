@@ -72,6 +72,26 @@ const CHANNEL_FIELD_LABELS: Record<string, string> = {
   key: 'Key',
 }
 
+const TRACE_TOKEN_LABELS: Record<string, string> = {
+  affinity: 'Affinity',
+  affinity_reuse: 'Affinity Reuse',
+  claude: 'Claude',
+  closed: 'Closed',
+  endpoint_pool: 'Endpoint Pool',
+  endpoint_selected: 'Endpoint Selected',
+  failure: 'Failure',
+  gemini: 'Gemini',
+  gemini_cli: 'Gemini CLI',
+  openai: 'OpenAI',
+  response: 'Responses',
+  retry_selected: 'Retry Selected',
+  relay_failure: 'Relay Failure',
+  selected: 'Selected',
+  specific_channel: 'Specific Channel',
+  unknown: 'Unknown',
+  weighted: 'Weighted',
+}
+
 function timingTextColorClass(
   variant: 'success' | 'warning' | 'danger'
 ): string {
@@ -134,6 +154,33 @@ function DetailSection(props: {
       </div>
     </div>
   )
+}
+function normalizeTraceToken(value: string): string {
+  return value
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
+function formatTraceToken(
+  value: string | undefined,
+  t: (key: string) => string
+): string {
+  if (!value) return '-'
+  return t(TRACE_TOKEN_LABELS[value] ?? normalizeTraceToken(value))
+}
+
+function formatTraceChannelId(value: number | string | undefined): string {
+  if (value == null || value === '') return '-'
+  return `#${value}`
+}
+
+function hasDecisionMetadata(
+  decision: NonNullable<LogOtherData['channel_chain']>[number]['decision']
+): boolean {
+  if (!decision) return false
+  return Object.values(decision).some((value) => value != null && value !== 0)
 }
 
 function formatRatio(ratio: number | undefined): string {
@@ -530,8 +577,51 @@ export function DetailsDialog(props: DetailsDialogProps) {
     (other?.request_path || conversionChain.length > 0)
 
   const useChannel = other?.admin_info?.use_channel
-  const channelChain =
+  const legacyChannelChain =
     useChannel && useChannel.length > 0 ? useChannel.join(' → ') : undefined
+  const decisionTrace = Array.isArray(other?.channel_chain)
+    ? other.channel_chain
+    : []
+  const requestMetadataRows = other
+    ? ([
+        other.request_format && {
+          label: t('Request Format'),
+          value: formatTraceToken(other.request_format, t),
+        },
+        other.initial_channel_id != null && {
+          label: t('Initial Channel'),
+          value: formatTraceChannelId(other.initial_channel_id),
+        },
+        other.final_channel_id != null && {
+          label: t('Final Channel'),
+          value: formatTraceChannelId(other.final_channel_id),
+        },
+        other.selected_endpoint?.url && {
+          label: t('Selected Endpoint'),
+          value: [
+            other.selected_endpoint.label,
+            other.selected_endpoint.id != null
+              ? formatTraceChannelId(other.selected_endpoint.id)
+              : undefined,
+            other.selected_endpoint.url,
+          ]
+            .filter(Boolean)
+            .join(' · '),
+        },
+        other.original_model && {
+          label: t('Original Model'),
+          value: other.original_model,
+        },
+        other.upstream_model && {
+          label: t('Upstream Model'),
+          value: other.upstream_model,
+        },
+        other.body_shape && {
+          label: t('Body Shape'),
+          value: other.body_shape,
+        },
+      ].filter(Boolean) as Array<{ label: string; value: string }>)
+    : []
 
   return (
     <Dialog
@@ -596,8 +686,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
             />
           )}
 
-          {channelChain && props.isAdmin && (
-            <DetailRow label={t('Retry Chain')} value={channelChain} mono />
+          {legacyChannelChain && props.isAdmin && (
+            <DetailRow
+              label={t('Legacy Retry Chain')}
+              value={legacyChannelChain}
+              mono
+            />
           )}
 
           {props.log.token_name && (
@@ -699,6 +793,123 @@ export function DetailsDialog(props: DetailsDialogProps) {
                 </div>
               </div>
             </div>
+          </DetailSection>
+        )}
+
+        {/* Routing metadata */}
+        {(requestMetadataRows.length > 0 || decisionTrace.length > 0) && (
+          <DetailSection
+            icon={<Route className='size-3.5' aria-hidden='true' />}
+            label={t('Routing Trace')}
+          >
+            {requestMetadataRows.length > 0 && (
+              <div className='min-w-0 space-y-1'>
+                {requestMetadataRows.map((row) => (
+                  <DetailRow
+                    key={row.label}
+                    label={row.label}
+                    value={row.value}
+                    mono
+                  />
+                ))}
+              </div>
+            )}
+
+            {decisionTrace.length > 0 && (
+              <div className='mt-2 min-w-0 space-y-2'>
+                {decisionTrace.map((entry, idx) => (
+                  <div
+                    key={`${entry.reason || 'trace'}-${idx}`}
+                    className='bg-background/60 min-w-0 rounded border p-2'
+                  >
+                    <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
+                      <StatusBadge
+                        variant={entry.reason === 'failure' ? 'red' : 'neutral'}
+                        label={formatTraceToken(entry.reason, t)}
+                        size='sm'
+                        copyable={false}
+                      />
+                      {entry.selection && (
+                        <span className='text-muted-foreground text-[11px]'>
+                          {formatTraceToken(entry.selection, t)}
+                        </span>
+                      )}
+                      {entry.attempt != null && (
+                        <span className='text-muted-foreground text-[11px]'>
+                          {t('Attempt')} {entry.attempt}
+                        </span>
+                      )}
+                    </div>
+                    <div className='mt-1.5 min-w-0 space-y-1'>
+                      <DetailRow
+                        label={t('Channel')}
+                        value={[
+                          formatTraceChannelId(entry.channel_id),
+                          entry.channel_name,
+                        ]
+                          .filter(Boolean)
+                          .join(' ')}
+                        mono
+                      />
+                      {entry.group && (
+                        <DetailRow
+                          label={t('Group')}
+                          value={entry.group}
+                          mono
+                        />
+                      )}
+                      {entry.endpoint && (
+                        <DetailRow
+                          label={t('Endpoint')}
+                          value={entry.endpoint}
+                          mono
+                        />
+                      )}
+                      {entry.circuit_state && (
+                        <DetailRow
+                          label={t('Circuit State')}
+                          value={formatTraceToken(entry.circuit_state, t)}
+                        />
+                      )}
+                      {entry.error_code && (
+                        <DetailRow
+                          label={t('Error Code')}
+                          value={entry.error_code}
+                          mono
+                        />
+                      )}
+                      {entry.error_category && (
+                        <DetailRow
+                          label={t('Error Category')}
+                          value={entry.error_category}
+                          mono
+                        />
+                      )}
+                      {hasDecisionMetadata(entry.decision) && (
+                        <DetailRow
+                          label={t('Decision')}
+                          value={[
+                            entry.decision?.priority != null &&
+                              `${t('Priority')}: ${entry.decision.priority}`,
+                            entry.decision?.weight != null &&
+                              `${t('Weight')}: ${entry.decision.weight}`,
+                            entry.decision?.total_weight != null &&
+                              `${t('Total Weight')}: ${entry.decision.total_weight}`,
+                            entry.decision?.selected_probability != null &&
+                              `${t('Probability')}: ${entry.decision.selected_probability}`,
+                            entry.decision?.filtered_candidates != null &&
+                              `${t('Candidates')}: ${entry.decision.filtered_candidates}/${entry.decision.total_candidates ?? '-'}`,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ')}
+                          mono
+                        />
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </DetailSection>
         )}
 

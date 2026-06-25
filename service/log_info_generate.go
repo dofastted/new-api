@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -76,6 +77,10 @@ func GenerateTextOtherInfo(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, m
 	appendRequestPath(ctx, relayInfo, other)
 	appendRequestConversionChain(relayInfo, other)
 	appendFinalRequestFormat(relayInfo, other)
+	appendRequestFormat(relayInfo, other)
+	appendChannelChain(ctx, other)
+	appendSelectedEndpoint(relayInfo, other)
+	appendRequestDecisionSummary(relayInfo, other)
 	appendBillingInfo(relayInfo, other)
 	appendParamOverrideInfo(relayInfo, other)
 	appendStreamStatus(relayInfo, other)
@@ -168,6 +173,70 @@ func appendBillingInfo(relayInfo *relaycommon.RelayInfo, other map[string]interf
 		// Wallet quota is not deducted when billed from subscription.
 		other["wallet_quota_deducted"] = 0
 	}
+}
+
+func appendRequestDecisionSummary(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil {
+		return
+	}
+	if relayInfo.OriginModelName != "" {
+		other["original_model"] = relayInfo.OriginModelName
+	}
+	if relayInfo.UpstreamModelName != "" {
+		other["upstream_model"] = relayInfo.UpstreamModelName
+	}
+	if relayInfo.ChannelId != 0 {
+		other["final_channel_id"] = relayInfo.ChannelId
+	}
+	if useChannel, ok := other["admin_info"].(map[string]interface{})["use_channel"]; ok {
+		other["initial_channel_id"] = firstChannelID(useChannel)
+	}
+	if relayInfo.Request != nil {
+		other["body_shape"] = fmt.Sprintf("%T", relayInfo.Request)
+	}
+}
+
+func firstChannelID(value interface{}) int {
+	channels, ok := value.([]string)
+	if !ok || len(channels) == 0 {
+		return 0
+	}
+	var channelID int
+	_, _ = fmt.Sscanf(channels[0], "%d", &channelID)
+	return channelID
+}
+
+func appendSelectedEndpoint(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil || relayInfo.ChannelMeta == nil || relayInfo.ChannelEndpointUrl == "" {
+		return
+	}
+	endpointURL := sanitizeChannelChainEndpoint(relayInfo.ChannelEndpointUrl)
+	if endpointURL == "" {
+		return
+	}
+	other["selected_endpoint"] = map[string]interface{}{
+		"id":    relayInfo.ChannelEndpointId,
+		"label": relayInfo.ChannelEndpointLabel,
+		"url":   endpointURL,
+	}
+}
+
+func appendChannelChain(ctx *gin.Context, other map[string]interface{}) {
+	if ctx == nil || other == nil {
+		return
+	}
+	chain := ChannelChainForLog(ctx)
+	if len(chain) == 0 {
+		return
+	}
+	other["channel_chain"] = chain
+}
+
+func appendRequestFormat(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {
+	if relayInfo == nil || other == nil || relayInfo.RequestFormat == "" || relayInfo.RequestFormat == types.RequestFormatUnknown {
+		return
+	}
+	other["request_format"] = string(relayInfo.RequestFormat)
 }
 
 func appendRequestConversionChain(relayInfo *relaycommon.RelayInfo, other map[string]interface{}) {

@@ -29,10 +29,67 @@ type ModelRequest struct {
 	Group string `json:"group,omitempty"`
 }
 
+func detectRequestFormat(c *gin.Context) types.RequestFormat {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return types.RequestFormatUnknown
+	}
+	requestPath := c.Request.URL.Path
+	switch {
+	case strings.HasPrefix(requestPath, "/v1/messages"):
+		return types.RequestFormatClaude
+	case isChatCompletionsPath(requestPath), requestPath == "/v1/completions" || strings.HasPrefix(requestPath, "/v1/completions/"):
+		return types.RequestFormatOpenAI
+	case isResponsesPath(requestPath):
+		return types.RequestFormatResponses
+	case strings.HasPrefix(requestPath, "/v1beta/models/") || strings.HasPrefix(requestPath, "/v1/models/"):
+		return types.RequestFormatGemini
+	}
+
+	return detectRequestFormatFromBody(c)
+}
+
+func detectRequestFormatFromBody(c *gin.Context) types.RequestFormat {
+	if c == nil || c.Request == nil || !strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json") {
+		return types.RequestFormatUnknown
+	}
+	storage, err := common.GetBodyStorage(c)
+	if err != nil {
+		return types.RequestFormatUnknown
+	}
+	requestBody, err := storage.Bytes()
+	if err != nil {
+		return types.RequestFormatUnknown
+	}
+	defer func() {
+		if _, seekErr := storage.Seek(0, io.SeekStart); seekErr == nil {
+			c.Request.Body = io.NopCloser(storage)
+		}
+	}()
+	if !gjson.ValidBytes(requestBody) {
+		return types.RequestFormatUnknown
+	}
+	if looksLikeGeminiCLIRequest(requestBody) {
+		return types.RequestFormatGeminiCLI
+	}
+	return types.RequestFormatUnknown
+}
+
+func looksLikeGeminiCLIRequest(requestBody []byte) bool {
+	if gjson.GetBytes(requestBody, "contents").IsArray() {
+		return true
+	}
+	if gjson.GetBytes(requestBody, "requests").IsArray() && gjson.GetBytes(requestBody, "requests.0.contents").IsArray() {
+		return true
+	}
+	return false
+}
+
 func Distribute() func(c *gin.Context) {
 	return func(c *gin.Context) {
 		var channel *model.Channel
 		channelId, ok := common.GetContextKey(c, constant.ContextKeyTokenSpecificChannelId)
+		requestFormat := detectRequestFormat(c)
+		common.SetContextKey(c, constant.ContextKeyRequestFormat, string(requestFormat))
 		modelRequest, shouldSelectChannel, err := getModelRequest(c)
 		if err != nil {
 			abortWithOpenAiMessage(c, http.StatusBadRequest, i18n.T(c, i18n.MsgDistributorInvalidRequest, map[string]any{"Error": err.Error()}))
@@ -53,6 +110,7 @@ func Distribute() func(c *gin.Context) {
 				abortWithOpenAiMessage(c, http.StatusForbidden, i18n.T(c, i18n.MsgDistributorChannelDisabled))
 				return
 			}
+			service.AppendChannelSelectionTrace(c, channel, common.GetContextKeyString(c, constant.ContextKeyUsingGroup), 0, service.ChannelChainReasonSelected, service.ChannelChainSelectionSpecific)
 		} else {
 			// Select a channel for the user
 			// check token model mapping
@@ -117,6 +175,7 @@ func Distribute() func(c *gin.Context) {
 									channel = preferred
 									affinityUsable = true
 									service.MarkChannelAffinityUsed(c, g, preferred.Id)
+									service.AppendChannelSelectionTrace(c, preferred, g, 0, service.ChannelChainReasonAffinityReuse, service.ChannelChainSelectionAffinity)
 									break
 								}
 							}
@@ -125,6 +184,7 @@ func Distribute() func(c *gin.Context) {
 							selectGroup = usingGroup
 							affinityUsable = true
 							service.MarkChannelAffinityUsed(c, usingGroup, preferred.Id)
+							service.AppendChannelSelectionTrace(c, preferred, usingGroup, 0, service.ChannelChainReasonAffinityReuse, service.ChannelChainSelectionAffinity)
 						}
 					}
 					if !affinityUsable && !service.ShouldKeepChannelAffinityOnChannelDisabled() {
@@ -157,6 +217,7 @@ func Distribute() func(c *gin.Context) {
 						abortWithOpenAiMessage(c, http.StatusServiceUnavailable, i18n.T(c, i18n.MsgDistributorNoAvailableChannel, map[string]any{"Group": usingGroup, "Model": modelRequest.Model}), types.ErrorCodeModelNotFound)
 						return
 					}
+					service.AppendChannelSelectionTrace(c, channel, selectGroup, 0, service.ChannelChainReasonSelected, service.ChannelChainSelectionWeighted)
 				}
 			}
 		}
@@ -501,7 +562,24 @@ func SetupContextForSelectedChannel(c *gin.Context, channel *model.Channel, mode
 	}
 	// c.Request.Header.Set("Authorization", fmt.Sprintf("Bearer %s", key))
 	common.SetContextKey(c, constant.ContextKeyChannelKey, key)
-	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, channel.GetBaseURL())
+	baseURL := channel.GetBaseURL()
+	if endpoint, found, err := service.SelectChannelEndpoint(channel); err != nil {
+		return types.NewError(err, types.ErrorCodeGetChannelFailed, types.ErrOptionWithSkipRetry())
+	} else if found {
+		baseURL = endpoint.URL
+		common.SetContextKey(c, constant.ContextKeyChannelEndpointId, endpoint.Id)
+		common.SetContextKey(c, constant.ContextKeyChannelEndpointLabel, endpoint.Label)
+		common.SetContextKey(c, constant.ContextKeyChannelEndpointUrl, endpoint.URL)
+		service.AppendChannelChainEntry(c, types.ChannelChainEntry{
+			ChannelId:   channel.Id,
+			ChannelName: channel.Name,
+			ChannelType: channel.Type,
+			Reason:      "endpoint_selected",
+			Selection:   "endpoint_pool",
+			Endpoint:    endpoint.URL,
+		})
+	}
+	common.SetContextKey(c, constant.ContextKeyChannelBaseUrl, baseURL)
 
 	common.SetContextKey(c, constant.ContextKeySystemPromptOverride, false)
 
