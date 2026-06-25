@@ -16,9 +16,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useMemo } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getRouteApi } from '@tanstack/react-router'
+import { useNavigate, useSearch } from '@tanstack/react-router'
 import {
   type OnChangeFn,
   type SortingState,
@@ -27,7 +27,7 @@ import {
 import { useMediaQuery } from '@/hooks'
 import { useTranslation } from 'react-i18next'
 import { getLobeIcon } from '@/lib/lobe-icon'
-import { useTableUrlState } from '@/hooks/use-table-url-state'
+import { useTableUrlState, type NavigateFn } from '@/hooks/use-table-url-state'
 import { Input } from '@/components/ui/input'
 import {
   DISABLED_ROW_DESKTOP,
@@ -54,9 +54,7 @@ import { useChannelsColumns } from './channels-columns'
 import { useChannels } from './channels-provider'
 import { DataTableBulkActions } from './data-table-bulk-actions'
 
-const route = getRouteApi('/_authenticated/channels/')
-const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY =
-  'channels:column-visibility'
+const CHANNELS_COLUMN_VISIBILITY_STORAGE_KEY = 'channels:column-visibility'
 
 const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
   'id',
@@ -73,10 +71,27 @@ function isDisabledChannelRow(channel: Channel) {
   )
 }
 
-export function ChannelsTable() {
+export function ChannelsTable(
+  props: {
+    emptyTitle?: string
+    emptyDescription?: string
+    searchPlaceholder?: string
+  } = {}
+) {
   const { t } = useTranslation()
   const { enableTagMode, idSort } = useChannels()
   const isMobile = useMediaQuery('(max-width: 640px)')
+  const search = useSearch({ strict: false })
+  const navigate = useNavigate()
+  const navigateSearch = useCallback<NavigateFn>(
+    (opts) => {
+      void navigate({
+        search: opts.search as never,
+        replace: opts.replace,
+      })
+    },
+    [navigate]
+  )
 
   // Table state
   const [sorting, setSorting] = useState<SortingState>([])
@@ -91,8 +106,8 @@ export function ChannelsTable() {
     onPaginationChange,
     ensurePageInRange,
   } = useTableUrlState({
-    search: route.useSearch(),
-    navigate: route.useNavigate(),
+    search,
+    navigate: navigateSearch,
     pagination: {
       defaultPage: 1,
       defaultPageSize: isMobile ? 10 : DEFAULT_PAGE_SIZE,
@@ -350,14 +365,17 @@ export function ChannelsTable() {
       columns={columns}
       isLoading={isLoading}
       isFetching={isFetching}
-      emptyTitle={t('No Channels Found')}
+      emptyTitle={t(props.emptyTitle ?? 'No Channels Found')}
       emptyDescription={t(
-        'No channels available. Create your first channel to get started.'
+        props.emptyDescription ??
+          'No channels available. Create your first channel to get started.'
       )}
       skeletonKeyPrefix='channel-skeleton'
       applyHeaderSize
       toolbarProps={{
-        searchPlaceholder: t('Filter by name, ID, or key...'),
+        searchPlaceholder: t(
+          props.searchPlaceholder ?? 'Filter by name, ID, or key...'
+        ),
         searchDebounceMs: 500,
         onReset: () => {
           resetModelFilterInput()

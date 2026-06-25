@@ -42,6 +42,22 @@ type DialogType =
 
 type UpstreamUpdateState = ReturnType<typeof useChannelUpstreamUpdates>
 
+type ChannelUiLabels = {
+  createTitle: string
+  editTitle: string
+  createDescription: string
+  editDescription: string
+}
+
+const CHANNEL_UI_LABELS: ChannelUiLabels = {
+  createTitle: 'Create Channel',
+  editTitle: 'Edit Channel',
+  createDescription:
+    'Add a new channel by providing the necessary information.',
+  editDescription:
+    "Update channel configuration and click save when you're done.",
+}
+
 type ChannelsContextType = {
   open: DialogType
   setOpen: (open: DialogType) => void
@@ -53,6 +69,7 @@ type ChannelsContextType = {
   setEnableTagMode: (enabled: boolean) => void
   idSort: boolean
   setIdSort: (enabled: boolean) => void
+  labels: ChannelUiLabels
   upstream: UpstreamUpdateState
 }
 
@@ -68,7 +85,13 @@ const ChannelsContext = createContext<ChannelsContextType | undefined>(
 // Provider
 // ============================================================================
 
-export function ChannelsProvider({ children }: { children: React.ReactNode }) {
+export function ChannelsProvider({
+  children,
+  labels = CHANNEL_UI_LABELS,
+}: {
+  children: React.ReactNode
+  labels?: Partial<ChannelUiLabels>
+}) {
   const [open, setOpen] = useState<DialogType>(null)
   const [currentRow, setCurrentRow] = useState<Channel | null>(null)
   const [currentTag, setCurrentTag] = useState<string | null>(null)
@@ -84,6 +107,7 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
     await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
   }, [queryClient])
   const upstream = useChannelUpstreamUpdates(refreshChannels)
+  const uiLabels = { ...CHANNEL_UI_LABELS, ...labels }
 
   return (
     <ChannelsContext.Provider
@@ -98,6 +122,7 @@ export function ChannelsProvider({ children }: { children: React.ReactNode }) {
         setEnableTagMode,
         idSort,
         setIdSort,
+        labels: uiLabels,
         upstream,
       }}
     >

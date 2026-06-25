@@ -52,7 +52,7 @@ import {
 } from '../lib'
 import { useChannels } from './channels-provider'
 
-export function ChannelsPrimaryButtons() {
+export function ChannelsPrimaryButtons(props: { createLabel?: string } = {}) {
   const { t } = useTranslation()
   const {
     setOpen,
@@ -113,7 +113,9 @@ export function ChannelsPrimaryButtons() {
           size='sm'
         >
           <Plus className='h-4 w-4' />
-          <span className='max-sm:hidden'>{t('Create Channel')}</span>
+          <span className='max-sm:hidden'>
+            {t(props.createLabel ?? 'Create Channel')}
+          </span>
           <span className='sm:hidden'>{t('Create')}</span>
         </Button>
 

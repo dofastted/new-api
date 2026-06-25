@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useState, useCallback, useMemo, lazy, Suspense } from 'react'
-import { getRouteApi, useNavigate } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '@/stores/auth-store'
 import { ROLE } from '@/lib/roles'
@@ -45,7 +45,6 @@ import {
   type QuotaDataItem,
 } from './types'
 
-const route = getRouteApi('/_authenticated/dashboard/$section')
 
 const LazyLogStatCards = lazy(() =>
   import('./components/models/log-stat-cards').then((m) => ({
@@ -145,9 +144,12 @@ const SECTION_META: Record<DashboardSectionId, { titleKey: string }> = {
 export function Dashboard() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const params = route.useParams()
+  const params = useParams({ strict: false, shouldThrow: false })
+  const routeSectionParam = params?.section
   const userRole = useAuthStore((state) => state.auth.user?.role)
-  const activeSection = (params.section ??
+  const routeSection =
+    typeof routeSectionParam === 'string' ? routeSectionParam : null
+  const activeSection = (routeSection ??
     DASHBOARD_DEFAULT_SECTION) as DashboardSectionId
 
   const [modelData, setModelData] = useState<QuotaDataItem[]>([])

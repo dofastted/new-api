@@ -275,7 +275,7 @@ export function ChannelMutateDrawer({
 }: ChannelMutateDrawerProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  const { setOpen } = useChannels()
+  const { labels, setOpen } = useChannels()
   const [fetchModelsDialogOpen, setFetchModelsDialogOpen] = useState(false)
   const [channelKey, setChannelKey] = useState<string | null>(null)
   const [isChannelKeyLoading, setIsChannelKeyLoading] = useState(false)
@@ -1076,7 +1076,7 @@ export function ChannelMutateDrawer({
                 {getLobeIcon(`${getChannelTypeIcon(currentType)}.Color`, 22)}
               </span>
               <span>
-                {isEditing ? t('Edit Channel') : t('Create Channel')}
+                {isEditing ? t(labels.editTitle) : t(labels.createTitle)}
                 <span className='text-muted-foreground ml-2 text-sm font-normal'>
                   {t(currentTypeLabel)}
                 </span>
@@ -1084,12 +1084,8 @@ export function ChannelMutateDrawer({
             </SheetTitle>
             <SheetDescription>
               {isEditing
-                ? t(
-                    "Update channel configuration and click save when you're done."
-                  )
-                : t(
-                    'Add a new channel by providing the necessary information.'
-                  )}
+                ? t(labels.editDescription)
+                : t(labels.createDescription)}
             </SheetDescription>
           </SheetHeader>
 
@@ -1908,46 +1904,42 @@ export function ChannelMutateDrawer({
                                 />
                               </FormControl>
                               <FormDescription>
-                                <div className='flex flex-col gap-2'>
-                                  <span>
-                                    {isEditing ? (
-                                      <>
-                                        {t(
-                                          'Enter new key to update, or leave empty to keep current key'
-                                        )}
-                                        {isMultiKeyChannel && (
-                                          <span className='text-warning mt-1 block'>
-                                            {t(
-                                              'Multi-key channel: Keys will be'
-                                            )}{' '}
-                                            {keyMode === 'replace'
-                                              ? t('replaced')
-                                              : t('appended')}
-                                          </span>
-                                        )}
-                                      </>
-                                    ) : isBatchMode ? (
-                                      t(
-                                        'Enter one API key per line for batch creation'
-                                      )
-                                    ) : (
-                                      t(FIELD_DESCRIPTIONS.KEY)
-                                    )}
-                                  </span>
-                                  {isBatchMode && (
-                                    <Button
-                                      type='button'
-                                      variant='outline'
-                                      size='sm'
-                                      onClick={handleDeduplicateKeys}
-                                      className='w-fit'
-                                    >
-                                      <Trash2 className='mr-2 h-4 w-4' />
-                                      {t('Remove Duplicates')}
-                                    </Button>
+                                <span>
+                                  {isEditing ? (
+                                    <>
+                                      {t(
+                                        'Enter new key to update, or leave empty to keep current key'
+                                      )}
+                                      {isMultiKeyChannel && (
+                                        <span className='text-warning mt-1 block'>
+                                          {t('Multi-key channel: Keys will be')}{' '}
+                                          {keyMode === 'replace'
+                                            ? t('replaced')
+                                            : t('appended')}
+                                        </span>
+                                      )}
+                                    </>
+                                  ) : isBatchMode ? (
+                                    t(
+                                      'Enter one API key per line for batch creation'
+                                    )
+                                  ) : (
+                                    t(FIELD_DESCRIPTIONS.KEY)
                                   )}
-                                </div>
+                                </span>
                               </FormDescription>
+                              {isBatchMode && (
+                                <Button
+                                  type='button'
+                                  variant='outline'
+                                  size='sm'
+                                  onClick={handleDeduplicateKeys}
+                                  className='w-fit'
+                                >
+                                  <Trash2 className='mr-2 h-4 w-4' />
+                                  {t('Remove Duplicates')}
+                                </Button>
+                              )}
                               {isEditing && (
                                 <div className='border-border/60 mt-4 flex flex-col gap-3 border-y border-dashed py-4'>
                                   <div className='flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between'>

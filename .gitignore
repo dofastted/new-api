@@ -36,3 +36,9 @@ data/
 token_estimator_test.go
 skills-lock.json
 .playwright-mcp
+# Local AI workspace scaffolding
+.agents/
+.cursor/
+.trellis/
+.pi/
+.codex/

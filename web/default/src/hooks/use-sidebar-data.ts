@@ -117,8 +117,8 @@ export function useSidebarData(): SidebarData {
         title: t('Admin'),
         items: [
           {
-            title: t('Channels'),
-            url: '/channels',
+            title: t('Providers'),
+            url: '/providers',
             icon: Radio,
           },
           {

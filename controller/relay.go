@@ -187,6 +187,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
 
+	exhaustedRetryableChannels := false
 	for ; retryParam.GetRetry() <= common.RetryTimes; retryParam.IncreaseRetry() {
 		relayInfo.RetryIndex = retryParam.GetRetry()
 		c.Set("retry_index", retryParam.GetRetry())
@@ -236,9 +237,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 		processChannelError(c, *types.NewChannelError(channel.Id, channel.Type, channel.Name, channel.ChannelInfo.IsMultiKey, common.GetContextKeyString(c, constant.ContextKeyChannelKey), channel.GetAutoBan()), newAPIError)
 
-		if !shouldRetry(c, newAPIError, common.RetryTimes-retryParam.GetRetry()) {
+		remainingRetries := common.RetryTimes - retryParam.GetRetry()
+		retryableErr := shouldRetry(c, newAPIError, remainingRetries)
+		if !retryableErr {
+			if remainingRetries <= 0 && isRetryableChannelFailure(newAPIError) {
+				exhaustedRetryableChannels = true
+			}
 			break
 		}
+	}
+
+	if exhaustedRetryableChannels {
+		newAPIError = types.NewErrorWithStatusCode(
+			fmt.Errorf("无可用渠道，请联系管理员"),
+			types.ErrorCodeGetChannelFailed,
+			http.StatusServiceUnavailable,
+			types.ErrOptionWithSkipRetry(),
+		)
 	}
 
 	useChannel := c.GetStringSlice("use_channel")
@@ -358,6 +373,26 @@ func shouldRetry(c *gin.Context, openaiErr *types.NewAPIError, retryTimes int) b
 	}
 	if code < 100 || code > 599 {
 		return true
+	}
+	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
+		return false
+	}
+	return operation_setting.ShouldRetryByStatusCode(code)
+}
+
+func isRetryableChannelFailure(openaiErr *types.NewAPIError) bool {
+	if openaiErr == nil || types.IsClientCanceledError(openaiErr) || types.IsSkipRetryError(openaiErr) {
+		return false
+	}
+	if types.IsChannelError(openaiErr) {
+		return true
+	}
+	code := openaiErr.StatusCode
+	if code < 100 || code > 599 {
+		return true
+	}
+	if code >= 200 && code < 300 {
+		return false
 	}
 	if operation_setting.IsAlwaysSkipRetryCode(openaiErr.GetErrorCode()) {
 		return false
