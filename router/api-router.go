@@ -345,6 +345,19 @@ func SetApiRouter(router *gin.Engine) {
 			groupRoute.GET("/", controller.GetGroups)
 		}
 
+		providerGroupRoute := apiRouter.Group("/provider-group")
+		providerGroupRoute.Use(middleware.AdminAuth())
+		{
+			providerGroupRoute.GET("/", controller.GetProviderGroups)
+			providerGroupRoute.POST("/", controller.CreateProviderGroup)
+			providerGroupRoute.GET("/auto-rules", controller.GetProviderGroupAutoRules)
+			providerGroupRoute.PUT("/auto-rules", controller.UpdateProviderGroupAutoRules)
+			providerGroupRoute.PUT("/:id", controller.UpdateProviderGroup)
+			providerGroupRoute.DELETE("/:id", controller.DeleteProviderGroup)
+			providerGroupRoute.GET("/:id/channels", controller.GetProviderGroupChannels)
+			providerGroupRoute.PUT("/:id/channels", controller.UpdateProviderGroupChannels)
+		}
+
 		prefillGroupRoute := apiRouter.Group("/prefill_group")
 		prefillGroupRoute.Use(middleware.AdminAuth())
 		{

@@ -16,11 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ReactNode } from 'react'
 import { ChevronDown, RotateCcw } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { cn } from '@/lib/utils'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,6 +27,9 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { cn } from '@/lib/utils'
+
 import {
   ENDPOINT_TYPES,
   FILTER_ALL,
@@ -181,7 +183,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
   const groupOptions: FilterOption[] = [
     {
       value: FILTER_ALL,
-      label: t('All Groups'),
+      label: t('All provider groups'),
     },
     ...props.groups.map((group) => ({
       value: group,
@@ -249,7 +251,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
         <div>
           <h2 className='text-foreground text-sm font-bold'>{t('Filter')}</h2>
           <p className='text-muted-foreground mt-1 text-xs'>
-            {t('Refine models by provider, group, type, and tags.')}
+            {t('Refine models by provider, provider group, type, and tags.')}
           </p>
         </div>
         <Button
@@ -273,7 +275,7 @@ export function PricingSidebar(props: PricingSidebarProps) {
 
       <div className='space-y-1'>
         <FilterSection
-          title={t('Groups')}
+          title={t('Provider groups')}
           value={props.groupFilter}
           options={groupOptions}
           onChange={props.onGroupChange}

@@ -16,11 +16,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { AlertTriangle, HeartPulse, Timer } from 'lucide-react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { cn } from '@/lib/utils'
+
 import {
   StaticDataTable,
   staticDataTableClassNames as tableStyles,
@@ -34,6 +34,8 @@ import {
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
 import type { PerformanceGroup } from '@/features/performance-metrics/types'
+import { cn } from '@/lib/utils'
+
 import { type UptimeDayPoint } from '../lib/mock-stats'
 import type { PricingModel } from '../types'
 import { LatencyTrendChart, UptimeTrendChart } from './model-details-charts'
@@ -249,7 +251,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
       <section>
         <SectionHeader
           icon={HeartPulse}
-          title={t('Per-group performance')}
+          title={t('Per-provider-group performance')}
           description={t('Average latency, TTFT, TPS, and success rate')}
         />
         <StaticDataTable
@@ -261,7 +263,7 @@ export function ModelDetailsPerformance(props: { model: PricingModel }) {
           columns={[
             {
               id: 'group',
-              header: t('Group'),
+              header: t('Provider group'),
               className: tableStyles.compactHeaderCell,
               cellClassName: tableStyles.compactCell,
               cell: (perf) => <GroupBadge group={perf.group} size='sm' />,

@@ -18,9 +18,11 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import DOMPurify from 'dompurify'
 import * as katex from 'katex'
+
 import 'katex/dist/katex.min.css'
 import { Marked, Renderer, type MarkedExtension, type Tokens } from 'marked'
 import { useMemo } from 'react'
+
 import { cn } from '@/lib/utils'
 
 interface MarkdownProps {
@@ -231,7 +233,8 @@ function splitFlowLabel(label: string, maxUnits: number): string[] {
 
 function renderFlowText(layout: FlowNodeLayout): string {
   const lineHeight = 18
-  const firstLineY = layout.y - ((layout.labelLines.length - 1) * lineHeight) / 2 + 5
+  const firstLineY =
+    layout.y - ((layout.labelLines.length - 1) * lineHeight) / 2 + 5
 
   return layout.labelLines
     .map((line, index) => {
@@ -240,10 +243,16 @@ function renderFlowText(layout: FlowNodeLayout): string {
     .join('')
 }
 
-function getFlowNodeLayout(node: FlowNode, index: number, centerX: number): FlowNodeLayout {
+function getFlowNodeLayout(
+  node: FlowNode,
+  index: number,
+  centerX: number
+): FlowNodeLayout {
   const isCondition = node.type === 'condition'
   const labelLines = splitFlowLabel(node.label, isCondition ? 14 : 18)
-  const labelWidth = Math.max(...labelLines.map((line) => getTextUnits(line) * 7.2))
+  const labelWidth = Math.max(
+    ...labelLines.map((line) => getTextUnits(line) * 7.2)
+  )
   const textHeight = labelLines.length * 18
 
   if (isCondition) {
@@ -278,7 +287,10 @@ function getFlowNodeLayout(node: FlowNode, index: number, centerX: number): Flow
   }
 }
 
-function getFlowAnchor(layout: FlowNodeLayout, side: 'bottom' | 'left' | 'right' | 'top'): {
+function getFlowAnchor(
+  layout: FlowNodeLayout,
+  side: 'bottom' | 'left' | 'right' | 'top'
+): {
   x: number
   y: number
 } {
@@ -322,7 +334,10 @@ function renderFlowShape(layout: FlowNodeLayout): string {
   `
 }
 
-function parseFlowDiagram(source: string): { edges: FlowEdge[]; nodes: FlowNode[] } {
+function parseFlowDiagram(source: string): {
+  edges: FlowEdge[]
+  nodes: FlowNode[]
+} {
   const lines = source
     .split('\n')
     .map((line) => line.trim())
@@ -346,8 +361,12 @@ function parseFlowDiagram(source: string): { edges: FlowEdge[]; nodes: FlowNode[
     }
 
     for (let index = 0; index < edgeParts.length - 1; index += 1) {
-      const fromMatch = /^([A-Za-z][\w-]*)(?:\(([^)]+)\))?$/.exec(edgeParts[index])
-      const toMatch = /^([A-Za-z][\w-]*)(?:\(([^)]+)\))?$/.exec(edgeParts[index + 1])
+      const fromMatch = /^([A-Za-z][\w-]*)(?:\(([^)]+)\))?$/.exec(
+        edgeParts[index]
+      )
+      const toMatch = /^([A-Za-z][\w-]*)(?:\(([^)]+)\))?$/.exec(
+        edgeParts[index + 1]
+      )
 
       if (!fromMatch || !toMatch) {
         continue
@@ -370,10 +389,17 @@ function renderFlowDiagram(source: string): string {
   const loopX = 520
   const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]))
   const nodePositions = new Map(
-    nodes.map((node, index) => [node.id, getFlowNodeLayout(node, index, centerX)])
+    nodes.map((node, index) => [
+      node.id,
+      getFlowNodeLayout(node, index, centerX),
+    ])
   )
-  const lastNode = nodes.length > 0 ? nodePositions.get(nodes[nodes.length - 1].id) : undefined
-  const height = Math.max(180, (lastNode?.y ?? 64) + (lastNode?.height ?? 40) / 2 + 54)
+  const lastNode =
+    nodes.length > 0 ? nodePositions.get(nodes[nodes.length - 1].id) : undefined
+  const height = Math.max(
+    180,
+    (lastNode?.y ?? 64) + (lastNode?.height ?? 40) / 2 + 54
+  )
   const renderedEdges = edges
     .map((edge) => {
       const from = nodePositions.get(edge.from)
@@ -383,7 +409,8 @@ function renderFlowDiagram(source: string): string {
         return ''
       }
 
-      const isBackward = (nodeIndex.get(edge.to) ?? 0) <= (nodeIndex.get(edge.from) ?? 0)
+      const isBackward =
+        (nodeIndex.get(edge.to) ?? 0) <= (nodeIndex.get(edge.from) ?? 0)
 
       if (isBackward) {
         const fromAnchor = getFlowAnchor(from, 'right')
@@ -435,7 +462,10 @@ function renderFlowDiagram(source: string): string {
   `
 }
 
-function parseSequenceDiagram(source: string): { messages: SequenceMessage[]; participants: string[] } {
+function parseSequenceDiagram(source: string): {
+  messages: SequenceMessage[]
+  participants: string[]
+} {
   const lines = source
     .split('\n')
     .map((line) => line.trim())
@@ -465,7 +495,9 @@ function parseSequenceDiagram(source: string): { messages: SequenceMessage[]; pa
       return
     }
 
-    const messageMatch = /^([^-\s]+)\s*(-{1,2}>>?|-->)\s*([^:]+):\s*(.+)$/.exec(line)
+    const messageMatch = /^([^-\s]+)\s*(-{1,2}>>?|-->)\s*([^:]+):\s*(.+)$/.exec(
+      line
+    )
 
     if (!messageMatch) {
       return
@@ -494,10 +526,16 @@ function renderSequenceDiagram(source: string): string {
   const marginX = 80
   const top = 42
   const rowGap = 72
-  const width = Math.max(360, marginX * 2 + Math.max(0, participants.length - 1) * laneGap)
+  const width = Math.max(
+    360,
+    marginX * 2 + Math.max(0, participants.length - 1) * laneGap
+  )
   const height = Math.max(180, 126 + messages.length * rowGap)
   const positions = new Map(
-    participants.map((participant, index) => [participant, marginX + index * laneGap])
+    participants.map((participant, index) => [
+      participant,
+      marginX + index * laneGap,
+    ])
   )
   const participantBoxes = participants
     .map((participant) => {
@@ -538,7 +576,8 @@ function renderSequenceDiagram(source: string): string {
       const toX = positions.get(message.to ?? '') ?? marginX
       const labelX = (fromX + toX) / 2
       const label = escapeHtml(message.label)
-      const dash = message.lineStyle === 'dashed' ? ' stroke-dasharray="4 4"' : ''
+      const dash =
+        message.lineStyle === 'dashed' ? ' stroke-dasharray="4 4"' : ''
 
       return `
         <line x1="${fromX}" y1="${y}" x2="${toX}" y2="${y}" class="markdown-diagram-edge"${dash} marker-end="url(#markdown-diagram-arrow)" />

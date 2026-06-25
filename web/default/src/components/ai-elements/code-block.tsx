@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 /* eslint-disable react-refresh/only-export-components */
 'use client'
 
+import { CheckIcon, CopyIcon } from 'lucide-react'
 import {
   type ComponentProps,
   createContext,
@@ -27,14 +28,14 @@ import {
   useEffect,
   useState,
 } from 'react'
-import { CheckIcon, CopyIcon } from 'lucide-react'
 import {
   type BundledLanguage,
   codeToHtml,
   type ShikiTransformer,
 } from 'shiki/bundle/web'
-import { cn } from '@/lib/utils'
+
 import { Button } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 type CodeBlockProps = HTMLAttributes<HTMLDivElement> & {
   code: string

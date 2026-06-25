@@ -277,6 +277,9 @@ func migrateDB() error {
 		&Option{},
 		&Redemption{},
 		&Ability{},
+		&ProviderGroup{},
+		&ProviderGroupChannel{},
+		&ProviderGroupAutoRule{},
 		&Log{},
 		&Midjourney{},
 		&TopUp{},
@@ -311,6 +314,9 @@ func migrateDB() error {
 			return err
 		}
 	}
+	if err := EnsureProviderGroupsSeededFromLegacy(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -330,6 +336,9 @@ func migrateDBFast() error {
 		{&Option{}, "Option"},
 		{&Redemption{}, "Redemption"},
 		{&Ability{}, "Ability"},
+		{&ProviderGroup{}, "ProviderGroup"},
+		{&ProviderGroupChannel{}, "ProviderGroupChannel"},
+		{&ProviderGroupAutoRule{}, "ProviderGroupAutoRule"},
 		{&Log{}, "Log"},
 		{&Midjourney{}, "Midjourney"},
 		{&TopUp{}, "TopUp"},
@@ -383,6 +392,9 @@ func migrateDBFast() error {
 		if err := DB.AutoMigrate(&SubscriptionPlan{}); err != nil {
 			return err
 		}
+	}
+	if err := EnsureProviderGroupsSeededFromLegacy(); err != nil {
+		return err
 	}
 	common.SysLog("database migrated")
 	return nil

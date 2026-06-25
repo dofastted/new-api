@@ -17,10 +17,11 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useTranslation } from 'react-i18next'
-import { formatDateTimeObject } from '@/lib/time'
+
+import { Dialog } from '@/components/dialog'
 import { Markdown } from '@/components/ui/markdown'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Dialog } from '@/components/dialog'
+import { formatDateTimeObject } from '@/lib/time'
 
 interface AnnouncementDetailModalProps {
   open: boolean

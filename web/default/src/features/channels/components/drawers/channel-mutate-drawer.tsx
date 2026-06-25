@@ -16,15 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  type ReactNode,
-  useEffect,
-  useState,
-  useMemo,
-  useCallback,
-  useRef,
-} from 'react'
-import { type SubmitErrorHandler, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -45,11 +36,28 @@ import {
   SlidersHorizontal,
   Wand2,
 } from 'lucide-react'
+import {
+  type ReactNode,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useRef,
+} from 'react'
+import { type SubmitErrorHandler, useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
-import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+
+import {
+  sideDrawerContentClassName,
+  sideDrawerFooterClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+  sideDrawerSectionClassName,
+  sideDrawerSwitchItemClassName,
+} from '@/components/drawer-layout'
+import { JsonEditor } from '@/components/json-editor'
+import { MultiSelect } from '@/components/multi-select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -91,19 +99,13 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import {
-  sideDrawerContentClassName,
-  sideDrawerFooterClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-  sideDrawerSectionClassName,
-  sideDrawerSwitchItemClassName,
-} from '@/components/drawer-layout'
-import { JsonEditor } from '@/components/json-editor'
-import { MultiSelect } from '@/components/multi-select'
-import {
   SecureVerificationDialog,
   useSecureVerification,
 } from '@/features/auth/secure-verification'
+import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useHiddenClickUnlock } from '@/hooks/use-hidden-click-unlock'
+import { getLobeIcon } from '@/lib/lobe-icon'
+
 import {
   fetchModels,
   getAllModels,

@@ -16,10 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { memo, useCallback, useState } from 'react'
-import { type UseFormReturn } from 'react-hook-form'
 import { Code2, Eye, HelpCircle } from 'lucide-react'
+import { memo, useCallback, useState } from 'react'
+import type { UseFormReturn } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+
+import {
+  sideDrawerContentClassName,
+  sideDrawerFormClassName,
+  sideDrawerHeaderClassName,
+} from '@/components/drawer-layout'
 import {
   Accordion,
   AccordionContent,
@@ -45,11 +51,7 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  sideDrawerContentClassName,
-  sideDrawerFormClassName,
-  sideDrawerHeaderClassName,
-} from '@/components/drawer-layout'
+
 import {
   SettingsForm,
   SettingsSwitchContent,
@@ -130,7 +132,7 @@ export const GroupRatioForm = memo(function GroupRatioForm({
             onClick={form.handleSubmit(onSave)}
             disabled={isSaving}
           >
-            {isSaving ? t('Saving...') : t('Save group ratios')}
+            {isSaving ? t('Saving...') : t('Save user group pricing')}
           </Button>
         </SettingsPageActionsPortal>
         {editMode === 'visual' ? (
@@ -159,10 +161,12 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               render={({ field }) => (
                 <SettingsSwitchItem>
                   <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
+                    <FormLabel>
+                      {t('Default provider group uses auto')}
+                    </FormLabel>
                     <FormDescription>
                       {t(
-                        'When enabled, newly created tokens start in the first auto group.'
+                        'When enabled, newly created keys start with auto provider routing.'
                       )}
                     </FormDescription>
                   </SettingsSwitchContent>
@@ -183,13 +187,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               name='GroupRatio'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Group ratios')}</FormLabel>
+                  <FormLabel>{t('User group ratios')}</FormLabel>
                   <FormControl>
                     <Textarea rows={8} {...field} />
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'JSON map of group → ratio applied when the user selects the group explicitly.'
+                      'JSON map of user/provider group → billing ratio. Keep default, vip, and premium for user groups.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -222,13 +226,15 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               name='UserUsableGroups'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Selectable groups')}</FormLabel>
+                  <FormLabel>
+                    {t('Provider groups selectable by API keys')}
+                  </FormLabel>
                   <FormControl>
                     <Textarea rows={6} {...field} />
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'JSON map of group → description exposed when users create API keys.'
+                      'JSON map of provider group → description exposed when users create API keys.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -241,15 +247,15 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               name='GroupGroupRatio'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Inter-group overrides')}</FormLabel>
+                  <FormLabel>{t('User group billing overrides')}</FormLabel>
                   <FormControl>
                     <Textarea rows={8} {...field} />
                   </FormControl>
                   <FormDescription>
-                    {t('Nested JSON: source group →')}{' '}
-                    {`{ targetGroup: ratio }`}{' '}
+                    {t('Nested JSON: user group →')}{' '}
+                    {`{ providerGroup: ratio }`}{' '}
                     {t(
-                      'to override billing when a user in one group uses a token of another group.'
+                      'to override billing when a user group uses a provider group.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -262,13 +268,13 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               name='AutoGroups'
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>{t('Auto assignment order')}</FormLabel>
+                  <FormLabel>{t('Auto provider group order')}</FormLabel>
                   <FormControl>
                     <Textarea rows={6} {...field} />
                   </FormControl>
                   <FormDescription>
                     {t(
-                      'JSON array of group identifiers. When enabled below, new tokens rotate through this list.'
+                      'JSON array of provider group identifiers used by auto routing.'
                     )}
                   </FormDescription>
                   <FormMessage />
@@ -301,10 +307,12 @@ export const GroupRatioForm = memo(function GroupRatioForm({
               render={({ field }) => (
                 <SettingsSwitchItem>
                   <SettingsSwitchContent>
-                    <FormLabel>{t('Default to auto groups')}</FormLabel>
+                    <FormLabel>
+                      {t('Default provider group uses auto')}
+                    </FormLabel>
                     <FormDescription>
                       {t(
-                        'When enabled, newly created tokens start in the first auto group.'
+                        'When enabled, newly created keys start with auto provider routing.'
                       )}
                     </FormDescription>
                   </SettingsSwitchContent>

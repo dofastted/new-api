@@ -22,6 +22,7 @@ import {
   CreditCard,
   FileText,
   FlaskConical,
+  GitBranch,
   Key,
   LayoutDashboard,
   ListTodo,
@@ -35,8 +36,9 @@ import {
   Wallet,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
+import type { SidebarData } from '@/components/layout/types'
 import { ROLE } from '@/lib/roles'
-import { type SidebarData } from '@/components/layout/types'
 
 /**
  * Root navigation groups for the application sidebar.
@@ -122,6 +124,11 @@ export function useSidebarData(): SidebarData {
             title: t('Providers'),
             url: '/providers',
             icon: Radio,
+          },
+          {
+            title: t('Provider Groups'),
+            url: '/providers/groups',
+            icon: GitBranch,
           },
           {
             title: t('Models'),

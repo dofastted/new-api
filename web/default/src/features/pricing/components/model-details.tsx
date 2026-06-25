@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams, useSearch } from '@tanstack/react-router'
 import {
@@ -31,9 +30,14 @@ import {
   Sparkles,
   Timer,
 } from 'lucide-react'
+import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
-import { getLobeIcon } from '@/lib/lobe-icon'
-import { cn } from '@/lib/utils'
+
+import { CopyButton } from '@/components/copy-button'
+import { StaticDataTable } from '@/components/data-table'
+import { sideDrawerContentClassName } from '@/components/drawer-layout'
+import { GroupBadge } from '@/components/group-badge'
+import { PublicLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -44,11 +48,6 @@ import {
 } from '@/components/ui/sheet'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { CopyButton } from '@/components/copy-button'
-import { StaticDataTable } from '@/components/data-table'
-import { sideDrawerContentClassName } from '@/components/drawer-layout'
-import { GroupBadge } from '@/components/group-badge'
-import { PublicLayout } from '@/components/layout'
 import { getPerfMetrics } from '@/features/performance-metrics/api'
 import {
   formatLatency,
@@ -56,6 +55,9 @@ import {
   formatUptimePct,
   getSuccessRateTextClass,
 } from '@/features/performance-metrics/lib/format'
+import { getLobeIcon } from '@/lib/lobe-icon'
+import { cn } from '@/lib/utils'
+
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import { usePricingData } from '../hooks/use-pricing-data'
 import {
@@ -467,7 +469,7 @@ function ModelBackendProviderSection(props: { model: PricingModel }) {
 
   if (groups.length > 0) {
     cells.push(
-      <CatalogInfoCell key='groups' label={t('Groups')}>
+      <CatalogInfoCell key='groups' label={t('Provider groups')}>
         <CatalogPillList items={groups} />
       </CatalogInfoCell>
     )
@@ -815,7 +817,7 @@ function AutoGroupChain(props: { model: PricingModel; autoGroups: string[] }) {
 
   return (
     <div className='text-muted-foreground mb-3 flex flex-wrap items-center gap-1 text-xs'>
-      <span className='font-medium'>{t('Auto Group Chain')}</span>
+      <span className='font-medium'>{t('Auto provider group chain')}</span>
       <span className='text-muted-foreground/40'>→</span>
       {autoChain.map((g, idx) => (
         <span key={g} className='flex items-center gap-1'>
@@ -909,11 +911,11 @@ function GroupPricingSection(props: {
   if (availableGroups.length === 0) {
     return (
       <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        <SectionTitle>{t('Pricing by provider group')}</SectionTitle>
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <p className='text-muted-foreground text-sm'>
           {t(
-            'This model is not available in any group, or no group pricing information is configured.'
+            'This model is not available in any provider group, or no provider group pricing information is configured.'
           )}
         </p>
       </section>
@@ -929,7 +931,7 @@ function GroupPricingSection(props: {
     if (dynamicTiers.length === 0) {
       return (
         <section>
-          <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+          <SectionTitle>{t('Pricing by provider group')}</SectionTitle>
           <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
           <div className='rounded-lg border border-amber-200/70 bg-amber-50/70 p-3 dark:border-amber-500/20 dark:bg-amber-500/10'>
             <div className='text-sm font-medium text-amber-800 dark:text-amber-200'>
@@ -937,7 +939,7 @@ function GroupPricingSection(props: {
             </div>
             <p className='text-muted-foreground mt-1 text-xs'>
               {t(
-                'Group prices cannot be expanded because this expression is not a standard tiered pricing expression.'
+                'Provider group prices cannot be expanded because this expression is not a standard tiered pricing expression.'
               )}
             </p>
             <div className='mt-3'>
@@ -978,7 +980,7 @@ function GroupPricingSection(props: {
 
     return (
       <section>
-        <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+        <SectionTitle>{t('Pricing by provider group')}</SectionTitle>
         <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
         <div className='space-y-3'>
           {availableGroups.map((group) => {
@@ -1057,7 +1059,7 @@ function GroupPricingSection(props: {
 
   return (
     <section>
-      <SectionTitle>{t('Pricing by Group')}</SectionTitle>
+      <SectionTitle>{t('Pricing by provider group')}</SectionTitle>
       <AutoGroupChain model={props.model} autoGroups={props.autoGroups} />
       <StaticDataTable
         className='-mx-4 rounded-none border-0 sm:mx-0'
@@ -1068,7 +1070,7 @@ function GroupPricingSection(props: {
         columns={[
           {
             id: 'group',
-            header: t('Group'),
+            header: t('Provider group'),
             className: thClass,
             cellClassName: 'py-2.5',
             cell: (group) => <GroupBadge group={group} size='sm' />,

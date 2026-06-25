@@ -164,11 +164,30 @@ func GetTokenUsage(c *gin.Context) {
 	})
 }
 
+func validateTokenProviderGroup(c *gin.Context, group string) bool {
+	if group == "" {
+		return true
+	}
+	online, err := model.IsProviderGroupOnline(group)
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	if !online {
+		common.ApiErrorMsg(c, model.ProviderGroupOfflineMessage)
+		return false
+	}
+	return true
+}
+
 func AddToken(c *gin.Context) {
 	token := model.Token{}
 	err := c.ShouldBindJSON(&token)
 	if err != nil {
 		common.ApiError(c, err)
+		return
+	}
+	if !validateTokenProviderGroup(c, token.Group) {
 		return
 	}
 	if len(token.Name) > 50 {
@@ -290,6 +309,9 @@ func UpdateToken(c *gin.Context) {
 		cleanToken.Status = token.Status
 	} else {
 		// If you add more fields, please also update token.Update()
+		if !validateTokenProviderGroup(c, token.Group) {
+			return
+		}
 		cleanToken.Name = token.Name
 		cleanToken.ExpiredTime = token.ExpiredTime
 		cleanToken.RemainQuota = token.RemainQuota

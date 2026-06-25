@@ -115,12 +115,12 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels := filterChannelsByRequestPath(group2model2channels[group][model], requestPath)
+	channels := filterChannelsByRequestPath(group, group2model2channels[group][model], requestPath)
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
 		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = filterChannelsByRequestPath(group2model2channels[group][normalizedModel], requestPath)
+		channels = filterChannelsByRequestPath(group, group2model2channels[group][normalizedModel], requestPath)
 	}
 
 	if len(channels) == 0 {
@@ -212,7 +212,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 // configured routes matches requestPath. All other channel types always pass.
 // When requestPath is empty (non-relay callers) filtering is skipped.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
-func filterChannelsByRequestPath(channels []int, requestPath string) []int {
+func filterChannelsByRequestPath(group string, channels []int, requestPath string) []int {
 	if requestPath == "" || len(channels) == 0 {
 		return channels
 	}
@@ -222,6 +222,9 @@ func filterChannelsByRequestPath(channels []int, requestPath string) []int {
 		if !ok {
 			// keep it so the downstream consistency error is raised as before
 			filtered = append(filtered, channelId)
+			continue
+		}
+		if !ProviderGroupChannelSupportsPath(group, channelId, requestPath) {
 			continue
 		}
 		if channel.Type != constant.ChannelTypeAdvancedCustom {

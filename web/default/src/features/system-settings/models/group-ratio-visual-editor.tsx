@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useMemo, useEffect, useCallback, memo } from 'react'
 import { Plus, Trash2, GripVertical, ChevronDown } from 'lucide-react'
+import { useState, useMemo, useEffect, useCallback, memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StaticDataTable } from '@/components/data-table/static/static-data-table'
@@ -821,10 +821,10 @@ function GroupPricingTable({
       <CardHeader className={sectionHeaderClassName}>
         <div className='flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between'>
           <div>
-            <CardTitle>{t('Pricing groups')}</CardTitle>
+            <CardTitle>{t('User and provider group ratios')}</CardTitle>
             <CardDescription>
               {t(
-                'Edit billing ratios and user-selectable groups in one table.'
+                'Edit billing ratios and API-key-selectable provider groups in one table.'
               )}
             </CardDescription>
           </div>

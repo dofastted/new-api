@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useQueryClient } from '@tanstack/react-query'
 /* eslint-disable react-refresh/only-export-components */
 import React, {
   createContext,
@@ -23,71 +24,71 @@ import React, {
   useState,
   useCallback,
   useMemo,
-} from "react";
-import { useQueryClient } from "@tanstack/react-query";
-import { useChannelUpstreamUpdates } from "../hooks/use-channel-upstream-updates";
-import { channelsQueryKeys } from "../lib";
-import type { Channel } from "../types";
+} from 'react'
+
+import { useChannelUpstreamUpdates } from '../hooks/use-channel-upstream-updates'
+import { channelsQueryKeys } from '../lib'
+import type { Channel } from '../types'
 
 // ============================================================================
 // Types
 // ============================================================================
 
 type DialogType =
-  | "create-channel"
-  | "update-channel"
-  | "test-channel"
-  | "balance-query"
-  | "fetch-models"
-  | "ollama-models"
-  | "multi-key-manage"
-  | "tag-batch-edit"
-  | "edit-tag"
-  | "copy-channel"
-  | null;
+  | 'create-channel'
+  | 'update-channel'
+  | 'test-channel'
+  | 'balance-query'
+  | 'fetch-models'
+  | 'ollama-models'
+  | 'multi-key-manage'
+  | 'tag-batch-edit'
+  | 'edit-tag'
+  | 'copy-channel'
+  | null
 
-type UpstreamUpdateState = ReturnType<typeof useChannelUpstreamUpdates>;
+type UpstreamUpdateState = ReturnType<typeof useChannelUpstreamUpdates>
 
 type ChannelUiLabels = {
-  createTitle: string;
-  editTitle: string;
-  createDescription: string;
-  editDescription: string;
-};
+  createTitle: string
+  editTitle: string
+  createDescription: string
+  editDescription: string
+}
 
 const CHANNEL_UI_LABELS: ChannelUiLabels = {
-  createTitle: "Create Channel",
-  editTitle: "Edit Channel",
+  createTitle: 'Create Channel',
+  editTitle: 'Edit Channel',
   createDescription:
-    "Add a new channel by providing the necessary information.",
+    'Add a new channel by providing the necessary information.',
   editDescription:
     "Update channel configuration and click save when you're done.",
-};
+}
 
 type ChannelsContextType = {
-  open: DialogType;
-  setOpen: (open: DialogType) => void;
-  currentRow: Channel | null;
-  setCurrentRow: (row: Channel | null) => void;
-  currentTag: string | null;
-  setCurrentTag: (tag: string | null) => void;
-  enableTagMode: boolean;
-  setEnableTagMode: (enabled: boolean) => void;
-  idSort: boolean;
-  setIdSort: (enabled: boolean) => void;
-  labels: ChannelUiLabels;
-  sensitiveVisible: boolean;
-  setSensitiveVisible: (visible: boolean) => void;
-  upstream: UpstreamUpdateState;
-};
+  open: DialogType
+  setOpen: (open: DialogType) => void
+  currentRow: Channel | null
+  setCurrentRow: (row: Channel | null) => void
+  currentTag: string | null
+  setCurrentTag: (tag: string | null) => void
+  enableTagMode: boolean
+  setEnableTagMode: (enabled: boolean) => void
+  idSort: boolean
+  setIdSort: (enabled: boolean) => void
+  labels: ChannelUiLabels
+  sensitiveVisible: boolean
+  setSensitiveVisible: (visible: boolean) => void
+  upstream: UpstreamUpdateState
+}
 
 // ============================================================================
 // Context
 // ============================================================================
 
 const ChannelsContext = createContext<ChannelsContextType | undefined>(
-  undefined,
-);
+  undefined
+)
 
 // ============================================================================
 // Provider
@@ -97,29 +98,29 @@ export function ChannelsProvider({
   children,
   labels = CHANNEL_UI_LABELS,
 }: {
-  children: React.ReactNode;
-  labels?: Partial<ChannelUiLabels>;
+  children: React.ReactNode
+  labels?: Partial<ChannelUiLabels>
 }) {
-  const [open, setOpen] = useState<DialogType>(null);
-  const [currentRow, setCurrentRow] = useState<Channel | null>(null);
-  const [currentTag, setCurrentTag] = useState<string | null>(null);
+  const [open, setOpen] = useState<DialogType>(null)
+  const [currentRow, setCurrentRow] = useState<Channel | null>(null)
+  const [currentTag, setCurrentTag] = useState<string | null>(null)
   const [enableTagMode, setEnableTagMode] = useState(() => {
-    return localStorage.getItem("enable-tag-mode") === "true";
-  });
+    return localStorage.getItem('enable-tag-mode') === 'true'
+  })
   const [idSort, setIdSort] = useState(() => {
-    return localStorage.getItem("channels-id-sort") === "true";
-  });
-  const [sensitiveVisible, setSensitiveVisible] = useState(true);
+    return localStorage.getItem('channels-id-sort') === 'true'
+  })
+  const [sensitiveVisible, setSensitiveVisible] = useState(true)
 
-  const queryClient = useQueryClient();
+  const queryClient = useQueryClient()
   const refreshChannels = useCallback(async () => {
-    await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all });
-  }, [queryClient]);
-  const upstream = useChannelUpstreamUpdates(refreshChannels);
+    await queryClient.invalidateQueries({ queryKey: channelsQueryKeys.all })
+  }, [queryClient])
+  const upstream = useChannelUpstreamUpdates(refreshChannels)
   const uiLabels = useMemo(
     () => ({ ...CHANNEL_UI_LABELS, ...labels }),
-    [labels],
-  );
+    [labels]
+  )
 
   // useState setters are stable, so the context value only needs to change when
   // an actual state value changes. Memoizing avoids handing every consumer
@@ -150,14 +151,14 @@ export function ChannelsProvider({
       sensitiveVisible,
       uiLabels,
       upstream,
-    ],
-  );
+    ]
+  )
 
   return (
     <ChannelsContext.Provider value={value}>
       {children}
     </ChannelsContext.Provider>
-  );
+  )
 }
 
 // ============================================================================
@@ -165,9 +166,9 @@ export function ChannelsProvider({
 // ============================================================================
 
 export function useChannels() {
-  const context = useContext(ChannelsContext);
+  const context = useContext(ChannelsContext)
   if (!context) {
-    throw new Error("useChannels must be used within ChannelsProvider");
+    throw new Error('useChannels must be used within ChannelsProvider')
   }
-  return context;
+  return context
 }

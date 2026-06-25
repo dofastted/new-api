@@ -5,6 +5,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
@@ -44,20 +45,25 @@ func GroupInUserUsableGroups(userGroup, groupName string) bool {
 	return ok
 }
 
-// GetUserAutoGroup 根据用户分组获取自动分组设置
+// GetUserAutoGroup returns the admin-managed auto provider-group order. The
+// userGroup argument is kept for compatibility; provider group access is not
+// user-tier scoped in the redesigned contract.
 func GetUserAutoGroup(userGroup string) []string {
-	groups := GetUserUsableGroups(userGroup)
-	autoGroups := make([]string, 0)
-	for _, group := range setting.GetAutoGroups() {
-		if _, ok := groups[group]; ok {
-			autoGroups = append(autoGroups, group)
-		}
+	groups, err := model.GetProviderAutoGroups(model.ProviderRouteTypeOther)
+	if err == nil && len(groups) > 0 {
+		return filterOnlineProviderGroups(groups)
 	}
-	return autoGroups
+	return filterOnlineProviderGroups(setting.GetAutoGroups())
 }
 
 func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
 	autoGroups := GetUserAutoGroup(userGroup)
+	if c != nil && c.Request != nil && c.Request.URL != nil {
+		groups, err := model.GetProviderAutoGroups(model.ProviderRouteTypeForPath(c.Request.URL.Path))
+		if err == nil && len(groups) > 0 {
+			autoGroups = filterOnlineProviderGroups(groups)
+		}
+	}
 	routeGroups := common.GetContextKeyStringSlice(c, constant.ContextKeyRouteAutoGroups)
 	if len(routeGroups) == 0 {
 		return autoGroups
@@ -70,6 +76,16 @@ func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
 		}
 	}
 	return filteredGroups
+}
+func filterOnlineProviderGroups(groups []string) []string {
+	filtered := make([]string, 0, len(groups))
+	for _, group := range groups {
+		online, err := model.IsProviderGroupOnline(group)
+		if err == nil && online {
+			filtered = append(filtered, group)
+		}
+	}
+	return filtered
 }
 
 func containsGroup(groups []string, group string) bool {

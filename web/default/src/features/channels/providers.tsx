@@ -25,6 +25,9 @@ import {
   ShieldAlert,
 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
+
+import { SectionPageLayout } from '@/components/layout'
+import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -33,8 +36,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { SectionPageLayout } from '@/components/layout'
-import { StatusBadge } from '@/components/status-badge'
+
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
 import { ChannelsProvider } from './components/channels-provider'
@@ -74,10 +76,18 @@ const managementLinks = [
     params: { section: 'monitoring' },
   },
   {
-    titleKey: 'Group pricing',
-    descriptionKey: 'Configure groups, auto groups, and group ratios.',
-    to: '/system-settings/billing/$section',
-    params: { section: 'group-pricing' },
+    titleKey: 'Provider groups',
+    descriptionKey:
+      'Manage provider group membership, priority, route types, and usage ratio.',
+    to: '/providers/groups',
+    params: {},
+  },
+  {
+    titleKey: 'Auto routing rules',
+    descriptionKey:
+      'Configure auto candidate provider groups and order per route type.',
+    to: '/providers/auto',
+    params: {},
   },
   {
     titleKey: 'Channel affinity',

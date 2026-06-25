@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { type ColumnDef } from '@tanstack/react-table'
 import { useTranslation } from 'react-i18next'
-import { getLobeIcon } from '@/lib/lobe-icon'
+
 import {
   BadgeCell,
   BadgeListCell,
@@ -26,6 +26,8 @@ import {
 } from '@/components/data-table'
 import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
+import { getLobeIcon } from '@/lib/lobe-icon'
+
 import { DEFAULT_TOKEN_UNIT, QUOTA_TYPE_VALUES } from '../constants'
 import {
   getDynamicDisplayGroupRatio,
@@ -387,7 +389,7 @@ export function usePricingColumns(
     // Enable Groups column
     {
       accessorKey: 'enable_groups',
-      header: t('Groups'),
+      header: t('Provider groups'),
       cell: ({ row }) => {
         const groups = row.original.enable_groups || []
         return (

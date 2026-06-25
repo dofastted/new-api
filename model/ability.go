@@ -179,6 +179,9 @@ func filterAbilitiesByRequestPath(abilities []Ability, requestPath string) []Abi
 
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
+		if !ProviderGroupChannelSupportsPath(ability.Group, ability.ChannelId, requestPath) {
+			continue
+		}
 		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
 		if !isAdvancedCustom {
 			filtered = append(filtered, ability)
