@@ -355,6 +355,14 @@ func FixAbility() (int, int, error) {
 	}
 	defer fixLock.Unlock()
 
+	if providerGroupTableReady(&ProviderGroupChannel{}) {
+		if err := rebuildAbilitiesFromProviderGroups(); err != nil {
+			return 0, 0, err
+		}
+		InitChannelCache()
+		return 1, 0, nil
+	}
+
 	// truncate abilities table
 	if common.UsingMainDatabase(common.DatabaseTypeSQLite) {
 		err := DB.Exec("DELETE FROM abilities").Error

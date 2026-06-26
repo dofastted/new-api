@@ -256,6 +256,59 @@ docker run --name new-api -d --restart always \
 
 ---
 
+## 🧭 Fork Enhancements — CCH Routing & Observability
+
+### 🧩 Provider Routing Management
+
+- **Provider groups** add an admin-managed routing layer that is separate from user billing groups, with online/offline status, display metadata, usage ratio, and sorted group order.
+- **Provider group membership** maps channels into provider groups with per-membership priority, weight, enabled state, and route-type support.
+- **Model availability** is rebuilt from provider group membership and channel model coverage, so routing candidates are derived from enabled group-channel-model abilities.
+- **Auto routing** supports route-aware candidate provider groups, including request-path-specific auto group selection and ordered fallback across groups.
+- **Priority and weight selection** prefers higher-priority channels first, then balances traffic by weight within the selected priority tier.
+
+### 🔀 Request & Endpoint Routing
+
+- **Request format detection** classifies incoming requests by endpoint and safe body inspection, including OpenAI-compatible chat/completions, Responses API, Claude Messages, Gemini API, and Gemini CLI-shaped JSON bodies.
+- **Route-aware provider matching** filters advanced custom channels by supported request paths before selection, preventing incompatible upstream routes from being chosen.
+- **Endpoint pool routing** supports per-channel endpoint pools with enabled/healthy filtering and deterministic ordering. When a healthy endpoint is selected, it overrides the channel base URL and is recorded as selected endpoint metadata.
+- **Request conversion metadata** is persisted for logs, including original request format, final upstream format, request path, original model, upstream model, and request body shape.
+
+### 🧯 Channel Resilience
+
+- **Channel circuit breakers** track channel failures in a memory/Redis-backed hybrid cache.
+- **Configurable thresholds** control when a channel opens and how long it stays open through `CHANNEL_CIRCUIT_FAILURE_THRESHOLD` and `CHANNEL_CIRCUIT_OPEN_SECONDS`.
+- **Open channels are skipped** during routing candidate selection, while successful requests reset the circuit state.
+- **Half-open recovery** allows channels to become eligible again after the open window expires.
+
+### 🔎 Routing Decision Observability
+
+- **Channel decision traces** record the selected channel, group, reason, selection mode, retry attempt, circuit state, priority, and weight.
+- **Retry and failure traces** capture retry-selected channels and relay failures with error code and error category.
+- **Endpoint selection traces** record endpoint-pool selections without leaking query strings or secrets.
+- **Request logs preserve routing metadata** for admin inspection, while user-facing log responses redact admin-only fields such as channel chains, selected endpoints, raw admin info, and internal channel IDs.
+
+### 🛡️ Audit & Log Baseline
+
+- **Operation audit logs** provide a baseline for admin/root write actions, including method, route, path, status, success detection, operator identity, auth method, and structured operation descriptors.
+- **Login audit logs** store structured login context for localized frontend rendering.
+- **Top-up logs** include structured audit metadata such as server IP, node name, caller IP, payment method, callback payment method, and runtime version.
+- **Large response protection** limits audit response buffering while still inferring operation success from JSON `success` fields or HTTP status.
+
+### 📜 Usage Log Experience
+
+- **Log details UI** surfaces request IDs, upstream request IDs, channel data, timing, billing breakdowns, request conversion, routing traces, failure details, audit metadata, and top-up audit info.
+- **Streaming usage-log view** uses `@tanstack/react-virtual` with infinite loading for dense, CCH-style log scanning across large datasets.
+- **Top-up order details** parse completed recharge log content and display payment channel, recharge quota, payment amount, order time, completed state, plan title when applicable, and raw content fallback.
+- **Multiple top-up templates** are handled, including online/Epay, Stripe, admin completion, Creem, Waffo, Waffo Pancake, subscription purchases, and balance-funded subscription purchases.
+
+### ✅ Regression Coverage
+
+- **Routing regression tests** cover request format detection, route-scoped auto group behavior, provider group seeding, provider group/user group separation, disabled provider group exclusion, advanced custom route-type detection, routing trace persistence, selected endpoint metadata, and channel circuit breaker state transitions.
+- **Log regression tests** verify routing metadata redaction for user-visible logs.
+- **Frontend parsing tests** verify top-up order parsing across supported payment and subscription log templates.
+
+---
+
 ## 🤖 Model Support
 
 > For details, please refer to [API Documentation - Gateway Interface](https://docs.newapi.pro/en/docs/api)

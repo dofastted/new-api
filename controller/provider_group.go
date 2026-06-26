@@ -19,7 +19,10 @@ type providerGroupAutoRulesRequest struct {
 
 func GetProviderGroups(c *gin.Context) {
 	var groups []model.ProviderGroup
-	if err := model.DB.Order("sort_order ASC, id ASC").Find(&groups).Error; err != nil {
+	if err := model.DB.
+		Where("name NOT IN ?", model.ReservedUserProviderGroupNames()).
+		Order("sort_order ASC, id ASC").
+		Find(&groups).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -34,6 +37,10 @@ func CreateProviderGroup(c *gin.Context) {
 	}
 	if group.Name == "" {
 		common.ApiErrorMsg(c, "分组名称不能为空")
+		return
+	}
+	if model.IsReservedUserProviderGroupName(group.Name) {
+		common.ApiErrorMsg(c, "用户等级分组不能作为 provider 分组")
 		return
 	}
 	if group.DisplayName == "" {
@@ -133,9 +140,29 @@ func UpdateProviderGroupChannels(c *gin.Context) {
 		return
 	}
 	now := common.GetTimestamp()
+	channelIDs := make([]int, 0, len(req.Items))
+	for _, item := range req.Items {
+		channelIDs = append(channelIDs, item.ChannelId)
+	}
+	channelsByID := make(map[int]model.Channel, len(channelIDs))
+	if len(channelIDs) > 0 {
+		var channels []model.Channel
+		if err := model.DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		for _, channel := range channels {
+			channelsByID[channel.Id] = channel
+		}
+	}
 	for i := range req.Items {
 		req.Items[i].ProviderGroupId = id
 		req.Items[i].GroupName = group.Name
+		if channel, ok := channelsByID[req.Items[i].ChannelId]; ok {
+			req.Items[i].RouteTypes = model.ProviderRouteTypesForChannel(channel)
+		} else {
+			req.Items[i].RouteTypes = ""
+		}
 		req.Items[i].UpdatedTime = now
 		if req.Items[i].CreatedTime == 0 {
 			req.Items[i].CreatedTime = now

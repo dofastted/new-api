@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
@@ -67,6 +69,35 @@ func TestEnsureProviderGroupsSeededFromLegacy(t *testing.T) {
 	assert.True(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeResponses))
 }
 
+func TestEnsureProviderGroupsSeededFromLegacySkipsUserGroups(t *testing.T) {
+	clearProviderGroupTestTables(t)
+	oldGroupRatio := ratio_setting.GroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
+	})
+
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1,"vip":1,"premium":1,"provider-a":0.5}`))
+	require.NoError(t, DB.Create(&Channel{
+		Id:     9102,
+		Type:   1,
+		Key:    "sk-user-group",
+		Status: common.ChannelStatusEnabled,
+		Name:   "user-group-channel",
+		Models: "gpt-5.5",
+		Group:  "default,provider-a,vip",
+	}).Error)
+
+	require.NoError(t, EnsureProviderGroupsSeededFromLegacy())
+
+	var reservedCount int64
+	require.NoError(t, DB.Model(&ProviderGroup{}).Where("name IN ?", ReservedUserProviderGroupNames()).Count(&reservedCount).Error)
+	assert.Equal(t, int64(0), reservedCount)
+
+	var memberCount int64
+	require.NoError(t, DB.Model(&ProviderGroupChannel{}).Where("group_name IN ?", ReservedUserProviderGroupNames()).Count(&memberCount).Error)
+	assert.Equal(t, int64(0), memberCount)
+}
+
 func TestProviderGroupOnlineStatusAndDelete(t *testing.T) {
 	clearProviderGroupTestTables(t)
 
@@ -88,4 +119,79 @@ func TestProviderGroupOnlineStatusAndDelete(t *testing.T) {
 	online, err = IsProviderGroupOnline("offline-test")
 	require.NoError(t, err)
 	assert.False(t, online)
+}
+
+func TestRebuildAbilitiesSkipsDisabledProviderGroups(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Id:          9201,
+		Name:        "active-provider",
+		DisplayName: "active-provider",
+		Status:      ProviderGroupStatusEnabled,
+		UsageRatio:  1,
+	}).Error)
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Id:          9202,
+		Name:        "disabled-provider",
+		DisplayName: "disabled-provider",
+		UsageRatio:  1,
+	}).Error)
+	require.NoError(t, DB.Model(&ProviderGroup{}).
+		Where("id = ?", 9202).
+		Update("status", ProviderGroupStatusDisabled).Error)
+	require.NoError(t, DB.Create(&Channel{
+		Id:     9203,
+		Type:   1,
+		Key:    "sk-active",
+		Status: common.ChannelStatusEnabled,
+		Name:   "active-channel",
+		Models: "gpt-5.5",
+	}).Error)
+	require.NoError(t, DB.Create(&Channel{
+		Id:     9204,
+		Type:   1,
+		Key:    "sk-disabled",
+		Status: common.ChannelStatusEnabled,
+		Name:   "disabled-channel",
+		Models: "gpt-5.5",
+	}).Error)
+	require.NoError(t, DB.Create(&ProviderGroupChannel{
+		ProviderGroupId: 9201,
+		GroupName:       "active-provider",
+		ChannelId:       9203,
+		RouteTypes:      defaultProviderRouteTypesJSON(),
+		Enabled:         true,
+	}).Error)
+	require.NoError(t, DB.Create(&ProviderGroupChannel{
+		ProviderGroupId: 9202,
+		GroupName:       "disabled-provider",
+		ChannelId:       9204,
+		RouteTypes:      defaultProviderRouteTypesJSON(),
+		Enabled:         true,
+	}).Error)
+
+	require.NoError(t, RebuildAbilitiesFromProviderGroups())
+
+	var activeCount int64
+	require.NoError(t, DB.Model(&Ability{}).Where("\"group\" = ?", "active-provider").Count(&activeCount).Error)
+	assert.Equal(t, int64(1), activeCount)
+
+	var disabledCount int64
+	require.NoError(t, DB.Model(&Ability{}).Where("\"group\" = ?", "disabled-provider").Count(&disabledCount).Error)
+	assert.Equal(t, int64(0), disabledCount)
+}
+
+func TestProviderRouteTypesForAdvancedCustomChannel(t *testing.T) {
+	channel := Channel{Type: constant.ChannelTypeAdvancedCustom}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{
+				{IncomingPath: "/v1/responses"},
+				{IncomingPath: "/v1/messages"},
+			},
+		},
+	})
+
+	assert.Equal(t, []string{ProviderRouteTypeResponses, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
 }

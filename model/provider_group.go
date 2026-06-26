@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"gorm.io/gorm"
@@ -24,6 +25,21 @@ const (
 	ProviderRouteTypeMessages    = "messages"
 	ProviderRouteTypeOther       = "other"
 )
+
+var reservedUserProviderGroupNames = map[string]struct{}{
+	"default": {},
+	"premium": {},
+	"vip":     {},
+}
+
+func ReservedUserProviderGroupNames() []string {
+	return []string{"default", "premium", "vip"}
+}
+
+func IsReservedUserProviderGroupName(name string) bool {
+	_, ok := reservedUserProviderGroupNames[strings.TrimSpace(name)]
+	return ok
+}
 
 type ProviderGroup struct {
 	Id          int            `json:"id"`
@@ -92,7 +108,8 @@ func seedProviderGroupsFromLegacy() error {
 		legacyRatios["auto"] = 1
 		groups := make([]ProviderGroup, 0, len(legacyRatios))
 		for name, ratio := range legacyRatios {
-			if strings.TrimSpace(name) == "" {
+			name = strings.TrimSpace(name)
+			if name == "" || IsReservedUserProviderGroupName(name) {
 				continue
 			}
 			groups = append(groups, ProviderGroup{
@@ -119,7 +136,7 @@ func seedProviderGroupsFromLegacy() error {
 		for _, channel := range channels {
 			for _, groupName := range strings.Split(channel.Group, ",") {
 				groupName = strings.TrimSpace(groupName)
-				if groupName == "" {
+				if groupName == "" || IsReservedUserProviderGroupName(groupName) {
 					continue
 				}
 				providerGroupID, err := getProviderGroupID(tx, groupName)
@@ -133,7 +150,7 @@ func seedProviderGroupsFromLegacy() error {
 					ChannelId:       channel.Id,
 					Priority:        channel.Priority,
 					Weight:          &weight,
-					RouteTypes:      defaultProviderRouteTypesJSON(),
+					RouteTypes:      ProviderRouteTypesForChannel(channel),
 					Enabled:         channel.Status == common.ChannelStatusEnabled,
 					CreatedTime:     now,
 					UpdatedTime:     now,
@@ -149,7 +166,7 @@ func seedProviderGroupsFromLegacy() error {
 		autoRules := make([]ProviderGroupAutoRule, 0)
 		for index, groupName := range setting.GetAutoGroups() {
 			groupName = strings.TrimSpace(groupName)
-			if groupName == "" {
+			if groupName == "" || IsReservedUserProviderGroupName(groupName) {
 				continue
 			}
 			for _, routeType := range []string{ProviderRouteTypeCompletions, ProviderRouteTypeResponses, ProviderRouteTypeMessages, ProviderRouteTypeOther} {
@@ -171,6 +188,10 @@ func seedProviderGroupsFromLegacy() error {
 }
 
 func getProviderGroupID(tx *gorm.DB, name string) (int, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || IsReservedUserProviderGroupName(name) {
+		return 0, gorm.ErrRecordNotFound
+	}
 	var group ProviderGroup
 	if err := tx.Where("name = ?", name).First(&group).Error; err != nil {
 		if err != gorm.ErrRecordNotFound {
@@ -220,6 +241,51 @@ func defaultProviderRouteTypesJSON() string {
 	return string(data)
 }
 
+func ProviderRouteTypesForChannel(channel Channel) string {
+	routeTypes := ProviderRouteTypesForChannelValue(channel)
+	data, err := common.Marshal(routeTypes)
+	if err != nil {
+		return defaultProviderRouteTypesJSON()
+	}
+	return string(data)
+}
+
+func ProviderRouteTypesForChannelValue(channel Channel) []string {
+	if channel.Type != constant.ChannelTypeAdvancedCustom {
+		return []string{
+			ProviderRouteTypeCompletions,
+			ProviderRouteTypeResponses,
+			ProviderRouteTypeMessages,
+			ProviderRouteTypeOther,
+		}
+	}
+	settings := channel.GetOtherSettings()
+	if settings.AdvancedCustom == nil || len(settings.AdvancedCustom.Routes) == 0 {
+		return []string{
+			ProviderRouteTypeCompletions,
+			ProviderRouteTypeResponses,
+			ProviderRouteTypeMessages,
+			ProviderRouteTypeOther,
+		}
+	}
+	seen := make(map[string]struct{}, 4)
+	for _, route := range settings.AdvancedCustom.Routes {
+		routeType := ProviderRouteTypeForPath(route.IncomingPath)
+		seen[routeType] = struct{}{}
+	}
+	ordered := []string{ProviderRouteTypeCompletions, ProviderRouteTypeResponses, ProviderRouteTypeMessages, ProviderRouteTypeOther}
+	result := make([]string, 0, len(seen))
+	for _, routeType := range ordered {
+		if _, ok := seen[routeType]; ok {
+			result = append(result, routeType)
+		}
+	}
+	if len(result) == 0 {
+		return ordered
+	}
+	return result
+}
+
 func ListOnlineProviderGroupOptions() ([]ProviderGroupOption, error) {
 	groups, err := ListOnlineProviderGroups()
 	if err != nil {
@@ -248,6 +314,10 @@ func ListOnlineProviderGroups() ([]ProviderGroup, error) {
 		legacyRatios["auto"] = 1
 		groups := make([]ProviderGroup, 0, len(legacyRatios))
 		for name, ratio := range legacyRatios {
+			name = strings.TrimSpace(name)
+			if name == "" || IsReservedUserProviderGroupName(name) {
+				continue
+			}
 			groups = append(groups, ProviderGroup{
 				Name:        name,
 				DisplayName: name,
@@ -259,7 +329,7 @@ func ListOnlineProviderGroups() ([]ProviderGroup, error) {
 		return groups, nil
 	}
 	var groups []ProviderGroup
-	err := DB.Where("status = ?", ProviderGroupStatusEnabled).
+	err := DB.Where("status = ? AND name NOT IN ?", ProviderGroupStatusEnabled, ReservedUserProviderGroupNames()).
 		Order("sort_order ASC, id ASC").
 		Find(&groups).Error
 	return groups, err
@@ -297,11 +367,19 @@ func ProviderGroupUsageRatio(name string) (float64, bool) {
 }
 
 func RebuildAbilitiesFromProviderGroups() error {
+	return rebuildAbilitiesFromProviderGroups()
+}
+
+func rebuildAbilitiesFromProviderGroups() error {
 	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) {
 		return nil
 	}
 	var members []ProviderGroupChannel
-	if err := DB.Where("enabled = ?", true).Find(&members).Error; err != nil {
+	if err := DB.Table("provider_group_channels").
+		Select("provider_group_channels.*").
+		Joins("JOIN provider_groups ON provider_groups.id = provider_group_channels.provider_group_id").
+		Where("provider_group_channels.enabled = ? AND provider_groups.status = ? AND provider_groups.deleted_at IS NULL", true, ProviderGroupStatusEnabled).
+		Find(&members).Error; err != nil {
 		return err
 	}
 	if len(members) == 0 {
@@ -430,7 +508,11 @@ func ProviderGroupChannelSupportsPath(groupName string, channelID int, requestPa
 	if err != nil {
 		return true
 	}
-	return providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeForPath(requestPath))
+	var channel Channel
+	if err := DB.First(&channel, channelID).Error; err != nil {
+		return true
+	}
+	return providerRouteTypesContain(ProviderRouteTypesForChannel(channel), ProviderRouteTypeForPath(requestPath))
 }
 
 func providerRouteTypesContain(routeTypesJSON string, routeType string) bool {

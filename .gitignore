@@ -42,3 +42,5 @@ skills-lock.json
 .trellis/
 .pi/
 .codex/
+
+.local-deploy/
