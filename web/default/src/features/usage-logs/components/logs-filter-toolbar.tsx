@@ -46,6 +46,8 @@ interface LogsFilterToolbarProps<TData> {
   mobileFilterCount?: number
   stats?: ReactNode
   actionStart?: ReactNode
+  actionEnd?: ReactNode
+  showViewOptions?: boolean
   hasActiveFilters: boolean
   hasAdvancedActiveFilters?: boolean
   advancedFilterCount?: number
@@ -171,7 +173,10 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
                 {props.searchLoading && <Loader2 className='animate-spin' />}
                 {t('Search')}
               </Button>
-              <DataTableViewOptions table={props.table} />
+              {props.actionEnd}
+              {props.showViewOptions !== false && (
+                <DataTableViewOptions table={props.table} />
+              )}
             </div>
           </div>
         </div>
@@ -260,7 +265,10 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             {props.searchLoading && <Loader2 className='animate-spin' />}
             {t('Search')}
           </Button>
-          <DataTableViewOptions table={props.table} />
+          {props.actionEnd}
+          {props.showViewOptions !== false && (
+            <DataTableViewOptions table={props.table} />
+          )}
         </div>
       </div>
     </div>
