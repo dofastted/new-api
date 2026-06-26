@@ -225,6 +225,44 @@ For commercial licensing, please contact support@quantumnous.com
   }
 }
 
+/* Usage logs stream view: one-shot enter + highlight for live-inserted rows.
+ * Mirrors claude-code-hub's restrained, pure-CSS live feed (no JS animation lib).
+ * The `.usage-log-row-new` class is applied only while a row is freshly arrived
+ * (see RECENT_FLASH_MS in use-infinite-logs.ts), so it plays exactly once. */
+@keyframes usage-log-row-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes usage-log-row-flash {
+  0% {
+    background-color: color-mix(in oklab, var(--color-emerald-500) 18%, transparent);
+    border-left-color: var(--color-emerald-500);
+  }
+  100% {
+    background-color: transparent;
+    border-left-color: transparent;
+  }
+}
+
+.usage-log-row-new {
+  animation:
+    usage-log-row-enter 0.32s ease-out,
+    usage-log-row-flash 1.5s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-log-row-new {
+    animation: none;
+  }
+}
+
 /* Launch UI Animations and Effects - Matching Template Exactly */
 @layer utilities {
   /* Gradient utilities */

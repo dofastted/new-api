@@ -37,6 +37,7 @@ interface UsageLogsStreamRowProps {
   log: UsageLog
   isAdmin: boolean
   sensitiveVisible: boolean
+  isNew?: boolean
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
 }
 
@@ -192,6 +193,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const className = cn(
     'border-border/40 flex h-[52px] w-full items-center border-b border-l-2 border-l-transparent text-[13px] transition-colors hover:bg-accent/50',
     rowTint,
+    props.isNew && 'usage-log-row-new',
     topupInfo && 'cursor-pointer'
   )
 

@@ -17,11 +17,20 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { AlertCircle, Database, Loader2 } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { AlertCircle, ArrowUp, Database, Loader2, RefreshCw } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import {
   Empty,
   EmptyDescription,
@@ -98,6 +107,10 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     log: UsageLog
     topupInfo: TopupInfo
   } | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(true)
+  // Live rows only insert while the user is at the top; once they scroll down to
+  // browse history, polling pauses so the scroll position never jumps.
+  const [isAtTop, setIsAtTop] = useState(true)
 
   const query = useInfiniteLogs({
     logCategory: props.logCategory,
@@ -105,6 +118,8 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     pageSize: props.pageSize,
     searchParams: props.searchParams,
     columnFilters: props.columnFilters,
+    liveEnabled: autoRefresh,
+    livePaused: !isAtTop,
   })
 
   const rowVirtualizer = useVirtualizer({
@@ -121,7 +136,24 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     hasNextPage,
     isFetchingNextPage,
     logs,
+    liveCount,
+    recentIds,
+    refetchLive,
+    isLiveFetching,
   } = query
+
+  useEffect(() => {
+    const el = parentRef.current
+    if (!el) return
+    const onScroll = () => setIsAtTop(el.scrollTop <= 4)
+    onScroll()
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const scrollToTop = useCallback(() => {
+    parentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [])
 
   useEffect(() => {
     if (!lastVirtualItem) return
@@ -167,6 +199,61 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   return (
     <div className='flex h-full min-h-0 flex-col gap-3'>
       {props.toolbar}
+
+      <div className='flex flex-wrap items-center gap-3 text-xs'>
+        <label className='flex cursor-pointer items-center gap-2'>
+          <Switch
+            checked={autoRefresh}
+            onCheckedChange={(checked) => setAutoRefresh(Boolean(checked))}
+          />
+          <span className='text-muted-foreground'>{t('Auto refresh')}</span>
+        </label>
+
+        <Button
+          variant='outline'
+          size='sm'
+          onClick={() => void refetchLive()}
+          disabled={isLiveFetching}
+        >
+          <RefreshCw
+            className={cn('size-3.5', isLiveFetching && 'animate-spin')}
+          />
+          {t('Refresh')}
+        </Button>
+
+        {autoRefresh && isAtTop && (
+          <span className='inline-flex items-center gap-1.5 font-medium text-emerald-600 dark:text-emerald-400'>
+            <span className='relative flex size-2'>
+              <span
+                className='absolute inset-0 animate-ping rounded-full bg-emerald-500 opacity-75'
+                style={{ animationDuration: '1.5s' }}
+              />
+              <span className='relative size-2 rounded-full bg-emerald-500' />
+            </span>
+            {t('Live')}
+          </span>
+        )}
+
+        {autoRefresh && !isAtTop && (
+          <span className='text-muted-foreground inline-flex items-center gap-1.5'>
+            <span className='bg-muted-foreground/50 size-2 rounded-full' />
+            {t('Paused while browsing history')}
+          </span>
+        )}
+
+        {liveCount > 0 && (
+          <Button
+            variant='ghost'
+            size='sm'
+            className='text-primary'
+            onClick={scrollToTop}
+          >
+            <ArrowUp className='size-3.5' />
+            {t('{{count}} new', { count: liveCount })}
+          </Button>
+        )}
+      </div>
+
       <div className='border-border/70 bg-card min-h-0 flex-1 overflow-hidden rounded-lg border'>
         <div ref={parentRef} className='h-full overflow-auto'>
           <div className='min-w-[980px]'>
@@ -229,6 +316,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
                         log={log}
                         isAdmin={props.isAdmin}
                         sensitiveVisible={sensitiveVisible}
+                        isNew={recentIds.has(log.id)}
                         onTopupClick={(nextLog, topupInfo) =>
                           setSelectedTopup({ log: nextLog, topupInfo })
                         }
