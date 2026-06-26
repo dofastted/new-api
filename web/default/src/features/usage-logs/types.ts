@@ -30,6 +30,17 @@ import type { UsageLog } from './data/schema'
  */
 export type LogCategory = 'common' | 'drawing' | 'task'
 
+export type TopupKind =
+  | 'online'
+  | 'stripe'
+  | 'creem'
+  | 'waffo'
+  | 'waffo_pancake'
+  | 'admin'
+  | 'subscription'
+  | 'balance_sub'
+  | 'unknown'
+
 // ============================================================================
 // Filter Types
 // ============================================================================

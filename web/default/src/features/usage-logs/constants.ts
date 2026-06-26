@@ -21,7 +21,7 @@ For commercial licensing, please contact support@quantumnous.com
  */
 import type { StatusBadgeProps } from '@/components/status-badge'
 
-import type { LogStatistics, LogCategory } from './types'
+import type { LogStatistics, LogCategory, TopupKind } from './types'
 
 // ============================================================================
 // Default Values
@@ -67,6 +67,43 @@ export const LOG_TYPE_ENUM = {
  * Row rendering still displays records with type=0 as "Unknown".
  */
 export const LOG_TYPE_ALL_VALUE = '0' as const
+
+// ============================================================================
+// View Style
+// ============================================================================
+
+export const USAGE_LOGS_VIEW = {
+  TABLE: 'table',
+  STREAM: 'stream',
+} as const
+
+export type UsageLogsView = (typeof USAGE_LOGS_VIEW)[keyof typeof USAGE_LOGS_VIEW]
+
+export function getUsageLogsViewStorageKey(isAdmin: boolean): string {
+  return `usage-logs:common:${isAdmin ? 'admin' : 'user'}:view`
+}
+
+// ============================================================================
+// Top-up Channel Metadata
+// ============================================================================
+
+export const TOPUP_CHANNEL_META: Record<
+  TopupKind,
+  {
+    labelKey: string
+    variant: StatusBadgeProps['variant']
+  }
+> = {
+  online: { labelKey: 'Online top-up', variant: 'cyan' },
+  stripe: { labelKey: 'Stripe', variant: 'blue' },
+  creem: { labelKey: 'Creem', variant: 'purple' },
+  waffo: { labelKey: 'Waffo', variant: 'orange' },
+  waffo_pancake: { labelKey: 'Waffo Pancake', variant: 'amber' },
+  admin: { labelKey: 'Admin completion', variant: 'teal' },
+  subscription: { labelKey: 'Subscription', variant: 'green' },
+  balance_sub: { labelKey: 'Balance subscription', variant: 'lime' },
+  unknown: { labelKey: 'Unknown channel', variant: 'neutral' },
+}
 
 // ============================================================================
 // Time Range Presets

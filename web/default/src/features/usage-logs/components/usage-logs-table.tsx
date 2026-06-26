@@ -18,7 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -34,8 +35,11 @@ import { cn } from '@/lib/utils'
 
 import {
   DEFAULT_LOGS_DATA,
+  getUsageLogsViewStorageKey,
   LOG_TYPE_ALL_VALUE,
   LOG_TYPE_ENUM,
+  USAGE_LOGS_VIEW,
+  type UsageLogsView,
 } from '../constants'
 import { useColumnsByCategory } from '../lib/columns'
 import { fetchLogsByCategory } from '../lib/utils'
@@ -43,6 +47,8 @@ import type { LogCategory } from '../types'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
+import { UsageLogsStreamView } from './usage-logs-stream-view'
+import { UsageLogsViewToggle } from './usage-logs-view-toggle'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
 
@@ -59,7 +65,12 @@ function getColumnVisibilityStorageKey(
 }
 
 function deserializeLogTypeFilter(value: unknown): unknown[] {
-  const values = Array.isArray(value) ? value : value ? [value] : []
+  let values: unknown[] = []
+  if (Array.isArray(value)) {
+    values = value
+  } else if (value) {
+    values = [value]
+  }
   return values.filter((item) => String(item) !== LOG_TYPE_ALL_VALUE)
 }
 
@@ -72,6 +83,30 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isAdmin = useIsAdmin()
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
+  const isCommon = logCategory === 'common'
+  const viewStorageKey = getUsageLogsViewStorageKey(isAdmin)
+  const [view, setView] = useState<UsageLogsView>(USAGE_LOGS_VIEW.TABLE)
+
+  useEffect(() => {
+    if (!isCommon || typeof window === 'undefined') return
+    const storedView = window.localStorage.getItem(viewStorageKey)
+    if (
+      storedView === USAGE_LOGS_VIEW.TABLE ||
+      storedView === USAGE_LOGS_VIEW.STREAM
+    ) {
+      setView(storedView)
+    }
+  }, [isCommon, viewStorageKey])
+
+  const handleViewChange = useCallback(
+    (nextView: UsageLogsView) => {
+      setView(nextView)
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(viewStorageKey, nextView)
+      }
+    },
+    [viewStorageKey]
+  )
 
   const {
     columnFilters,
@@ -122,6 +157,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       searchParams,
       t,
     ],
+    enabled: view === USAGE_LOGS_VIEW.TABLE || !isCommon || isMobile,
     queryFn: async () => {
       const result = await fetchLogsByCategory({
         logCategory,
@@ -169,7 +205,29 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
     ensurePageInRange,
   })
 
-  const isCommon = logCategory === 'common'
+  const viewToggle =
+    isCommon && !isMobile ? (
+      <UsageLogsViewToggle value={view} onValueChange={handleViewChange} />
+    ) : null
+
+  if (isCommon && !isMobile && view === USAGE_LOGS_VIEW.STREAM) {
+    return (
+      <UsageLogsStreamView
+        logCategory={logCategory}
+        isAdmin={isAdmin}
+        pageSize={pagination.pageSize}
+        searchParams={searchParams}
+        columnFilters={columnFilters}
+        toolbar={
+          <CommonLogsFilterBar
+            table={table}
+            viewToggle={viewToggle}
+            showViewOptions={false}
+          />
+        }
+      />
+    )
+  }
 
   return (
     <DataTablePage
@@ -195,7 +253,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       }
       toolbar={
         isCommon ? (
-          <CommonLogsFilterBar table={table} />
+          <CommonLogsFilterBar table={table} viewToggle={viewToggle} />
         ) : (
           <TaskLogsFilterBar table={table} logCategory={logCategory} />
         )
