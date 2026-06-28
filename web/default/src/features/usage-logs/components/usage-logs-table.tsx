@@ -42,12 +42,18 @@ import {
   type UsageLogsView,
 } from '../constants'
 import { useColumnsByCategory } from '../lib/columns'
+import {
+  applyTopupClientFilters,
+  isTopupTypeFilter,
+} from '../lib/topup-filter'
 import { fetchLogsByCategory } from '../lib/utils'
 import type { LogCategory } from '../types'
+import type { UsageLog } from '../data/schema'
 import { CommonLogsFilterBar } from './common-logs-filter-bar'
 import { TaskLogsFilterBar } from './task-logs-filter-bar'
 import { UsageLogsMobileList } from './usage-logs-mobile-card'
 import { UsageLogsStreamView } from './usage-logs-stream-view'
+import { useUsageLogsContext } from './usage-logs-provider'
 import { UsageLogsViewToggle } from './usage-logs-view-toggle'
 
 const route = getRouteApi('/_authenticated/usage-logs/$section')
@@ -184,11 +190,22 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const logs = data?.items || []
+  // Topup mode narrows the loaded page on the client (backend cannot filter by
+  // payment channel / amount / plan). Other modes render the full page.
+  const isTopupMode = isTopupTypeFilter(searchParams)
+  const { topupClientFilters } = useUsageLogsContext()
+  const visibleLogs =
+    isTopupMode && logCategory === 'common'
+      ? (applyTopupClientFilters(
+          logs as UsageLog[],
+          topupClientFilters
+        ) as typeof logs)
+      : logs
   const columns = useColumnsByCategory(logCategory, isAdmin)
   const isLoadingData = isLoading || (isFetching && !data)
 
   const { table } = useDataTable({
-    data: logs as Record<string, unknown>[],
+    data: visibleLogs as Record<string, unknown>[],
     columns: columns as ColumnDef<Record<string, unknown>>[],
     columnFilters,
     columnVisibilityStorageKey: getColumnVisibilityStorageKey(

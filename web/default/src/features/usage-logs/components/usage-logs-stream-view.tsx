@@ -21,6 +21,7 @@ import { AlertCircle, ArrowUp, Database, Loader2, RefreshCw } from 'lucide-react
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -43,6 +44,10 @@ import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../data/schema'
 import type { TopupInfo } from '../lib/parse-topup'
+import {
+  applyTopupClientFilters,
+  isTopupTypeFilter,
+} from '../lib/topup-filter'
 import { useInfiniteLogs } from '../lib/use-infinite-logs'
 import type { LogCategory } from '../types'
 import { DetailsDialog } from './dialogs/details-dialog'
@@ -87,7 +92,7 @@ function UsageLogsStreamSkeleton() {
 export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   const { t } = useTranslation()
   const parentRef = useRef<HTMLDivElement | null>(null)
-  const { sensitiveVisible } = useUsageLogsContext()
+  const { sensitiveVisible, topupClientFilters } = useUsageLogsContext()
   const [selectedTopup, setSelectedTopup] = useState<{
     log: UsageLog
     topupInfo: TopupInfo
@@ -108,8 +113,20 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     livePaused: !isAtTop,
   })
 
+  // Topup mode narrows the already-loaded page on the client (the backend
+  // cannot filter by payment channel / amount / plan). Other modes render the
+  // full page unchanged.
+  const isTopupMode = isTopupTypeFilter(props.searchParams)
+  const visibleLogs = useMemo(
+    () =>
+      isTopupMode
+        ? applyTopupClientFilters(query.logs, topupClientFilters)
+        : query.logs,
+    [isTopupMode, query.logs, topupClientFilters]
+  )
+
   const rowVirtualizer = useVirtualizer({
-    count: query.logs.length,
+    count: visibleLogs.length,
     getScrollElement: () => parentRef.current,
     estimateSize: () => 52,
     overscan: 10,
@@ -233,7 +250,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
               </div>
             )}
 
-            {!query.isLoading && !query.isError && query.logs.length === 0 && (
+            {!query.isLoading && !query.isError && visibleLogs.length === 0 && (
               <div className='p-6'>
                 <Empty className='border-none p-0'>
                   <EmptyHeader>
@@ -251,13 +268,13 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
               </div>
             )}
 
-            {!query.isLoading && !query.isError && query.logs.length > 0 && (
+            {!query.isLoading && !query.isError && visibleLogs.length > 0 && (
               <div
                 className='relative min-w-max'
                 style={{ height: rowVirtualizer.getTotalSize() }}
               >
                 {virtualItems.map((virtualRow) => {
-                  const log = query.logs[virtualRow.index]
+                  const log = visibleLogs[virtualRow.index]
                   if (!log) return null
                   return (
                     <div

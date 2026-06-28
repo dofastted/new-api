@@ -37,12 +37,18 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useIsAdmin } from '@/hooks/use-admin'
 
-import { LOG_TYPE_ALL_VALUE, LOG_TYPE_FILTERS } from '../constants'
+import {
+  LOG_TYPE_ALL_VALUE,
+  LOG_TYPE_FILTERS,
+  LOG_TYPE_TOPUP_VALUE,
+  TOPUP_CHANNEL_META,
+} from '../constants'
 import { buildSearchParams } from '../lib/filter'
 import { getDefaultTimeRange } from '../lib/utils'
-import type { CommonLogFilters } from '../types'
+import type { CommonLogFilters, TopupClientFilters, TopupKind } from '../types'
 import { CommonLogsStats } from './common-logs-stats'
 import { CompactDateTimeRangePicker } from './compact-date-time-range-picker'
 import {
@@ -120,7 +126,12 @@ export function CommonLogsFilterBar<TData>(
   const queryClient = useQueryClient()
   const searchParams = route.useSearch()
   const isAdmin = useIsAdmin()
-  const { sensitiveVisible, setSensitiveVisible } = useUsageLogsContext()
+  const {
+    sensitiveVisible,
+    setSensitiveVisible,
+    topupClientFilters,
+    setTopupClientFilters,
+  } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
 
   const searchState = useMemo<CommonLogDraft>(() => {
@@ -265,6 +276,26 @@ export function CommonLogsFilterBar<TData>(
   )
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
+
+  const isTopupMode = logType === LOG_TYPE_TOPUP_VALUE
+
+  const topupChannelItems = useMemo(
+    () =>
+      (Object.keys(TOPUP_CHANNEL_META) as TopupKind[])
+        .filter((kind) => kind !== 'unknown')
+        .map((kind) => ({
+          kind,
+          label: t(TOPUP_CHANNEL_META[kind].labelKey),
+        })),
+    [t]
+  )
+
+  const updateTopupFilters = useCallback(
+    (patch: Partial<TopupClientFilters>) => {
+      setTopupClientFilters({ ...topupClientFilters, ...patch })
+    },
+    [setTopupClientFilters, topupClientFilters]
+  )
 
   const statsBar = (
     <div className='flex flex-wrap items-center gap-2'>
@@ -411,6 +442,185 @@ export function CommonLogsFilterBar<TData>(
       </LogsFilterField>
     </>
   )
+
+  // --- Topup-mode client-side filters (no URL params; current page only) ---
+  const topupChannelFilter = (
+    <LogsFilterField wide>
+      <div className='flex min-w-0 flex-col gap-1'>
+        <span className='text-muted-foreground text-[11px] leading-none font-medium'>
+          {t('Payment channel')}
+        </span>
+        <ToggleGroup
+          value={topupClientFilters.channels}
+          onValueChange={(value) => {
+            const next = Array.isArray(value)
+              ? (value.filter((v): v is TopupKind => typeof v === 'string') as TopupKind[])
+              : []
+            updateTopupFilters({ channels: next })
+          }}
+          variant='outline'
+          size='sm'
+          spacing={0}
+          aria-label={t('Payment channel')}
+          className='flex flex-wrap'
+        >
+          {topupChannelItems.map((item) => (
+            <ToggleGroupItem
+              key={item.kind}
+              value={item.kind}
+              aria-label={item.label}
+            >
+              {item.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+    </LogsFilterField>
+  )
+
+  const topupPlanFilter = (
+    <LogsFilterField>
+      <LogsFilterInput
+        placeholder={t('Plan name')}
+        value={topupClientFilters.planContains}
+        onChange={(e) =>
+          updateTopupFilters({ planContains: e.target.value })
+        }
+      />
+    </LogsFilterField>
+  )
+
+  const topupAmountFilter = (
+    <LogsFilterField wide>
+      <div className='flex min-w-0 items-center gap-2'>
+        <LogsFilterInput
+          type='number'
+          placeholder={t('Min amount')}
+          value={topupClientFilters.minAmount ?? ''}
+          onChange={(e) =>
+            updateTopupFilters({
+              minAmount: e.target.value === '' ? null : Number(e.target.value),
+            })
+          }
+          className='w-full'
+        />
+        <span className='text-muted-foreground shrink-0 text-xs'>—</span>
+        <LogsFilterInput
+          type='number'
+          placeholder={t('Max amount')}
+          value={topupClientFilters.maxAmount ?? ''}
+          onChange={(e) =>
+            updateTopupFilters({
+              maxAmount: e.target.value === '' ? null : Number(e.target.value),
+            })
+          }
+          className='w-full'
+        />
+      </div>
+    </LogsFilterField>
+  )
+
+  const topupClientHint = (
+    <span className='text-muted-foreground text-[11px]'>
+      {t('Client-side filter (current page only)')}
+    </span>
+  )
+
+  const topupPrimaryFilters = (
+    <>
+      {dateRangeFilter}
+      {topupChannelFilter}
+      {topupPlanFilter}
+      {topupAmountFilter}
+      {isAdmin && (
+        <LogsFilterField>
+          <LogsFilterInput
+            placeholder={t('Username')}
+            type={sensitiveType}
+            value={filters.username || ''}
+            onChange={(e) => handleChange('username', e.target.value)}
+            onKeyDown={handleKeyDown}
+          />
+        </LogsFilterField>
+      )}
+      {topupClientHint}
+    </>
+  )
+
+  // In topup mode the Type selector is locked to Topup (an exit affordance is
+  // provided via reset, which returns to All Types). We render a disabled,
+  // fixed-value Select so the layout stays consistent with the default bar.
+  const topupTypeFilter = (
+    <LogsFilterField>
+      <Select value={LOG_TYPE_TOPUP_VALUE} items={logTypeItems} disabled>
+        <SelectTrigger>
+          <SelectValue>{t('Top-up')}</SelectValue>
+        </SelectTrigger>
+        <SelectContent alignItemWithTrigger={false}>
+          <SelectGroup>
+            {LOG_TYPE_FILTERS.map((type) => (
+              <SelectItem key={type.value} value={type.value}>
+                {t(type.label)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
+        </SelectContent>
+      </Select>
+    </LogsFilterField>
+  )
+
+  // Reset in topup mode also clears the client-side topup filters.
+  const handleTopupReset = useCallback(() => {
+    handleReset()
+    setTopupClientFilters({
+      channels: [],
+      planContains: '',
+      minAmount: null,
+      maxAmount: null,
+    })
+  }, [handleReset, setTopupClientFilters])
+
+  const topupActiveCount =
+    topupClientFilters.channels.length +
+    (topupClientFilters.planContains.trim() !== '' ? 1 : 0) +
+    (topupClientFilters.minAmount != null ? 1 : 0) +
+    (topupClientFilters.maxAmount != null ? 1 : 0)
+
+  if (isTopupMode) {
+    return (
+      <LogsFilterToolbar
+        table={props.table}
+        stats={statsBar}
+        actionStart={sensitiveToggle}
+        actionEnd={props.viewToggle}
+        showViewOptions={props.showViewOptions}
+        primaryFilters={
+          <>
+            {topupTypeFilter}
+            {topupPrimaryFilters}
+          </>
+        }
+        advancedFilters={null}
+        mobilePinnedFilters={dateRangeFilter}
+        mobileFilters={
+          <>
+            {topupTypeFilter}
+            {topupChannelFilter}
+            {topupPlanFilter}
+            {topupAmountFilter}
+            {topupClientHint}
+          </>
+        }
+        mobileFilterCount={topupActiveCount}
+        hasAdvancedActiveFilters={false}
+        advancedFilterCount={0}
+        hasActiveFilters
+        onSearch={handleApply}
+        searchLoading={fetchingLogs > 0}
+        onReset={handleTopupReset}
+      />
+    )
+  }
 
   return (
     <LogsFilterToolbar

@@ -85,6 +85,33 @@ export interface TaskLogFilters extends CommonFilters {
  */
 export type LogFilters = CommonLogFilters | DrawingLogFilters | TaskLogFilters
 
+/**
+ * Topup-specific client-side filters.
+ *
+ * The backend log list endpoint does not support filtering by payment channel /
+ * amount / quota / plan (those are derived from `content` / `other` at display
+ * time via `parseTopup`). These filters therefore narrow the already-loaded
+ * page of logs on the client only — they are NOT serialized to URL params.
+ */
+export interface TopupClientFilters {
+  /** Selected payment-channel kinds; empty = all. */
+  channels: TopupKind[]
+  /** Plan title substring (case-insensitive contains). */
+  planContains: string
+  /** Minimum paid amount (inclusive), or null/undefined = no lower bound. */
+  minAmount?: number | null
+  /** Maximum paid amount (inclusive), or null/undefined = no upper bound. */
+  maxAmount?: number | null
+}
+
+/** A `TopupClientFilters` value with no active filtering. */
+export const EMPTY_TOPUP_CLIENT_FILTERS: TopupClientFilters = {
+  channels: [],
+  planContains: '',
+  minAmount: null,
+  maxAmount: null,
+}
+
 // ============================================================================
 // Common Logs Additional Types
 // ============================================================================

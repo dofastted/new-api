@@ -68,6 +68,12 @@ export const LOG_TYPE_ENUM = {
  */
 export const LOG_TYPE_ALL_VALUE = '0' as const
 
+/**
+ * The string form of the top-up log type (type=1), matching the `value` entries
+ * in `LOG_TYPE_FILTERS`. Used to detect topup-only filter mode.
+ */
+export const LOG_TYPE_TOPUP_VALUE = String(LOG_TYPE_ENUM.TOPUP) as '1'
+
 // ============================================================================
 // View Style
 // ============================================================================

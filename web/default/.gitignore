@@ -25,3 +25,6 @@ dist-ssr
 *.sln
 *.sw?
 .tanstack/*
+
+# i18n sync transient reports (only _sync-report.json is tracked)
+src/i18n/locales/_reports/*.untranslated.json
