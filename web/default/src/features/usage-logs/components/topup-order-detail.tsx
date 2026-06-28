@@ -106,7 +106,10 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
                 copyable={false}
               />
             </div>
-            <Progress value={100} className='[&_[data-slot=progress-indicator]]:bg-success' />
+            <Progress
+              value={100}
+              className='[&_[data-slot=progress-indicator]]:bg-success'
+            />
           </div>
 
           {/* Amount focal block — only for known topups */}
@@ -115,14 +118,12 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
               <div className='text-muted-foreground mb-1 text-[11px] font-medium'>
                 {t('Recharge quota')}
               </div>
-              <div className='text-foreground font-mono text-2xl tabular-nums leading-tight'>
+              <div className='text-foreground font-mono text-2xl leading-tight tabular-nums'>
                 {topupInfo.rechargeQuotaText || '-'}
               </div>
               <div className='text-muted-foreground mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs'>
                 <span className='inline-flex items-center gap-1'>
-                  <span className='text-muted-foreground/70'>
-                    {t('Paid')}:
-                  </span>
+                  <span className='text-muted-foreground/70'>{t('Paid')}:</span>
                   <span className='font-mono tabular-nums'>
                     {formatPayAmount(topupInfo.payAmount)}
                   </span>

@@ -32,12 +32,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { useIsAdmin } from '@/hooks/use-admin'
 
 import {
@@ -454,7 +454,9 @@ export function CommonLogsFilterBar<TData>(
           value={topupClientFilters.channels}
           onValueChange={(value) => {
             const next = Array.isArray(value)
-              ? (value.filter((v): v is TopupKind => typeof v === 'string') as TopupKind[])
+              ? (value.filter(
+                  (v): v is TopupKind => typeof v === 'string'
+                ) as TopupKind[])
               : []
             updateTopupFilters({ channels: next })
           }}
@@ -483,9 +485,7 @@ export function CommonLogsFilterBar<TData>(
       <LogsFilterInput
         placeholder={t('Plan name')}
         value={topupClientFilters.planContains}
-        onChange={(e) =>
-          updateTopupFilters({ planContains: e.target.value })
-        }
+        onChange={(e) => updateTopupFilters({ planContains: e.target.value })}
       />
     </LogsFilterField>
   )

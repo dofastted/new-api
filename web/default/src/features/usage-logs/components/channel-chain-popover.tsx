@@ -69,7 +69,10 @@ export function ChannelChainPopover(props: ChannelChainPopoverProps) {
   if (chain.length === 0) {
     return (
       <span
-        className={cn('text-muted-foreground truncate text-xs', props.className)}
+        className={cn(
+          'text-muted-foreground truncate text-xs',
+          props.className
+        )}
         title={displayName}
       >
         {displayName}
@@ -198,12 +201,13 @@ export function ChannelChainPopover(props: ChannelChainPopoverProps) {
           </button>
         }
       />
-      <PopoverContent align='start' className='w-[340px] max-w-[calc(100vw-2rem)] p-0'>
+      <PopoverContent
+        align='start'
+        className='w-[340px] max-w-[calc(100vw-2rem)] p-0'
+      >
         <div className='border-b p-3'>
           <div className='flex items-center justify-between'>
-            <h4 className='text-sm font-semibold'>
-              {t('Channel Chain')}
-            </h4>
+            <h4 className='text-sm font-semibold'>{t('Channel Chain')}</h4>
             <StatusBadge
               label={`${requestCount} ${t('times')}`}
               variant='neutral'

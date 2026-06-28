@@ -41,7 +41,7 @@ function StepRow(props: { label: string; value: React.ReactNode }) {
   return (
     <div className='grid min-w-0 grid-cols-[5.25rem_minmax(0,1fr)] gap-2 text-xs sm:grid-cols-[7rem_minmax(0,1fr)] sm:gap-3'>
       <span className='text-muted-foreground min-w-0'>{props.label}</span>
-      <span className='max-w-full min-w-0 break-all font-mono text-xs'>
+      <span className='max-w-full min-w-0 font-mono text-xs break-all'>
         {props.value}
       </span>
     </div>
@@ -111,9 +111,7 @@ export function DecisionChain(props: DecisionChainProps) {
                 )}
               >
                 <div className='flex min-w-0 flex-wrap items-center gap-1.5'>
-                  <span className='text-xs font-medium'>
-                    {stepTitle}
-                  </span>
+                  <span className='text-xs font-medium'>{stepTitle}</span>
                   <StatusBadge
                     label={formatChainChannel(entry)}
                     variant='neutral'

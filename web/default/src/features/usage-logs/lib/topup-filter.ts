@@ -18,11 +18,8 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { LOG_TYPE_ENUM, LOG_TYPE_TOPUP_VALUE } from '../constants'
 import type { UsageLog } from '../data/schema'
+import { EMPTY_TOPUP_CLIENT_FILTERS, type TopupClientFilters } from '../types'
 import { parseTopup } from './parse-topup'
-import {
-  EMPTY_TOPUP_CLIENT_FILTERS,
-  type TopupClientFilters,
-} from '../types'
 
 /**
  * Whether the URL search params select topup-only mode (type === '1').
@@ -42,9 +39,7 @@ export function isTopupTypeFilter(
  * Whether the client-side topup filter is effectively empty (no narrowing).
  * Used to skip the filter pass entirely when nothing is configured.
  */
-export function isTopupClientFilterEmpty(
-  filters: TopupClientFilters
-): boolean {
+export function isTopupClientFilterEmpty(filters: TopupClientFilters): boolean {
   return (
     filters.channels.length === 0 &&
     filters.planContains.trim() === '' &&

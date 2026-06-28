@@ -83,7 +83,8 @@ export const USAGE_LOGS_VIEW = {
   STREAM: 'stream',
 } as const
 
-export type UsageLogsView = (typeof USAGE_LOGS_VIEW)[keyof typeof USAGE_LOGS_VIEW]
+export type UsageLogsView =
+  (typeof USAGE_LOGS_VIEW)[keyof typeof USAGE_LOGS_VIEW]
 
 export function getUsageLogsViewStorageKey(isAdmin: boolean): string {
   return `usage-logs:common:${isAdmin ? 'admin' : 'user'}:view`

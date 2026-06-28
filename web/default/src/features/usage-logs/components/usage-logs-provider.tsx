@@ -51,9 +51,8 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
     useState<ChannelAffinityInfo | null>(null)
   const [affinityDialogOpen, setAffinityDialogOpen] = useState(false)
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
-  const [topupClientFilters, setTopupClientFilters] = useState<TopupClientFilters>(
-    EMPTY_TOPUP_CLIENT_FILTERS
-  )
+  const [topupClientFilters, setTopupClientFilters] =
+    useState<TopupClientFilters>(EMPTY_TOPUP_CLIENT_FILTERS)
 
   return (
     <UsageLogsContext.Provider

@@ -16,7 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type LucideIcon, CheckCircle2, Circle, RefreshCw, XCircle } from 'lucide-react'
+import {
+  type LucideIcon,
+  CheckCircle2,
+  Circle,
+  RefreshCw,
+  XCircle,
+} from 'lucide-react'
 
 import type { ChannelChainEntry } from '../types'
 

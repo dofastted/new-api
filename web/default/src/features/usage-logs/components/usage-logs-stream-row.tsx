@@ -31,11 +31,11 @@ import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { ChannelChainPopover } from './channel-chain-popover'
 import { parseLogOther } from '../lib/format'
 import { parseTopup, type TopupInfo } from '../lib/parse-topup'
 import { getLogTypeConfig, isDisplayableLogType } from '../lib/utils'
 import type { ChannelChainEntry } from '../types'
+import { ChannelChainPopover } from './channel-chain-popover'
 
 interface UsageLogsStreamRowProps {
   log: UsageLog
@@ -199,14 +199,18 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
 
       {/* Line 2: muted secondary chips */}
       <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-[7rem]'>
-        {props.isAdmin && (
-          <SecondaryChip label={t('User')} value={userText} />
-        )}
+        {props.isAdmin && <SecondaryChip label={t('User')} value={userText} />}
         {!isTopup && (
           <>
-            <SecondaryChip label={t('Tokens')} value={formatTokens(totalTokens)} />
+            <SecondaryChip
+              label={t('Tokens')}
+              value={formatTokens(totalTokens)}
+            />
             <SecondaryChip label={t('Cost')} value={quotaText} />
-            <SecondaryChip label={t('Time')} value={formatUseTime(log.use_time)} />
+            <SecondaryChip
+              label={t('Time')}
+              value={formatUseTime(log.use_time)}
+            />
             <SecondaryChip label={t('Group')} value={groupText} />
           </>
         )}

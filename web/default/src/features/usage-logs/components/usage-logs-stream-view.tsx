@@ -17,7 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useVirtualizer } from '@tanstack/react-virtual'
-import { AlertCircle, ArrowUp, Database, Loader2, RefreshCw } from 'lucide-react'
+import {
+  AlertCircle,
+  ArrowUp,
+  Database,
+  Loader2,
+  RefreshCw,
+} from 'lucide-react'
 import {
   useCallback,
   useEffect,
@@ -30,7 +36,6 @@ import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
-import { Switch } from '@/components/ui/switch'
 import {
   Empty,
   EmptyDescription,
@@ -39,15 +44,13 @@ import {
   EmptyTitle,
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Switch } from '@/components/ui/switch'
 import { useUsageLogsContext } from '@/features/usage-logs/components/usage-logs-provider'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../data/schema'
 import type { TopupInfo } from '../lib/parse-topup'
-import {
-  applyTopupClientFilters,
-  isTopupTypeFilter,
-} from '../lib/topup-filter'
+import { applyTopupClientFilters, isTopupTypeFilter } from '../lib/topup-filter'
 import { useInfiniteLogs } from '../lib/use-infinite-logs'
 import type { LogCategory } from '../types'
 import { DetailsDialog } from './dialogs/details-dialog'
