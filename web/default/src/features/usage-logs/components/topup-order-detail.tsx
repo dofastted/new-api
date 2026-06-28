@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
+but WITHOUT ANY WARRANTY; even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
@@ -70,6 +70,7 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
   const { t } = useTranslation()
   const log = props.log
   const topupInfo = props.topupInfo
+  const isUnknown = topupInfo?.kind === 'unknown'
 
   return (
     <Dialog open={props.open} onOpenChange={props.onOpenChange}>
@@ -82,9 +83,22 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
         </DialogHeader>
 
         <div className='space-y-4'>
+          {/* Header banner: channel + completed + progress */}
           <div className='border-border/70 bg-success/5 rounded-lg border p-3'>
             <div className='mb-2 flex items-center justify-between gap-3'>
-              <div className='text-sm font-medium'>{t('Payment progress')}</div>
+              <div className='flex min-w-0 items-center gap-2'>
+                {topupInfo && !isUnknown ? (
+                  <StatusBadge
+                    label={t(topupInfo.channelLabelKey)}
+                    variant={topupInfo.channelVariant}
+                    copyable={false}
+                  />
+                ) : (
+                  <span className='text-muted-foreground text-sm font-medium'>
+                    {t('Completed')}
+                  </span>
+                )}
+              </div>
               <StatusBadge
                 label={t('Completed')}
                 icon={CheckCircle2}
@@ -95,6 +109,39 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
             <Progress value={100} className='[&_[data-slot=progress-indicator]]:bg-success' />
           </div>
 
+          {/* Amount focal block — only for known topups */}
+          {topupInfo && !isUnknown && (
+            <div className='border-border/70 bg-muted/20 rounded-lg border px-4 py-3'>
+              <div className='text-muted-foreground mb-1 text-[11px] font-medium'>
+                {t('Recharge quota')}
+              </div>
+              <div className='text-foreground font-mono text-2xl tabular-nums leading-tight'>
+                {topupInfo.rechargeQuotaText || '-'}
+              </div>
+              <div className='text-muted-foreground mt-1.5 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 text-xs'>
+                <span className='inline-flex items-center gap-1'>
+                  <span className='text-muted-foreground/70'>
+                    {t('Paid')}:
+                  </span>
+                  <span className='font-mono tabular-nums'>
+                    {formatPayAmount(topupInfo.payAmount)}
+                  </span>
+                </span>
+                {topupInfo.planTitle && (
+                  <span className='inline-flex min-w-0 items-center gap-1'>
+                    <span className='text-muted-foreground/70'>
+                      {t('Plan')}:
+                    </span>
+                    <span className='text-foreground truncate font-medium'>
+                      {topupInfo.planTitle}
+                    </span>
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Metadata grid */}
           <div className='grid grid-cols-1 gap-2 sm:grid-cols-2'>
             <DetailItem
               label={t('Order time')}
@@ -114,7 +161,7 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
             <DetailItem
               label={t('Payment channel')}
               value={
-                topupInfo ? (
+                topupInfo && !isUnknown ? (
                   <StatusBadge
                     label={t(topupInfo.channelLabelKey)}
                     variant={topupInfo.channelVariant}
