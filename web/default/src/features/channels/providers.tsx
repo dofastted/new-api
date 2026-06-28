@@ -20,6 +20,7 @@ import { Link } from '@tanstack/react-router'
 import {
   Activity,
   ArrowRight,
+  ChevronDown,
   ListChecks,
   Route,
   ShieldAlert,
@@ -36,6 +37,11 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
 
 import { ChannelsDialogs } from './components/channels-dialogs'
 import { ChannelsPrimaryButtons } from './components/channels-primary-buttons'
@@ -101,84 +107,107 @@ function ProviderManagementOverview() {
   const { t } = useTranslation()
 
   return (
-    <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]'>
-      <Card className='border-primary/20 bg-primary/5 ring-primary/10'>
-        <CardHeader>
-          <div className='flex flex-wrap items-start justify-between gap-3'>
-            <div className='space-y-1'>
-              <CardTitle>{t('Provider routing center')}</CardTitle>
+    <Collapsible defaultOpen={false} className='group/provider-overview'>
+      <CollapsibleTrigger
+        render={
+          <Button
+            variant='ghost'
+            className='bg-card hover:bg-accent/50 h-auto w-full justify-between gap-2 border px-3 py-2 text-left'
+            aria-label={t('Toggle provider routing overview')}
+          />
+        }
+      >
+        <span className='flex min-w-0 items-center gap-2'>
+          <span className='bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-md'>
+            <Route className='size-4' aria-hidden='true' />
+          </span>
+          <span className='text-sm font-medium'>
+            {t('Provider routing center')}
+          </span>
+        </span>
+        <ChevronDown className='text-muted-foreground size-4 shrink-0 transition-transform duration-200 group-data-[open]/provider-overview:rotate-180' />
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className='grid gap-3 xl:grid-cols-[minmax(0,1fr)_360px]'>
+          <Card className='border-primary/20 bg-primary/5 ring-primary/10'>
+            <CardHeader>
+              <div className='flex flex-wrap items-start justify-between gap-3'>
+                <div className='space-y-1'>
+                  <CardTitle>{t('Provider routing center')}</CardTitle>
+                  <CardDescription>
+                    {t(
+                      'Manage upstream providers in one place: credentials, model coverage, group access, priority, weight, and failure handling.'
+                    )}
+                  </CardDescription>
+                </div>
+                <StatusBadge
+                  label={t('Admin only')}
+                  variant='info'
+                  size='lg'
+                  copyable={false}
+                />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
+                {providerFlowSteps.map((step) => {
+                  const Icon = step.icon
+                  return (
+                    <div
+                      key={step.titleKey}
+                      className='bg-background/70 rounded-lg border p-3'
+                    >
+                      <div className='flex items-center gap-2'>
+                        <span className='bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md'>
+                          <Icon className='size-4' aria-hidden='true' />
+                        </span>
+                        <div className='text-sm font-medium'>
+                          {t(step.titleKey)}
+                        </div>
+                      </div>
+                      <p className='text-muted-foreground mt-2 text-xs leading-5'>
+                        {t(step.descriptionKey)}
+                      </p>
+                    </div>
+                  )
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('Routing controls')}</CardTitle>
               <CardDescription>
                 {t(
-                  'Manage upstream providers in one place: credentials, model coverage, group access, priority, weight, and failure handling.'
+                  'Global policies that decide when failed providers are retried, skipped, or disabled.'
                 )}
               </CardDescription>
-            </div>
-            <StatusBadge
-              label={t('Admin only')}
-              variant='info'
-              size='lg'
-              copyable={false}
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className='grid gap-3 sm:grid-cols-2 xl:grid-cols-4'>
-            {providerFlowSteps.map((step) => {
-              const Icon = step.icon
-              return (
-                <div
-                  key={step.titleKey}
-                  className='bg-background/70 rounded-lg border p-3'
+            </CardHeader>
+            <CardContent className='space-y-2'>
+              {managementLinks.map((item) => (
+                <Button
+                  key={item.titleKey}
+                  variant='outline'
+                  className='h-auto w-full justify-between gap-3 px-3 py-2 text-left'
+                  render={<Link to={item.to} params={item.params} />}
                 >
-                  <div className='flex items-center gap-2'>
-                    <span className='bg-muted text-muted-foreground flex size-8 items-center justify-center rounded-md'>
-                      <Icon className='size-4' aria-hidden='true' />
+                  <span className='min-w-0 space-y-0.5'>
+                    <span className='block text-sm font-medium'>
+                      {t(item.titleKey)}
                     </span>
-                    <div className='text-sm font-medium'>
-                      {t(step.titleKey)}
-                    </div>
-                  </div>
-                  <p className='text-muted-foreground mt-2 text-xs leading-5'>
-                    {t(step.descriptionKey)}
-                  </p>
-                </div>
-              )
-            })}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>{t('Routing controls')}</CardTitle>
-          <CardDescription>
-            {t(
-              'Global policies that decide when failed providers are retried, skipped, or disabled.'
-            )}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className='space-y-2'>
-          {managementLinks.map((item) => (
-            <Button
-              key={item.titleKey}
-              variant='outline'
-              className='h-auto w-full justify-between gap-3 px-3 py-2 text-left'
-              render={<Link to={item.to} params={item.params} />}
-            >
-              <span className='min-w-0 space-y-0.5'>
-                <span className='block text-sm font-medium'>
-                  {t(item.titleKey)}
-                </span>
-                <span className='text-muted-foreground block text-xs whitespace-normal'>
-                  {t(item.descriptionKey)}
-                </span>
-              </span>
-              <ArrowRight className='size-4 shrink-0' aria-hidden='true' />
-            </Button>
-          ))}
-        </CardContent>
-      </Card>
-    </div>
+                    <span className='text-muted-foreground block text-xs whitespace-normal'>
+                      {t(item.descriptionKey)}
+                    </span>
+                  </span>
+                  <ArrowRight className='size-4 shrink-0' aria-hidden='true' />
+                </Button>
+              ))}
+            </CardContent>
+          </Card>
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
   )
 }
 
