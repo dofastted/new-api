@@ -62,6 +62,7 @@ import {
   isTimingLogType,
 } from '../../lib/utils'
 import type { LogOtherData } from '../../types'
+import { DecisionChain } from '../decision-chain'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -797,6 +798,9 @@ export function DetailsDialog(props: DetailsDialogProps) {
             </div>
           </DetailSection>
         )}
+
+        {/* Decision chain — visual step view of channel_chain (consume/error) */}
+        {decisionTrace.length > 0 && <DecisionChain chain={decisionTrace} />}
 
         {/* Routing metadata */}
         {(requestMetadataRows.length > 0 || decisionTrace.length > 0) && (

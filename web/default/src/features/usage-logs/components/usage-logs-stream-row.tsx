@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; without even the implied warranty of
+but WITHOUT ANY WARRANTY; even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
@@ -25,13 +25,17 @@ import {
   formatLogQuota,
   formatTimestampToDate,
   formatTokens,
+  formatUseTime,
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { LOG_TYPE_ENUM } from '../constants'
 import type { UsageLog } from '../data/schema'
+import { ChannelChainPopover } from './channel-chain-popover'
+import { parseLogOther } from '../lib/format'
 import { parseTopup, type TopupInfo } from '../lib/parse-topup'
 import { getLogTypeConfig, isDisplayableLogType } from '../lib/utils'
+import type { ChannelChainEntry } from '../types'
 
 interface UsageLogsStreamRowProps {
   log: UsageLog
@@ -39,6 +43,7 @@ interface UsageLogsStreamRowProps {
   sensitiveVisible: boolean
   isNew?: boolean
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
+  onRowClick?: (log: UsageLog) => void
 }
 
 const logTypeRowTint: Record<number, string> = {
@@ -65,24 +70,6 @@ function formatPaymentAmount(amount: number | null): string {
 
 function getLogTypeVariant(variant: string): StatusVariant {
   return variant === 'default' ? 'neutral' : (variant as StatusVariant)
-}
-
-function StreamCell(props: {
-  children: React.ReactNode
-  className?: string
-  title?: string
-}) {
-  return (
-    <div
-      className={cn(
-        'min-w-0 truncate px-2 text-left leading-tight',
-        props.className
-      )}
-      title={props.title}
-    >
-      {props.children}
-    </div>
-  )
 }
 
 function TopupContent(props: { topupInfo: TopupInfo }) {
@@ -124,6 +111,16 @@ function TopupContent(props: { topupInfo: TopupInfo }) {
   )
 }
 
+function SecondaryChip(props: { label: string; value: string }) {
+  if (!props.value || props.value === '-') return null
+  return (
+    <span className='text-muted-foreground inline-flex items-center gap-1 text-[11px]'>
+      <span className='text-muted-foreground/70'>{props.label}</span>
+      <span className='font-mono tabular-nums'>{props.value}</span>
+    </span>
+  )
+}
+
 function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const { t } = useTranslation()
   const log = props.log
@@ -132,84 +129,129 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     log.type === LOG_TYPE_ENUM.TOPUP ? parseTopup(log) : undefined
   const rowTint = logTypeRowTint[log.type] ?? ''
   const totalTokens = (log.prompt_tokens || 0) + (log.completion_tokens || 0)
+  const other = parseLogOther(log.other)
+  const channelChain: ChannelChainEntry[] = Array.isArray(other?.channel_chain)
+    ? other.channel_chain
+    : []
+
+  const isTopup = log.type === LOG_TYPE_ENUM.TOPUP
   const userText = props.isAdmin
-    ? maskSensitive(log.username || String(log.user_id || ''), props.sensitiveVisible)
+    ? maskSensitive(
+        log.username || String(log.user_id || ''),
+        props.sensitiveVisible
+      )
     : '-'
-  const tokenText = maskSensitive(log.token_name, props.sensitiveVisible)
   const groupText = maskSensitive(log.group, props.sensitiveVisible)
   const channelText =
     log.channel_name || (log.channel ? String(log.channel) : '-')
-  const quotaText = isDisplayableLogType(log.type) ? formatLogQuota(log.quota) : '-'
+  const quotaText = isDisplayableLogType(log.type)
+    ? formatLogQuota(log.quota)
+    : '-'
+  const finalChannelName = channelText
 
-  const rowContent = (
-    <>
-      <StreamCell className='w-[8.5rem] shrink-0 font-mono text-xs tabular-nums'>
-        {formatTimestampToDate(log.created_at)}
-      </StreamCell>
-      <StreamCell className='w-[5.8rem] shrink-0'>
+  // Primary identifier content depends on log type.
+  let primaryContent: React.ReactNode
+  if (isTopup) {
+    primaryContent = topupInfo ? (
+      <div className='min-w-0 flex-1'>
+        <TopupContent topupInfo={topupInfo} />
+      </div>
+    ) : (
+      <span className='text-muted-foreground min-w-0 flex-1 truncate text-xs'>
+        {log.content || '-'}
+      </span>
+    )
+  } else {
+    const fallbackContent = log.content ? log.content.slice(0, 80) : '-'
+    const primaryId = log.model_name || fallbackContent
+    primaryContent = (
+      <span
+        className='text-foreground min-w-0 flex-1 truncate text-xs'
+        title={log.content || log.model_name || ''}
+      >
+        {primaryId}
+      </span>
+    )
+  }
+
+  const rowBody = (
+    <div className='flex min-w-0 flex-1 flex-col gap-0.5'>
+      {/* Line 1: time · type · primary id · chain popover */}
+      <div className='flex min-w-0 items-center gap-2'>
+        <span className='text-muted-foreground w-[7rem] shrink-0 font-mono text-[11px] tabular-nums'>
+          {formatTimestampToDate(log.created_at)}
+        </span>
         <StatusBadge
           label={t(logTypeConfig.label)}
           variant={getLogTypeVariant(logTypeConfig.color)}
           copyable={false}
+          className='shrink-0'
         />
-      </StreamCell>
-      {props.isAdmin && (
-        <StreamCell className='w-[7rem] shrink-0 text-xs' title={userText}>
-          {userText}
-        </StreamCell>
-      )}
-      <StreamCell className='w-[7rem] shrink-0 text-xs' title={tokenText}>
-        {tokenText}
-      </StreamCell>
-      <StreamCell className='w-[10rem] shrink-0 text-xs' title={log.model_name}>
-        {log.model_name || '-'}
-      </StreamCell>
-      {props.isAdmin && (
-        <StreamCell className='w-[7rem] shrink-0 text-xs' title={channelText}>
-          {channelText}
-        </StreamCell>
-      )}
-      <StreamCell className='w-[5.8rem] shrink-0 font-mono text-xs tabular-nums'>
-        {formatTokens(totalTokens)}
-      </StreamCell>
-      <StreamCell className='w-[7rem] shrink-0 font-mono text-xs tabular-nums'>
-        {quotaText}
-      </StreamCell>
-      <StreamCell className='w-[6rem] shrink-0 text-xs' title={groupText}>
-        {groupText}
-      </StreamCell>
-      <StreamCell
-        className='min-w-[15rem] flex-1 text-xs'
-        title={topupInfo ? topupInfo.raw : log.content}
-      >
-        {topupInfo ? <TopupContent topupInfo={topupInfo} /> : log.content || '-'}
-      </StreamCell>
-      <StreamCell className='w-[7rem] shrink-0 font-mono text-xs tabular-nums'>
-        {maskSensitive(log.ip, props.sensitiveVisible)}
-      </StreamCell>
-    </>
+        {primaryContent}
+        {props.isAdmin && !isTopup && (
+          <ChannelChainPopover
+            chain={channelChain}
+            finalChannelName={finalChannelName}
+            className='shrink-0'
+          />
+        )}
+      </div>
+
+      {/* Line 2: muted secondary chips */}
+      <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-[7rem]'>
+        {props.isAdmin && (
+          <SecondaryChip label={t('User')} value={userText} />
+        )}
+        {!isTopup && (
+          <>
+            <SecondaryChip label={t('Tokens')} value={formatTokens(totalTokens)} />
+            <SecondaryChip label={t('Cost')} value={quotaText} />
+            <SecondaryChip label={t('Time')} value={formatUseTime(log.use_time)} />
+            <SecondaryChip label={t('Group')} value={groupText} />
+          </>
+        )}
+        {props.isAdmin && (
+          <SecondaryChip
+            label='IP'
+            value={maskSensitive(log.ip, props.sensitiveVisible)}
+          />
+        )}
+      </div>
+    </div>
   )
 
   const className = cn(
-    'border-border/40 flex h-[52px] w-full items-center border-b border-l-2 border-l-transparent text-[13px] transition-colors hover:bg-accent/50',
+    'border-border/40 hover:bg-accent/50 flex h-[52px] w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
     rowTint,
     props.isNew && 'usage-log-row-new',
-    topupInfo && 'cursor-pointer'
+    (topupInfo || props.onRowClick) && 'cursor-pointer'
   )
 
-  if (topupInfo) {
+  if (isTopup && topupInfo) {
     return (
       <button
         type='button'
         className={cn(className, 'text-left')}
         onClick={() => props.onTopupClick(log, topupInfo)}
       >
-        {rowContent}
+        {rowBody}
       </button>
     )
   }
 
-  return <div className={className}>{rowContent}</div>
+  if (props.onRowClick) {
+    return (
+      <button
+        type='button'
+        className={cn(className, 'text-left')}
+        onClick={() => props.onRowClick?.(log)}
+      >
+        {rowBody}
+      </button>
+    )
+  }
+
+  return <div className={className}>{rowBody}</div>
 }
 
 export const UsageLogsStreamRow = memo(UsageLogsStreamRowInner)

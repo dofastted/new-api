@@ -21,7 +21,6 @@ import { AlertCircle, ArrowUp, Database, Loader2, RefreshCw } from 'lucide-react
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -46,6 +45,7 @@ import type { UsageLog } from '../data/schema'
 import type { TopupInfo } from '../lib/parse-topup'
 import { useInfiniteLogs } from '../lib/use-infinite-logs'
 import type { LogCategory } from '../types'
+import { DetailsDialog } from './dialogs/details-dialog'
 import { TopupOrderDetail } from './topup-order-detail'
 import { UsageLogsStreamRow } from './usage-logs-stream-row'
 
@@ -58,7 +58,6 @@ interface UsageLogsStreamViewProps {
   toolbar: ReactNode
 }
 
-const HEADER_HEIGHT_CLASS = 'h-8'
 const SKELETON_ROW_KEYS = [
   'stream-skeleton-a',
   'stream-skeleton-b',
@@ -70,29 +69,15 @@ const SKELETON_ROW_KEYS = [
   'stream-skeleton-h',
 ] as const
 
-function HeaderCell(props: { children: ReactNode; className?: string }) {
-  return (
-    <div
-      className={cn(
-        'min-w-0 truncate px-2 text-left text-[11px] leading-none font-medium',
-        props.className
-      )}
-    >
-      {props.children}
-    </div>
-  )
-}
-
 function UsageLogsStreamSkeleton() {
   return (
     <div className='divide-border/40 divide-y'>
       {SKELETON_ROW_KEYS.map((key) => (
-        <div key={key} className='flex h-[52px] items-center gap-2 px-2'>
-          <Skeleton className='h-4 w-28 rounded' />
+        <div key={key} className='flex h-[52px] items-center gap-3 px-3'>
+          <Skeleton className='h-3 w-24 rounded' />
           <Skeleton className='h-5 w-16 rounded-full' />
-          <Skeleton className='h-4 w-24 rounded' />
-          <Skeleton className='h-4 w-32 rounded' />
           <Skeleton className='h-4 flex-1 rounded' />
+          <Skeleton className='h-4 w-20 rounded' />
         </div>
       ))}
     </div>
@@ -107,6 +92,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     log: UsageLog
     topupInfo: TopupInfo
   } | null>(null)
+  const [selectedLog, setSelectedLog] = useState<UsageLog | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(true)
   // Live rows only insert while the user is at the top; once they scroll down to
   // browse history, polling pauses so the scroll position never jumps.
@@ -168,34 +154,6 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     logs.length,
   ])
 
-  const header = useMemo(
-    () => (
-      <div
-        className={cn(
-          'bg-muted/30 text-muted-foreground sticky top-0 z-10 flex min-w-max items-center border-b',
-          HEADER_HEIGHT_CLASS
-        )}
-      >
-        <HeaderCell className='w-[8.5rem] shrink-0'>{t('Time')}</HeaderCell>
-        <HeaderCell className='w-[5.8rem] shrink-0'>{t('Type')}</HeaderCell>
-        {props.isAdmin && (
-          <HeaderCell className='w-[7rem] shrink-0'>{t('User')}</HeaderCell>
-        )}
-        <HeaderCell className='w-[7rem] shrink-0'>{t('Token')}</HeaderCell>
-        <HeaderCell className='w-[10rem] shrink-0'>{t('Model')}</HeaderCell>
-        {props.isAdmin && (
-          <HeaderCell className='w-[7rem] shrink-0'>{t('Channel')}</HeaderCell>
-        )}
-        <HeaderCell className='w-[5.8rem] shrink-0'>{t('Tokens')}</HeaderCell>
-        <HeaderCell className='w-[7rem] shrink-0'>{t('Cost')}</HeaderCell>
-        <HeaderCell className='w-[6rem] shrink-0'>{t('Group')}</HeaderCell>
-        <HeaderCell className='min-w-[15rem] flex-1'>{t('Details')}</HeaderCell>
-        <HeaderCell className='w-[7rem] shrink-0'>{t('IP')}</HeaderCell>
-      </div>
-    ),
-    [props.isAdmin, t]
-  )
-
   return (
     <div className='flex h-full min-h-0 flex-col gap-3'>
       {props.toolbar}
@@ -256,9 +214,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
 
       <div className='border-border/70 bg-card min-h-0 flex-1 overflow-hidden rounded-lg border'>
         <div ref={parentRef} className='h-full overflow-auto'>
-          <div className='min-w-[980px]'>
-            {header}
-
+          <div>
             {query.isLoading && <UsageLogsStreamSkeleton />}
 
             {query.isError && (
@@ -320,6 +276,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
                         onTopupClick={(nextLog, topupInfo) =>
                           setSelectedTopup({ log: nextLog, topupInfo })
                         }
+                        onRowClick={setSelectedLog}
                       />
                     </div>
                   )
@@ -356,6 +313,17 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
           if (!open) setSelectedTopup(null)
         }}
       />
+
+      {selectedLog && (
+        <DetailsDialog
+          log={selectedLog}
+          isAdmin={props.isAdmin}
+          open={selectedLog != null}
+          onOpenChange={(open) => {
+            if (!open) setSelectedLog(null)
+          }}
+        />
+      )}
     </div>
   )
 }
