@@ -370,6 +370,103 @@ func RebuildAbilitiesFromProviderGroups() error {
 	return rebuildAbilitiesFromProviderGroups()
 }
 
+// SyncProviderGroupChannelsForChannel mirrors a channel's Group/Priority into
+// provider_group_channels, the single source of truth for routing abilities.
+// When syncPriority is true, existing memberships get their priority updated to
+// channel.Priority; enabled is always left to the groups page. Stale memberships
+// (group no longer in channel.Group) are deleted. No-op when the PGC table is
+// absent (legacy deployments keep the channel.Group-driven ability path).
+func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) error {
+	if !providerGroupTableReady(&ProviderGroupChannel{}) {
+		return nil
+	}
+	routingGroups := make([]string, 0)
+	for _, g := range channel.GetGroups() {
+		if !IsReservedUserProviderGroupName(g) {
+			routingGroups = append(routingGroups, g)
+		}
+	}
+	routingSet := make(map[string]struct{}, len(routingGroups))
+	for _, g := range routingGroups {
+		routingSet[g] = struct{}{}
+	}
+
+	var existing []ProviderGroupChannel
+	if err := DB.Where("channel_id = ?", channel.Id).Find(&existing).Error; err != nil {
+		return err
+	}
+	existingByName := make(map[string]ProviderGroupChannel, len(existing))
+	for _, m := range existing {
+		existingByName[m.GroupName] = m
+	}
+
+	now := common.GetTimestamp()
+	toCreate := make([]ProviderGroupChannel, 0)
+	toUpdate := make([]ProviderGroupChannel, 0)
+	for _, g := range routingGroups {
+		m, ok := existingByName[g]
+		if !ok {
+			pgID, err := getProviderGroupID(DB, g)
+			if err != nil {
+				continue
+			}
+			weight := uint(channel.GetWeight())
+			toCreate = append(toCreate, ProviderGroupChannel{
+				ProviderGroupId: pgID,
+				GroupName:       g,
+				ChannelId:       channel.Id,
+				Priority:        channel.Priority,
+				Weight:          &weight,
+				RouteTypes:      ProviderRouteTypesForChannel(channel),
+				Enabled:         channel.Status == common.ChannelStatusEnabled,
+				CreatedTime:     now,
+				UpdatedTime:     now,
+			})
+		} else {
+			// Always refresh route_types (derived from channel config); priority
+			// only when syncPriority. Enabled stays groups-page authoritative.
+			m.RouteTypes = ProviderRouteTypesForChannel(channel)
+			if syncPriority {
+				m.Priority = channel.Priority
+			}
+			m.UpdatedTime = now
+			toUpdate = append(toUpdate, m)
+		}
+	}
+	toDelete := make([]int, 0)
+	for _, m := range existing {
+		if _, ok := routingSet[m.GroupName]; !ok {
+			toDelete = append(toDelete, m.Id)
+		}
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		if len(toCreate) > 0 {
+			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&toCreate).Error; err != nil {
+				return err
+			}
+		}
+		for _, m := range toUpdate {
+			patch := map[string]interface{}{
+				"route_types":  m.RouteTypes,
+				"updated_time": m.UpdatedTime,
+			}
+			if syncPriority {
+				patch["priority"] = m.Priority
+			}
+			if err := tx.Model(&ProviderGroupChannel{}).Where("id = ?", m.Id).
+				Updates(patch).Error; err != nil {
+				return err
+			}
+		}
+		if len(toDelete) > 0 {
+			if err := tx.Where("id IN ?", toDelete).Delete(&ProviderGroupChannel{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func rebuildAbilitiesFromProviderGroups() error {
 	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) {
 		return nil
@@ -382,9 +479,8 @@ func rebuildAbilitiesFromProviderGroups() error {
 		Find(&members).Error; err != nil {
 		return err
 	}
-	if len(members) == 0 {
-		return nil
-	}
+	// Always clear the derived abilities table, even when no enabled members
+	// remain, so disabling the last group / member removes stale routing.
 	channelIDs := make([]int, 0, len(members))
 	for _, member := range members {
 		channelIDs = append(channelIDs, member.ChannelId)

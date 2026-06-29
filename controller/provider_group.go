@@ -93,6 +93,15 @@ func UpdateProviderGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	// Enabled status is the groups-page authoritative control over routing:
+	// flipping a group offline must remove its abilities immediately.
+	if input.Status != group.Status {
+		if err := model.RebuildAbilitiesFromProviderGroups(); err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		model.InitChannelCache()
+	}
 	common.ApiSuccess(c, group)
 }
 
@@ -106,6 +115,11 @@ func DeleteProviderGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.RebuildAbilitiesFromProviderGroups(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	model.InitChannelCache()
 	common.ApiSuccess(c, nil)
 }
 

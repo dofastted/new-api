@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { Link } from '@tanstack/react-router'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -2525,6 +2526,14 @@ export function ChannelMutateDrawer({
                                 <FormDescription>
                                   {t(FIELD_DESCRIPTIONS.GROUP)}
                                 </FormDescription>
+                                <div className='text-muted-foreground text-xs'>
+                                  <Link
+                                    to='/providers/groups'
+                                    className='text-primary underline-offset-4 hover:underline'
+                                  >
+                                    {t('Manage enabled status and order in Provider groups')}
+                                  </Link>
+                                </div>
                               </div>
                               <FormControl>
                                 {isLoadingGroups ? (

@@ -22,6 +22,7 @@ import {
   ArrowDown,
   ArrowUp,
   GitBranch,
+  GripVertical,
   Info,
   Plus,
   Route,
@@ -29,12 +30,12 @@ import {
   Search,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { StaticDataTable } from '@/components/data-table'
+import { StaticDataTable, type StaticDataTableColumn } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -57,6 +58,7 @@ import { Input } from '@/components/ui/input'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { TableRow, TableCell } from '@/components/ui/table'
 import { getChannels } from '@/features/channels/api'
 import { CHANNEL_TYPES } from '@/features/channels/constants'
 import { channelsQueryKeys } from '@/features/channels/lib'
@@ -83,6 +85,7 @@ const PROVIDER_GROUP_CHANNEL_PAGE_SIZE = 10000
 type MembershipState = {
   enabled: boolean
   priority: number
+  sortOrder: number
 }
 
 type MetadataDraft = {
@@ -135,13 +138,17 @@ function buildProviderGroupUpdatePayload(
     ...patch,
   }
 }
-
 function buildMembershipState(
   channels: Channel[],
   memberships: ProviderGroupChannel[]
 ): Record<number, MembershipState> {
   const membershipByChannel = new Map(
     memberships.map((item) => [item.channel_id, item])
+  )
+  // Stable ordering by sort_order so the member list reflects the saved
+  // drag order; ties fall back to channel id for deterministic output.
+  const ordered = [...memberships].sort(
+    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.channel_id - b.channel_id
   )
   const state: Record<number, MembershipState> = {}
   for (const channel of channels) {
@@ -150,11 +157,21 @@ function buildMembershipState(
       ? {
           enabled: membership.enabled,
           priority: membership.priority ?? channel.priority ?? 0,
+          sortOrder: membership.sort_order ?? 0,
         }
       : {
           enabled: false,
           priority: channel.priority ?? 0,
+          sortOrder: 0,
         }
+  }
+  // Assign sequential sort_order to enabled members based on saved order so
+  // the member list renders in the persisted drag order.
+  let nextOrder = 0
+  for (const m of ordered) {
+    if (state[m.channel_id]?.enabled) {
+      state[m.channel_id].sortOrder = nextOrder++
+    }
   }
   return state
 }
@@ -554,6 +571,13 @@ function ProviderGroupDetail({
   const [membershipDirty, setMembershipDirty] = useState(false)
   const [providerFilter, setProviderFilter] = useState('')
   const [pendingProviderId, setPendingProviderId] = useState('')
+  const [draggedChannelId, setDraggedChannelId] = useState<number | null>(null)
+  const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(
+    null
+  )
+  const [dragOverPosition, setDragOverPosition] = useState<'before' | 'after'>(
+    'before'
+  )
 
   useEffect(() => {
     if (membershipDirty) return
@@ -590,20 +614,20 @@ function ProviderGroupDetail({
 
   const membershipMutation = useMutation({
     mutationFn: async () => {
-      const items: ProviderGroupChannel[] = channels
-        .filter((channel) => membership[channel.id]?.enabled)
-        .map((channel, index) => {
-          const state = membership[channel.id]
+      const items: ProviderGroupChannel[] = selectedChannels.map(
+        (channel, index) => {
           return {
             provider_group_id: group.id,
             channel_id: channel.id,
-            priority: state.priority,
+            // Drag order IS priority: top of list = highest priority.
+            priority: selectedChannels.length - index,
             weight: null,
             route_types: '',
             enabled: true,
             sort_order: index,
           }
-        })
+        }
+      )
       const response = await updateProviderGroupChannels(group.id, items)
       if (!response.success) {
         throw new Error(response.message || t('Failed to update members'))
@@ -651,13 +675,70 @@ function ProviderGroupDetail({
     }))
   }
 
+  const reorderMember = (sourceId: number, targetId: number, position: 'before' | 'after') => {
+    const ordered = [...selectedChannels]
+    const sourceIndex = ordered.findIndex((c) => c.id === sourceId)
+    const targetIndex = ordered.findIndex((c) => c.id === targetId)
+    if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return
+    const [moved] = ordered.splice(sourceIndex, 1)
+    let insertAt = ordered.findIndex((c) => c.id === targetId)
+    if (position === 'after') insertAt += 1
+    ordered.splice(insertAt, 0, moved)
+    setMembershipDirty(true)
+    setMembership((current) => {
+      const next = { ...current }
+      ordered.forEach((channel, index) => {
+        next[channel.id] = { ...next[channel.id], sortOrder: index }
+      })
+      return next
+    })
+  }
+
+  const resetDragState = () => {
+    setDraggedChannelId(null)
+    setDragOverChannelId(null)
+    setDragOverPosition('before')
+  }
+
+  const handleDragStart = (event: DragEvent, channelId: number) => {
+    setDraggedChannelId(channelId)
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', String(channelId))
+  }
+
+  const handleDragOver = (event: DragEvent, channelId: number) => {
+    if (!draggedChannelId || draggedChannelId === channelId) return
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const position: 'before' | 'after' =
+      event.clientY - rect.top > rect.height / 2 ? 'after' : 'before'
+    setDragOverChannelId(channelId)
+    setDragOverPosition(position)
+    event.dataTransfer.dropEffect = 'move'
+  }
+
+  const handleDrop = (event: DragEvent, channelId: number) => {
+    event.preventDefault()
+    const sourceId =
+      draggedChannelId ??
+      Number.parseInt(event.dataTransfer.getData('text/plain'), 10)
+    if (sourceId && channelId && sourceId !== channelId) {
+      const position = dragOverChannelId === channelId ? dragOverPosition : 'before'
+      reorderMember(sourceId, channelId, position)
+    }
+    resetDragState()
+  }
+
   const memberCount = channels.filter(
     (channel) => membership[channel.id]?.enabled
   ).length
 
-  const selectedChannels = channels.filter(
-    (channel) => membership[channel.id]?.enabled
-  )
+  const selectedChannels = channels
+    .filter((channel) => membership[channel.id]?.enabled)
+    .sort(
+      (a, b) =>
+        (membership[a.id]?.sortOrder ?? 0) - (membership[b.id]?.sortOrder ?? 0)
+    )
   const selectedChannelIds = new Set(
     selectedChannels.map((channel) => channel.id)
   )
@@ -679,13 +760,46 @@ function ProviderGroupDetail({
   const addPendingProvider = () => {
     const channelId = Number.parseInt(pendingProviderId, 10)
     if (!channelId) return
-    updateMembership(channelId, { enabled: true })
+    updateMembership(channelId, {
+      enabled: true,
+      sortOrder: selectedChannels.length,
+    })
     setPendingProviderId('')
   }
 
   const removeProvider = (channelId: number) => {
     updateMembership(channelId, { enabled: false })
+    // Reindex remaining members so sort_order stays contiguous.
+    const remaining = selectedChannels
+      .filter((channel) => channel.id !== channelId)
+    setMembershipDirty(true)
+    setMembership((current) => {
+      const next = { ...current }
+      remaining.forEach((channel, index) => {
+        next[channel.id] = { ...next[channel.id], sortOrder: index }
+      })
+      return next
+    })
   }
+  const getDragRowClassName = (channelId: number) => {
+    if (dragOverChannelId !== channelId) return undefined
+    return dragOverPosition === 'before'
+      ? 'border-t-2 border-primary'
+      : 'border-b-2 border-primary'
+  }
+
+  const memberColumns: StaticDataTableColumn<Channel>[] = [
+    { id: 'drag', header: '', className: 'w-10' },
+    { id: 'provider', header: t('Provider'), className: 'min-w-64' },
+    {
+      id: 'routes',
+      header: t('Auto-detected routes'),
+      className: 'min-w-64',
+    },
+    { id: 'priority', header: t('Priority'), className: 'w-28' },
+    { id: 'actions', header: t('Actions'), className: 'w-24' },
+  ]
+
   return (
     <Card className='min-h-0'>
       <CardHeader>
@@ -795,7 +909,7 @@ function ProviderGroupDetail({
                 <div className='text-sm font-medium'>{t('Providers')}</div>
                 <p className='text-muted-foreground text-xs'>
                   {t(
-                    'Add providers to this group. Route support is read from each provider configuration automatically; only priority is configured here.'
+                    'Add providers to this group and drag to set routing priority — top of the list is tried first. Enabled status and order here are the final routing source of truth.'
                   )}{' '}
                   {t('{{count}} provider(s) selected', { count: memberCount })}
                 </p>
@@ -852,12 +966,24 @@ function ProviderGroupDetail({
               data={selectedChannels}
               getRowKey={(row) => row.id}
               emptyContent={t('No providers selected yet. Add one above.')}
-              columns={[
-                {
-                  id: 'provider',
-                  header: t('Provider'),
-                  className: 'min-w-64',
-                  cell: (row) => (
+              columns={memberColumns}
+              renderRow={(row, index) => (
+                <TableRow
+                  key={row.id}
+                  draggable
+                  onDragStart={(e) => handleDragStart(e, row.id)}
+                  onDragOver={(e) => handleDragOver(e, row.id)}
+                  onDrop={(e) => handleDrop(e, row.id)}
+                  onDragEnd={resetDragState}
+                  className={getDragRowClassName(row.id)}
+                >
+                  <TableCell className='w-10'>
+                    <GripVertical
+                      className='text-muted-foreground size-4 cursor-grab active:cursor-grabbing'
+                      aria-label={t('Drag to reorder')}
+                    />
+                  </TableCell>
+                  <TableCell className='min-w-64'>
                     <div className='space-y-1'>
                       <div className='flex flex-wrap items-center gap-2'>
                         <span className='font-medium'>{row.name}</span>
@@ -873,13 +999,8 @@ function ProviderGroupDetail({
                         {t('model(s)')}
                       </div>
                     </div>
-                  ),
-                },
-                {
-                  id: 'routes',
-                  header: t('Auto-detected routes'),
-                  className: 'min-w-64',
-                  cell: (row) => (
+                  </TableCell>
+                  <TableCell className='min-w-64'>
                     <div className='flex flex-wrap gap-1.5'>
                       {getChannelRouteLabels(row).map((route) => (
                         <StatusBadge
@@ -891,30 +1012,14 @@ function ProviderGroupDetail({
                         />
                       ))}
                     </div>
-                  ),
-                },
-                {
-                  id: 'priority',
-                  header: t('Priority'),
-                  className: 'w-28',
-                  cell: (row) => (
-                    <Input
-                      type='number'
-                      value={membership[row.id]?.priority ?? 0}
-                      onChange={(event) =>
-                        updateMembership(row.id, {
-                          priority:
-                            Number.parseInt(event.target.value, 10) || 0,
-                        })
-                      }
-                    />
-                  ),
-                },
-                {
-                  id: 'actions',
-                  header: t('Actions'),
-                  className: 'w-24',
-                  cell: (row) => (
+                  </TableCell>
+                  <TableCell className='w-28 text-sm tabular-nums'>
+                    {selectedChannels.length - index}
+                    <span className='text-muted-foreground ml-1 text-xs'>
+                      ({t('by order')})
+                    </span>
+                  </TableCell>
+                  <TableCell className='w-24'>
                     <Button
                       variant='ghost'
                       size='sm'
@@ -924,9 +1029,9 @@ function ProviderGroupDetail({
                       <Trash2 className='size-4' aria-hidden='true' />
                       {t('Remove')}
                     </Button>
-                  ),
-                },
-              ]}
+                  </TableCell>
+                </TableRow>
+              )}
             />
           </div>
         )}

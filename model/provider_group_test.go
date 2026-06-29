@@ -195,3 +195,122 @@ func TestProviderRouteTypesForAdvancedCustomChannel(t *testing.T) {
 
 	assert.Equal(t, []string{ProviderRouteTypeResponses, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
 }
+
+func TestSyncProviderGroupChannelsForChannel(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Name: "sync-g", DisplayName: "sync-g", Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Name: "other-g", DisplayName: "other-g", Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+
+	priority := int64(3)
+	require.NoError(t, DB.Create(&Channel{
+		Id: 9301, Type: 1, Key: "sk-sync", Status: common.ChannelStatusEnabled,
+		Name: "sync-channel", Models: "gpt-4o", Group: "sync-g", Priority: &priority,
+	}).Error)
+
+	// First sync: creates membership for sync-g.
+	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
+		Id: 9301, Group: "sync-g", Priority: &priority, Status: common.ChannelStatusEnabled,
+		Models: "gpt-4o", Type: 1,
+	}, false))
+	var member ProviderGroupChannel
+	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9301, "sync-g").First(&member).Error)
+	require.NotNil(t, member.Priority)
+	assert.Equal(t, priority, *member.Priority)
+	assert.True(t, member.Enabled)
+
+	// Groups page disables the member; sync must NOT re-enable it.
+	require.NoError(t, DB.Model(&ProviderGroupChannel{}).Where("id = ?", member.Id).
+		Update("enabled", false).Error)
+
+	// Sync with new group added, syncPriority=false: existing enabled untouched, new row created.
+	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
+		Id: 9301, Group: "sync-g,other-g", Priority: &priority, Status: common.ChannelStatusEnabled,
+		Models: "gpt-4o", Type: 1,
+	}, false))
+	var otherMember ProviderGroupChannel
+	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9301, "other-g").First(&otherMember).Error)
+	assert.True(t, otherMember.Enabled)
+	var stillDisabled ProviderGroupChannel
+	require.NoError(t, DB.Where("id = ?", member.Id).First(&stillDisabled).Error)
+	assert.False(t, stillDisabled.Enabled, "sync must not override groups-page enabled=false")
+
+	// Sync with syncPriority=true updates priority on existing rows.
+	newPriority := int64(99)
+	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
+		Id: 9301, Group: "sync-g,other-g", Priority: &newPriority, Status: common.ChannelStatusEnabled,
+		Models: "gpt-4o", Type: 1,
+	}, true))
+	require.NoError(t, DB.Where("id = ?", member.Id).First(&member).Error)
+	require.NotNil(t, member.Priority)
+	assert.Equal(t, newPriority, *member.Priority)
+
+	// Sync with group removed: stale membership deleted.
+	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
+		Id: 9301, Group: "sync-g", Priority: &newPriority, Status: common.ChannelStatusEnabled,
+		Models: "gpt-4o", Type: 1,
+	}, false))
+	var otherCount int64
+	require.NoError(t, DB.Model(&ProviderGroupChannel{}).Where("channel_id = ? AND group_name = ?", 9301, "other-g").Count(&otherCount).Error)
+	assert.Equal(t, int64(0), otherCount, "stale membership should be deleted")
+}
+
+func TestSyncProviderGroupChannelsRefreshesRouteTypes(t *testing.T) {
+	clearProviderGroupTestTables(t)
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Name: "rt-g", DisplayName: "rt-g", Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+	ch := Channel{
+		Id: 9311, Type: 1, Key: "sk-rt", Status: common.ChannelStatusEnabled,
+		Name: "rt-channel", Models: "gpt-4o", Group: "rt-g",
+	}
+	require.NoError(t, DB.Create(&ch).Error)
+	require.NoError(t, SyncProviderGroupChannelsForChannel(ch, false))
+	var member ProviderGroupChannel
+	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9311, "rt-g").First(&member).Error)
+	assert.True(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeOther))
+
+	// Change channel to advanced-custom with specific routes and re-sync.
+	ch.Type = constant.ChannelTypeAdvancedCustom
+	ch.SetOtherSettings(dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{{IncomingPath: "/v1/responses"}},
+		},
+	})
+	require.NoError(t, SyncProviderGroupChannelsForChannel(ch, false))
+	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9311, "rt-g").First(&member).Error)
+	assert.True(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeResponses))
+	assert.False(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeOther))
+}
+
+func TestRebuildAbilitiesRespectsGroupStatusToggle(t *testing.T) {
+	clearProviderGroupTestTables(t)
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Id: 9401, Name: "toggle-g", DisplayName: "toggle-g", Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+	require.NoError(t, DB.Create(&Channel{
+		Id: 9402, Type: 1, Key: "sk-t", Status: common.ChannelStatusEnabled,
+		Name: "toggle-ch", Models: "gpt-4o",
+	}).Error)
+	require.NoError(t, DB.Create(&ProviderGroupChannel{
+		ProviderGroupId: 9401, GroupName: "toggle-g", ChannelId: 9402,
+		RouteTypes: defaultProviderRouteTypesJSON(), Enabled: true,
+	}).Error)
+
+	require.NoError(t, RebuildAbilitiesFromProviderGroups())
+	var enabledCount int64
+	require.NoError(t, DB.Model(&Ability{}).Where(commonGroupCol+" = ?", "toggle-g").Count(&enabledCount).Error)
+	assert.Equal(t, int64(1), enabledCount)
+
+	// Flip group offline and rebuild: abilities for this group must disappear.
+	require.NoError(t, DB.Model(&ProviderGroup{}).Where("id = ?", 9401).
+		Update("status", ProviderGroupStatusDisabled).Error)
+	require.NoError(t, RebuildAbilitiesFromProviderGroups())
+	var afterCount int64
+	require.NoError(t, DB.Model(&Ability{}).Where(commonGroupCol+" = ?", "toggle-g").Count(&afterCount).Error)
+	assert.Equal(t, int64(0), afterCount, "offline group abilities must be removed on rebuild")
+}

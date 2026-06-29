@@ -481,6 +481,7 @@ func (channel *Channel) GetPriority() int64 {
 	return *channel.Priority
 }
 
+
 func (channel *Channel) GetWeight() int {
 	if channel.Weight == nil {
 		return 0
@@ -514,13 +515,20 @@ func (channel *Channel) GetStatusCodeMapping() string {
 }
 
 func (channel *Channel) Insert() error {
-	var err error
-	err = DB.Create(channel).Error
-	if err != nil {
+	if err := DB.Create(channel).Error; err != nil {
 		return err
 	}
-	err = channel.AddAbilities(nil)
-	return err
+	if providerGroupTableReady(&ProviderGroupChannel{}) {
+		if err := SyncProviderGroupChannelsForChannel(*channel, false); err != nil {
+			return err
+		}
+		if err := RebuildAbilitiesFromProviderGroups(); err != nil {
+			return err
+		}
+		InitChannelCache()
+		return nil
+	}
+	return channel.AddAbilities(nil)
 }
 
 func (channel *Channel) Update() error {
@@ -563,13 +571,44 @@ func (channel *Channel) Update() error {
 		}
 	}
 	var err error
+	// Read pre-update priority so we only sync priority into PGC when it
+	// actually changed; otherwise groups-page drag-order priority survives.
+	var prevPriority *int64
+	if providerGroupTableReady(&ProviderGroupChannel{}) {
+		if before, e := GetChannelById(channel.Id, true); e == nil {
+			prevPriority = before.Priority
+		}
+	}
 	err = DB.Model(channel).Updates(channel).Error
 	if err != nil {
 		return err
 	}
 	DB.Model(channel).First(channel, "id = ?", channel.Id)
-	err = channel.UpdateAbilities(nil)
-	return err
+	if providerGroupTableReady(&ProviderGroupChannel{}) {
+		// provider_group_channels is the single source of truth for routing;
+		// mirror group/priority into it and rebuild abilities from PGC instead
+		// of writing channel.Group/Priority straight into abilities.
+		// Compare by GetPriority semantics (nil == 0) so saving unrelated
+		// fields does not overwrite groups-page drag-order priority with 0.
+		prevVal := int64(0)
+		if prevPriority != nil {
+			prevVal = *prevPriority
+		}
+		curVal := int64(0)
+		if channel.Priority != nil {
+			curVal = *channel.Priority
+		}
+		syncPriority := prevVal != curVal
+		if err := SyncProviderGroupChannelsForChannel(*channel, syncPriority); err != nil {
+			return err
+		}
+		if err := RebuildAbilitiesFromProviderGroups(); err != nil {
+			return err
+		}
+		InitChannelCache()
+		return nil
+	}
+	return channel.UpdateAbilities(nil)
 }
 
 func (channel *Channel) UpdateResponseTime(responseTime int64) {
@@ -833,7 +872,24 @@ func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *
 	if err != nil {
 		return err
 	}
-	if shouldReCreateAbilities {
+	if providerGroupTableReady(&ProviderGroupChannel{}) {
+		// PGC is the routing source of truth: sync each tagged channel's
+		// membership (group/priority/route_types) and rebuild once.
+		channels, gerr := GetChannelsByTag(updatedTag, false, false)
+		if gerr != nil {
+			return gerr
+		}
+		syncPriority := priority != nil
+		for _, channel := range channels {
+			if e := SyncProviderGroupChannelsForChannel(*channel, syncPriority); e != nil {
+				return e
+			}
+		}
+		if e := RebuildAbilitiesFromProviderGroups(); e != nil {
+			return e
+		}
+		InitChannelCache()
+	} else if shouldReCreateAbilities {
 		channels, err := GetChannelsByTag(updatedTag, false, false)
 		if err == nil {
 			for _, channel := range channels {
