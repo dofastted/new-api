@@ -26,6 +26,7 @@ import { RatioSettingsCard } from '../models/ratio-settings-card'
 import type { BillingSettings } from '../types'
 import { createSectionRegistry } from '../utils/section-registry'
 import { UserLevelGroupSection } from './user-level-group-section'
+import { ProviderGroupsOverviewSection } from './provider-groups-overview-section'
 
 const getModelDefaults = (settings: BillingSettings) => ({
   ModelPrice: settings.ModelPrice,
@@ -119,11 +120,14 @@ const BILLING_SECTIONS = [
     id: 'group-pricing',
     titleKey: 'User Level Groups',
     build: (settings: BillingSettings) => (
-      <UserLevelGroupSection
-        groupRatio={settings.GroupRatio}
-        topupGroupRatio={settings.TopupGroupRatio}
-        rateLimitGroup={settings.ModelRequestRateLimitGroup}
-      />
+      <>
+        <UserLevelGroupSection
+          groupRatio={settings.GroupRatio}
+          topupGroupRatio={settings.TopupGroupRatio}
+          rateLimitGroup={settings.ModelRequestRateLimitGroup}
+        />
+        <ProviderGroupsOverviewSection />
+      </>
     ),
   },
   {
