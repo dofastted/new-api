@@ -242,7 +242,11 @@ For commercial licensing, please contact support@quantumnous.com
 
 @keyframes usage-log-row-flash {
   0% {
-    background-color: color-mix(in oklab, var(--color-emerald-500) 18%, transparent);
+    background-color: color-mix(
+      in oklab,
+      var(--color-emerald-500) 18%,
+      transparent
+    );
     border-left-color: var(--color-emerald-500);
   }
   100% {

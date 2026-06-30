@@ -20,8 +20,8 @@ import type { StatusBadgeProps } from '@/components/status-badge'
 
 import { TOPUP_CHANNEL_META } from '../constants'
 import type { UsageLog } from '../data/schema'
-import { parseLogOther } from './format'
 import type { LogOtherData, TopupKind } from '../types'
+import { parseLogOther } from './format'
 
 export interface TopupInfo {
   kind: TopupKind
@@ -43,10 +43,7 @@ interface ExtractedTopupFields {
 
 const AMOUNT_PATTERN = '([+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))'
 
-function createTopupInfo(
-  raw: string,
-  fields: ExtractedTopupFields
-): TopupInfo {
+function createTopupInfo(raw: string, fields: ExtractedTopupFields): TopupInfo {
   const meta = TOPUP_CHANNEL_META[fields.kind]
   return {
     kind: fields.kind,
@@ -207,7 +204,9 @@ function extractTopupFields(
   }
 }
 
-export function parseTopup(log: Pick<UsageLog, 'content' | 'other'>): TopupInfo {
+export function parseTopup(
+  log: Pick<UsageLog, 'content' | 'other'>
+): TopupInfo {
   const raw = log.content || ''
   const other = parseLogOther(log.other)
   const preferredKind = kindFromOther(other)
