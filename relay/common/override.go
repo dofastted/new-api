@@ -202,6 +202,58 @@ func ApplyParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) ([]byte, 
 	return result, nil
 }
 
+func ApplyHeaderParamOverrideWithRelayInfo(jsonData []byte, info *RelayInfo) error {
+	paramOverride := getParamOverrideMap(info)
+	if len(paramOverride) == 0 {
+		return nil
+	}
+	operations, ok := tryParseOperations(paramOverride)
+	if !ok {
+		return nil
+	}
+
+	headerOperations := make([]ParamOperation, 0, len(operations))
+	for _, operation := range operations {
+		if isHeaderParamOperation(operation.Mode) {
+			headerOperations = append(headerOperations, operation)
+		}
+	}
+	if len(headerOperations) == 0 {
+		return nil
+	}
+	if len(jsonData) == 0 {
+		jsonData = []byte(`{}`)
+	}
+
+	overrideCtx := BuildParamOverrideContext(info)
+	var recorder *paramOverrideAuditRecorder
+	if common.DebugEnabled {
+		recorder = &paramOverrideAuditRecorder{}
+		overrideCtx[paramOverrideContextAuditRecorder] = recorder
+	}
+	if _, err := applyOperations(jsonData, headerOperations, overrideCtx); err != nil {
+		return err
+	}
+	syncRuntimeHeaderOverrideFromContext(info, overrideCtx)
+	if info != nil {
+		if recorder != nil {
+			info.ParamOverrideAudit = recorder.lines
+		} else {
+			info.ParamOverrideAudit = nil
+		}
+	}
+	return nil
+}
+
+func isHeaderParamOperation(mode string) bool {
+	switch strings.TrimSpace(strings.ToLower(mode)) {
+	case "set_header", "delete_header", "copy_header", "move_header", "pass_headers":
+		return true
+	default:
+		return false
+	}
+}
+
 func shouldEnableParamOverrideAudit(paramOverride map[string]interface{}) bool {
 	if common.DebugEnabled {
 		return true

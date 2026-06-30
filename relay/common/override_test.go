@@ -1864,6 +1864,78 @@ func TestApplyParamOverrideWithRelayInfoSyncRuntimeHeaders(t *testing.T) {
 	}
 }
 
+func TestApplyHeaderParamOverrideWithRelayInfoPassesHeadersOnly(t *testing.T) {
+	info := &RelayInfo{
+		RequestHeaders: map[string]string{
+			"User-Agent":        "claude-cli/1.0",
+			"X-Stainless-Lang":  "js",
+			"X-Stainless-Trace": "skip-me",
+		},
+		ChannelMeta: &ChannelMeta{
+			ParamOverride: map[string]interface{}{
+				"temperature": 0.2,
+				"operations": []interface{}{
+					map[string]interface{}{
+						"mode":  "set",
+						"path":  "temperature",
+						"value": 0.1,
+					},
+					map[string]interface{}{
+						"mode":  "pass_headers",
+						"value": []interface{}{"User-Agent", "X-Stainless-Lang"},
+					},
+					map[string]interface{}{
+						"mode":  "pass_headers",
+						"value": []interface{}{"X-Stainless-Trace"},
+						"conditions": []interface{}{
+							map[string]interface{}{
+								"path":  "temperature",
+								"mode":  "gt",
+								"value": 0.5,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := ApplyHeaderParamOverrideWithRelayInfo([]byte(`{"temperature":0.7}`), info)
+	require.NoError(t, err)
+	require.True(t, info.UseRuntimeHeadersOverride)
+	require.Equal(t, "claude-cli/1.0", info.RuntimeHeadersOverride["user-agent"])
+	require.Equal(t, "js", info.RuntimeHeadersOverride["x-stainless-lang"])
+	require.Equal(t, "skip-me", info.RuntimeHeadersOverride["x-stainless-trace"])
+}
+
+func TestApplyHeaderParamOverrideWithRelayInfoSkipsBodyOperationErrors(t *testing.T) {
+	info := &RelayInfo{
+		RequestHeaders: map[string]string{
+			"User-Agent": "claude-cli/1.0",
+		},
+		ChannelMeta: &ChannelMeta{
+			ParamOverride: map[string]interface{}{
+				"operations": []interface{}{
+					map[string]interface{}{
+						"mode": "move",
+						"from": "missing.source",
+						"to":   "target",
+					},
+					map[string]interface{}{
+						"mode":  "pass_headers",
+						"value": []interface{}{"User-Agent"},
+					},
+				},
+			},
+		},
+	}
+
+	err := ApplyHeaderParamOverrideWithRelayInfo([]byte(`{"model":"claude-opus-4-8"}`), info)
+	require.NoError(t, err)
+	require.True(t, info.UseRuntimeHeadersOverride)
+	require.Equal(t, "claude-cli/1.0", info.RuntimeHeadersOverride["user-agent"])
+}
+
 func TestApplyParamOverrideWithRelayInfoMixedLegacyAndOperations(t *testing.T) {
 	info := &RelayInfo{
 		RequestHeaders: map[string]string{
