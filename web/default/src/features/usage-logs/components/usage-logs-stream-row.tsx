@@ -33,7 +33,12 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { LOG_TYPE_ENUM, STREAM_COLUMNS } from '../constants'
+import {
+  COMPACT_STREAM_COLUMN_ORDER,
+  LOG_TYPE_ENUM,
+  STREAM_COLUMNS,
+  type StreamColumnId,
+} from '../constants'
 import type { UsageLog } from '../data/schema'
 import {
   formatModelName,
@@ -57,6 +62,13 @@ interface UsageLogsStreamRowProps {
   isNew?: boolean
   /** Compact display density: only the Time/Type/Model/Group/Cost columns render. */
   compact?: boolean
+  /**
+   * Visible customizable columns, in display order (already filtered for
+   * admin-only columns and user hide/reorder preferences). Ignored when
+   * `compact` is set. Time and Model are fixed anchors and always render
+   * first regardless of this list.
+   */
+  columnOrder: StreamColumnId[]
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
   onRowClick?: (log: UsageLog) => void
 }
@@ -386,6 +398,101 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     // A real column grid: every cell has a flex-grow share (see STREAM_COLUMNS,
     // shared with UsageLogsStreamHeader), so leftover width is always absorbed
     // proportionally by the visible columns instead of collecting as a gap.
+    // Time and Model are fixed anchors; the rest render in the caller-supplied
+    // (user-customized) order.
+    const renderColumnCell = (id: StreamColumnId): React.ReactNode => {
+      switch (id) {
+        case 'type':
+          return (
+            <div key={id} className={cn('min-w-0', STREAM_COLUMNS.type)}>
+              <StatusBadge
+                label={t(logTypeConfig.label)}
+                variant={getLogTypeVariant(logTypeConfig.color)}
+                copyable={false}
+              />
+            </div>
+          )
+        case 'user':
+          if (!props.isAdmin) return null
+          return (
+            <div
+              key={id}
+              className={cn(
+                'min-w-0 truncate text-[11px] text-muted-foreground',
+                STREAM_COLUMNS.user
+              )}
+              title={userText}
+            >
+              {userText}
+            </div>
+          )
+        case 'group':
+          return (
+            <div key={id} className={cn('min-w-0', STREAM_COLUMNS.group)}>
+              <GroupChip group={groupText} ratio={effectiveGroupRatio} />
+            </div>
+          )
+        case 'channel':
+          if (!props.isAdmin) return null
+          return (
+            <div key={id} className={cn('min-w-0', STREAM_COLUMNS.channel)}>
+              <ChannelChainPopover
+                chain={channelChain}
+                finalChannelName={channelText}
+                className='min-w-0'
+              />
+            </div>
+          )
+        case 'tokens':
+          return (
+            <div key={id} className={cn('text-right', STREAM_COLUMNS.tokens)}>
+              <TokensCell
+                prompt={log.prompt_tokens}
+                completion={log.completion_tokens}
+              />
+            </div>
+          )
+        case 'cache':
+          return (
+            <div key={id} className={cn('text-right', STREAM_COLUMNS.cache)}>
+              <CacheCell read={cacheReadTokens} write={cacheWriteTokens} />
+            </div>
+          )
+        case 'cost':
+          return (
+            <div key={id} className={cn('text-right', STREAM_COLUMNS.cost)}>
+              <CostChip quota={log.quota} subscription={isSubscription} />
+            </div>
+          )
+        case 'performance':
+          return (
+            <div
+              key={id}
+              className={cn('text-right', STREAM_COLUMNS.performance)}
+            >
+              {isTiming ? (
+                <PerformanceCell
+                  seconds={log.use_time}
+                  completionTokens={log.completion_tokens}
+                  stream={log.is_stream}
+                  frt={other?.frt}
+                />
+              ) : (
+                <span className='text-muted-foreground/40 font-mono text-[11px]'>
+                  -
+                </span>
+              )}
+            </div>
+          )
+        default:
+          return null
+      }
+    }
+
+    const orderedColumns = props.compact
+      ? COMPACT_STREAM_COLUMN_ORDER
+      : props.columnOrder
+
     rowBody = (
       <div className='flex min-w-0 flex-1 items-center gap-2'>
         <span
@@ -396,36 +503,6 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         >
           {formatTimestampToDate(log.created_at)}
         </span>
-        <div className={cn('min-w-0', STREAM_COLUMNS.type)}>
-          <StatusBadge
-            label={t(logTypeConfig.label)}
-            variant={getLogTypeVariant(logTypeConfig.color)}
-            copyable={false}
-          />
-        </div>
-        {props.isAdmin && !props.compact && (
-          <div
-            className={cn(
-              'min-w-0 truncate text-[11px] text-muted-foreground',
-              STREAM_COLUMNS.user
-            )}
-            title={userText}
-          >
-            {userText}
-          </div>
-        )}
-        <div className={cn('min-w-0', STREAM_COLUMNS.group)}>
-          <GroupChip group={groupText} ratio={effectiveGroupRatio} />
-        </div>
-        {props.isAdmin && !props.compact && (
-          <div className={cn('min-w-0', STREAM_COLUMNS.channel)}>
-            <ChannelChainPopover
-              chain={channelChain}
-              finalChannelName={channelText}
-              className='min-w-0'
-            />
-          </div>
-        )}
         <div
           className={cn(
             'flex min-w-0 items-center gap-1.5 overflow-hidden',
@@ -447,38 +524,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
           )}
           {!props.compact && <ExtraBillingIcons other={other} />}
         </div>
-        {!props.compact && (
-          <>
-            <div className={cn('text-right', STREAM_COLUMNS.tokens)}>
-              <TokensCell
-                prompt={log.prompt_tokens}
-                completion={log.completion_tokens}
-              />
-            </div>
-            <div className={cn('text-right', STREAM_COLUMNS.cache)}>
-              <CacheCell read={cacheReadTokens} write={cacheWriteTokens} />
-            </div>
-          </>
-        )}
-        <div className={cn('text-right', STREAM_COLUMNS.cost)}>
-          <CostChip quota={log.quota} subscription={isSubscription} />
-        </div>
-        {!props.compact && (
-          <div className={cn('text-right', STREAM_COLUMNS.performance)}>
-            {isTiming ? (
-              <PerformanceCell
-                seconds={log.use_time}
-                completionTokens={log.completion_tokens}
-                stream={log.is_stream}
-                frt={other?.frt}
-              />
-            ) : (
-              <span className='text-muted-foreground/40 font-mono text-[11px]'>
-                -
-              </span>
-            )}
-          </div>
-        )}
+        {orderedColumns.map(renderColumnCell)}
       </div>
     )
   } else {

@@ -20,50 +20,54 @@ import { useTranslation } from 'react-i18next'
 
 import { cn } from '@/lib/utils'
 
-import { STREAM_COLUMNS } from '../constants'
+import {
+  COMPACT_STREAM_COLUMN_ORDER,
+  STREAM_COLUMNS,
+  STREAM_CUSTOMIZABLE_COLUMNS,
+  type StreamColumnId,
+} from '../constants'
 
 interface UsageLogsStreamHeaderProps {
   isAdmin: boolean
   compact?: boolean
+  /** Visible customizable columns, in display order. Ignored when `compact`. */
+  columnOrder: StreamColumnId[]
 }
 
+const LABEL_KEY_BY_ID: Record<StreamColumnId, string> = Object.fromEntries(
+  STREAM_CUSTOMIZABLE_COLUMNS.map((column) => [column.id, column.labelKey])
+) as Record<StreamColumnId, string>
+
 /**
- * Column header row for the stream list. Mirrors `STREAM_COLUMNS` (defined in
- * `usage-logs-stream-row.tsx`) exactly, including which columns are hidden
- * for non-admin users / compact density, so headers stay aligned with the
- * cells below them.
+ * Column header row for the stream list. Mirrors `STREAM_COLUMNS` and the
+ * caller-supplied column order exactly, so headers stay aligned with the
+ * cells rendered by `UsageLogsStreamRow`.
  */
 export function UsageLogsStreamHeader(props: UsageLogsStreamHeaderProps) {
   const { t } = useTranslation()
 
+  const orderedColumns = props.compact
+    ? COMPACT_STREAM_COLUMN_ORDER
+    : props.columnOrder
+  const alignRight = new Set<StreamColumnId>([
+    'tokens',
+    'cache',
+    'cost',
+    'performance',
+  ])
+
   return (
     <div className='border-border/60 bg-muted/40 text-muted-foreground flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-[11px] font-medium tracking-wide'>
-      <span className={cn(STREAM_COLUMNS.time)}>{t('Time')}</span>
-      <span className={STREAM_COLUMNS.type}>{t('Type')}</span>
-      {props.isAdmin && !props.compact && (
-        <span className={STREAM_COLUMNS.user}>{t('User')}</span>
-      )}
-      <span className={STREAM_COLUMNS.group}>{t('Group')}</span>
-      {props.isAdmin && !props.compact && (
-        <span className={STREAM_COLUMNS.channel}>{t('Channel')}</span>
-      )}
+      <span className={STREAM_COLUMNS.time}>{t('Time')}</span>
       <span className={STREAM_COLUMNS.model}>{t('Model')}</span>
-      {!props.compact && (
-        <>
-          <span className={cn('text-right', STREAM_COLUMNS.tokens)}>
-            {t('Tokens')}
-          </span>
-          <span className={cn('text-right', STREAM_COLUMNS.cache)}>
-            {t('Cache')}
-          </span>
-        </>
-      )}
-      <span className={cn('text-right', STREAM_COLUMNS.cost)}>{t('Cost')}</span>
-      {!props.compact && (
-        <span className={cn('text-right', STREAM_COLUMNS.performance)}>
-          {t('Performance')}
+      {orderedColumns.map((id) => (
+        <span
+          key={id}
+          className={cn(alignRight.has(id) && 'text-right', STREAM_COLUMNS[id])}
+        >
+          {t(LABEL_KEY_BY_ID[id])}
         </span>
-      )}
+      ))}
     </div>
   )
 }

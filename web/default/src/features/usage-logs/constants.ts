@@ -130,6 +130,80 @@ export const STREAM_COLUMNS = {
   performance: 'flex-[0.85] min-w-[76px]',
 } as const
 
+/**
+ * Columns the user can hide and reorder in comfortable density. Time and
+ * Model are the row's timeline/identity anchors and are always shown first,
+ * in that fixed order — they are intentionally excluded here.
+ */
+export const STREAM_CUSTOMIZABLE_COLUMNS = [
+  { id: 'type', labelKey: 'Type', adminOnly: false },
+  { id: 'user', labelKey: 'User', adminOnly: true },
+  { id: 'group', labelKey: 'Group', adminOnly: false },
+  { id: 'channel', labelKey: 'Channel', adminOnly: true },
+  { id: 'tokens', labelKey: 'Tokens', adminOnly: false },
+  { id: 'cache', labelKey: 'Cache', adminOnly: false },
+  { id: 'cost', labelKey: 'Cost', adminOnly: false },
+  { id: 'performance', labelKey: 'Performance', adminOnly: false },
+] as const
+
+export type StreamColumnId = (typeof STREAM_CUSTOMIZABLE_COLUMNS)[number]['id']
+
+export const DEFAULT_STREAM_COLUMN_ORDER: StreamColumnId[] =
+  STREAM_CUSTOMIZABLE_COLUMNS.map((column) => column.id)
+
+/**
+ * Compact density ignores the user's column customization entirely: it's a
+ * fixed "quick scan" preset, not a subset of it. Shared by the row and header
+ * so both render the same three columns in the same order.
+ */
+export const COMPACT_STREAM_COLUMN_ORDER: StreamColumnId[] = [
+  'type',
+  'group',
+  'cost',
+]
+
+/** Persisted shape: full column order plus the subset currently hidden. */
+export interface StreamColumnSettings {
+  order: StreamColumnId[]
+  hidden: StreamColumnId[]
+}
+
+export const DEFAULT_STREAM_COLUMN_SETTINGS: StreamColumnSettings = {
+  order: DEFAULT_STREAM_COLUMN_ORDER,
+  hidden: [],
+}
+
+export function getUsageLogsStreamColumnsStorageKey(isAdmin: boolean): string {
+  return `usage-logs:common:${isAdmin ? 'admin' : 'user'}:stream-columns`
+}
+
+/**
+ * Parse a persisted column-settings blob, tolerating unknown/removed column
+ * ids and filling in any newly-added ids (appended, visible by default) so
+ * older saved settings never hide or drop a column silently.
+ */
+export function parseStreamColumnSettings(
+  raw: string | null
+): StreamColumnSettings {
+  if (!raw) return DEFAULT_STREAM_COLUMN_SETTINGS
+  try {
+    const parsed = JSON.parse(raw) as Partial<StreamColumnSettings>
+    const knownIds = new Set(DEFAULT_STREAM_COLUMN_ORDER)
+    const order = Array.isArray(parsed.order)
+      ? parsed.order.filter((id): id is StreamColumnId => knownIds.has(id))
+      : []
+    for (const id of DEFAULT_STREAM_COLUMN_ORDER) {
+      if (!order.includes(id)) order.push(id)
+    }
+    const hidden = Array.isArray(parsed.hidden)
+      ? parsed.hidden.filter((id): id is StreamColumnId => knownIds.has(id))
+      : []
+    return { order, hidden }
+  } catch {
+    return DEFAULT_STREAM_COLUMN_SETTINGS
+  }
+}
+
 // ============================================================================
 // Top-up Channel Metadata
 // ============================================================================
