@@ -371,9 +371,8 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     )
   } else if (isDisplayable && modelInfo.name) {
     // No flex-1 here: the badge has no truncation need, and letting it grow
-    // just pushes everything after it into an empty middle gap. A dedicated
-    // spacer (see showMiddleSpacer below) absorbs the remaining space instead,
-    // so badges added after the model name sit right next to it.
+    // just pushes the group/channel/cost badges away from it, leaving a
+    // visible dead gap in the middle of the row.
     primaryContent = (
       <ModelBadge
         modelName={modelInfo.name}
@@ -392,9 +391,6 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
       </span>
     )
   }
-  // The model-badge branch has no flex-1 of its own (see above), so it needs
-  // a dedicated spacer to push the trailing chips back to the right edge.
-  const showMiddleSpacer = !isTopup && isDisplayable && !!modelInfo.name
 
   const rowBody = (
     <div className='flex min-w-0 flex-1 flex-col gap-1'>
@@ -414,7 +410,6 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         {!isTopup && isDisplayable && (
           <GroupChip group={groupText} ratio={effectiveGroupRatio} />
         )}
-        {showMiddleSpacer && <div className='min-w-0 flex-1' />}
         {props.isAdmin && !isTopup && (
           <ChannelChainPopover
             chain={channelChain}
