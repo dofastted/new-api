@@ -9,25 +9,25 @@
     },
     "fr": {
       "file": "fr.json",
-      "missingCount": 7,
+      "missingCount": 3,
       "extrasCount": 0,
       "untranslatedCount": 8
     },
     "ja": {
       "file": "ja.json",
-      "missingCount": 7,
+      "missingCount": 3,
       "extrasCount": 0,
-      "untranslatedCount": 28
+      "untranslatedCount": 31
     },
     "ru": {
       "file": "ru.json",
-      "missingCount": 7,
+      "missingCount": 3,
       "extrasCount": 0,
-      "untranslatedCount": 28
+      "untranslatedCount": 31
     },
     "vi": {
       "file": "vi.json",
-      "missingCount": 7,
+      "missingCount": 3,
       "extrasCount": 0,
       "untranslatedCount": 8
     },

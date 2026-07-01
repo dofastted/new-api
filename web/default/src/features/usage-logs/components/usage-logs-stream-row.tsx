@@ -16,11 +16,16 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, FileSearch, Gauge, Globe, Image } from 'lucide-react'
 import { memo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge, type StatusVariant } from '@/components/status-badge'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import {
   formatLogQuota,
   formatTimestampToDate,
@@ -42,7 +47,7 @@ import {
   isDisplayableLogType,
   isTimingLogType,
 } from '../lib/utils'
-import type { ChannelChainEntry } from '../types'
+import type { ChannelChainEntry, LogOtherData } from '../types'
 import { ChannelChainPopover } from './channel-chain-popover'
 import { ModelBadge } from './model-badge'
 
@@ -249,6 +254,62 @@ function ErrorBadge(props: { label: string }) {
   )
 }
 
+// Rare, occasionally-present billing add-ons. Rendered as icon-only chips so
+// the common case (none of these apply) costs zero row width.
+function ExtraBillingIcons(props: { other: LogOtherData | null }) {
+  const { t } = useTranslation()
+  const other = props.other
+  if (!other) return null
+
+  const items: Array<{
+    key: string
+    icon: typeof Globe
+    label: string
+  }> = []
+  if (other.web_search) {
+    items.push({ key: 'web_search', icon: Globe, label: t('Web search') })
+  }
+  if (other.file_search) {
+    items.push({
+      key: 'file_search',
+      icon: FileSearch,
+      label: t('File search'),
+    })
+  }
+  if (other.image_generation_call) {
+    items.push({
+      key: 'image_generation',
+      icon: Image,
+      label: t('Image generation'),
+    })
+  }
+  if (other.reasoning_effort) {
+    items.push({
+      key: 'reasoning_effort',
+      icon: Gauge,
+      label: `${t('Reasoning effort')}: ${other.reasoning_effort}`,
+    })
+  }
+  if (items.length === 0) return null
+
+  return (
+    <span className='inline-flex shrink-0 items-center gap-1'>
+      {items.map((item) => (
+        <Tooltip key={item.key}>
+          <TooltipTrigger
+            render={
+              <span className='text-muted-foreground/70 inline-flex size-4 items-center justify-center' />
+            }
+          >
+            <item.icon className='size-3.5' />
+          </TooltipTrigger>
+          <TooltipContent>{item.label}</TooltipContent>
+        </Tooltip>
+      ))}
+    </span>
+  )
+}
+
 // Group names encode the upstream provider (e.g. "claude-max", "codex"), so
 // give the well-known providers a fixed brand-ish accent instead of the
 // generic name-hash color; unrecognized groups keep the hash-based color.
@@ -407,10 +468,11 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         />
         {primaryContent}
         {isError && errorBadgeLabel && <ErrorBadge label={errorBadgeLabel} />}
+        {!props.compact && <ExtraBillingIcons other={other} />}
         {!isTopup && isDisplayable && (
           <GroupChip group={groupText} ratio={effectiveGroupRatio} />
         )}
-        {props.isAdmin && !isTopup && (
+        {props.isAdmin && !isTopup && !props.compact && (
           <ChannelChainPopover
             chain={channelChain}
             finalChannelName={finalChannelName}
@@ -421,19 +483,23 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         {!isTopup && isDisplayable && (
           <div className='flex shrink-0 items-center gap-2'>
             <CostChip quota={log.quota} subscription={isSubscription} />
-            <TokensChip
-              prompt={log.prompt_tokens}
-              completion={log.completion_tokens}
-              cacheRead={cacheReadTokens}
-              cacheWrite={cacheWriteTokens}
-            />
-            {isTiming && (
-              <TimingChip
-                seconds={log.use_time}
-                completionTokens={log.completion_tokens}
-                stream={log.is_stream}
-                frt={other?.frt}
-              />
+            {!props.compact && (
+              <>
+                <TokensChip
+                  prompt={log.prompt_tokens}
+                  completion={log.completion_tokens}
+                  cacheRead={cacheReadTokens}
+                  cacheWrite={cacheWriteTokens}
+                />
+                {isTiming && (
+                  <TimingChip
+                    seconds={log.use_time}
+                    completionTokens={log.completion_tokens}
+                    stream={log.is_stream}
+                    frt={other?.frt}
+                  />
+                )}
+              </>
             )}
           </div>
         )}
