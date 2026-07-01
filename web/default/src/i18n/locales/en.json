@@ -1032,6 +1032,7 @@
     "Core concepts": "Core concepts",
     "Core pricing": "Core pricing",
     "Cost": "Cost",
+    "Cost charged to balance": "Cost charged to balance",
     "Cost Tracking": "Cost Tracking",
     "Cost in USD per request, regardless of tokens used.": "Cost in USD per request, regardless of tokens used.",
     "Count must be between {{min}} and {{max}}": "Count must be between {{min}} and {{max}}",

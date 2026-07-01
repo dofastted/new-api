@@ -36,14 +36,28 @@ function StatBadge(props: {
   label: string
   value: string | number
   accent: string
+  tone?: string
+  live?: boolean
 }) {
   return (
-    <span className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'>
+    <span
+      className={cn(
+        'inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs',
+        'border-border/60 bg-muted/25',
+        props.tone
+      )}
+    >
       <span className={cn('h-3.5 w-0.5 rounded-full', props.accent)} />
       <span className='text-muted-foreground'>{props.label}</span>
       <span className='text-foreground/85 font-mono font-semibold tabular-nums'>
         {props.value}
       </span>
+      {props.live && (
+        <span
+          className='inline-block size-1.5 rounded-full bg-emerald-500/80'
+          aria-hidden='true'
+        />
+      )}
     </span>
   )
 }
@@ -54,7 +68,11 @@ export function CommonLogsStats() {
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
 
-  const { data: stats, isLoading } = useQuery({
+  const {
+    data: stats,
+    isLoading,
+    isFetching,
+  } = useQuery({
     queryKey: ['usage-logs-stats', isAdmin, searchParams],
     queryFn: async () => {
       const params = buildApiParams({
@@ -74,6 +92,8 @@ export function CommonLogsStats() {
         : DEFAULT_LOG_STATS
     },
     placeholderData: (previousData) => previousData,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   })
 
   if (isLoading) {
@@ -92,16 +112,21 @@ export function CommonLogsStats() {
         label={t('Usage')}
         value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
         accent='bg-sky-500/70'
+        tone='border-sky-200/40 bg-sky-50/20 dark:border-sky-900/30 dark:bg-sky-950/10'
       />
       <StatBadge
         label={t('RPM')}
         value={stats?.rpm || 0}
         accent='bg-rose-500/65'
+        tone='border-rose-200/35 bg-rose-50/20 dark:border-rose-900/30 dark:bg-rose-950/10'
+        live={!isFetching}
       />
       <StatBadge
         label={t('TPM')}
         value={stats?.tpm || 0}
-        accent='bg-slate-400/70'
+        accent='bg-violet-500/65'
+        tone='border-violet-200/35 bg-violet-50/20 dark:border-violet-900/30 dark:bg-violet-950/10'
+        live={!isFetching}
       />
     </div>
   )

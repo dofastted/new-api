@@ -1032,6 +1032,7 @@
     "Core concepts": "Concepts clés",
     "Core pricing": "Tarification principale",
     "Cost": "Coût",
+    "Cost charged to balance": "Coût prélevé sur le solde",
     "Cost Tracking": "Suivi des coûts",
     "Cost in USD per request, regardless of tokens used.": "Coût en USD par requête, quel que soit le nombre de jetons utilisés.",
     "Count must be between {{min}} and {{max}}": "Le nombre doit être compris entre {{min}} et {{max}}",

@@ -1032,6 +1032,7 @@
     "Core concepts": "基本概念",
     "Core pricing": "基本料金",
     "Cost": "コスト",
+    "Cost charged to balance": "残高から請求",
     "Cost Tracking": "コスト追跡",
     "Cost in USD per request, regardless of tokens used.": "使用されたトークンに関係なく、リクエストあたりのUSDでのコスト。",
     "Count must be between {{min}} and {{max}}": "カウントは{{min}}から{{max}}の間である必要があります",

@@ -81,7 +81,7 @@ function UsageLogsStreamSkeleton() {
   return (
     <div className='divide-border/40 divide-y'>
       {SKELETON_ROW_KEYS.map((key) => (
-        <div key={key} className='flex h-[52px] items-center gap-3 px-3'>
+        <div key={key} className='flex h-[56px] items-center gap-3 px-3'>
           <Skeleton className='h-3 w-24 rounded' />
           <Skeleton className='h-5 w-16 rounded-full' />
           <Skeleton className='h-4 flex-1 rounded' />
@@ -131,7 +131,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   const rowVirtualizer = useVirtualizer({
     count: visibleLogs.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 52,
+    estimateSize: () => 56,
     overscan: 10,
   })
 

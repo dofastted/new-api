@@ -1032,6 +1032,7 @@
     "Core concepts": "Khái niệm chính",
     "Core pricing": "Giá cốt lõi",
     "Cost": "Chi phí",
+    "Cost charged to balance": "Tính phí vào số dư",
     "Cost Tracking": "Theo dõi chi phí",
     "Cost in USD per request, regardless of tokens used.": "Chi phí bằng USD cho mỗi yêu cầu, bất kể số lượng token được sử dụng.",
     "Count must be between {{min}} and {{max}}": "Số lượng phải nằm trong khoảng từ {{min}} đến {{max}}.",
