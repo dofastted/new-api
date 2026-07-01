@@ -249,6 +249,45 @@ function ErrorBadge(props: { label: string }) {
   )
 }
 
+// Group names encode the upstream provider (e.g. "claude-max", "codex"), so
+// give the well-known providers a fixed brand-ish accent instead of the
+// generic name-hash color; unrecognized groups keep the hash-based color.
+function getGroupAccentVariant(group: string): StatusVariant | undefined {
+  const g = group.toLowerCase()
+  if (g.includes('claude') || g.includes('anthropic')) {
+    return 'orange'
+  }
+  if (g.includes('codex') || g.includes('gpt') || g.includes('openai')) {
+    return 'neutral'
+  }
+  return undefined
+}
+
+function formatGroupRatio(ratio: number): string {
+  return `${Number(ratio.toFixed(2))}x`
+}
+
+function GroupChip(props: { group: string; ratio?: number }) {
+  const variant = getGroupAccentVariant(props.group)
+  return (
+    <span className='inline-flex min-w-0 shrink-0 items-center gap-1'>
+      <StatusBadge
+        label={props.group}
+        variant={variant}
+        autoColor={variant ? undefined : props.group}
+        copyable={false}
+        showDot={false}
+        className='h-5 max-w-[8rem] truncate rounded-md px-1.5 text-[11px]'
+      />
+      {props.ratio != null && (
+        <span className='text-muted-foreground/70 shrink-0 font-mono text-[10px] tabular-nums'>
+          {formatGroupRatio(props.ratio)}
+        </span>
+      )}
+    </span>
+  )
+}
+
 function CostChip(props: { quota: number; subscription?: boolean }) {
   const { t } = useTranslation()
   return (
@@ -299,6 +338,14 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const channelText =
     log.channel_name || (log.channel ? String(log.channel) : '-')
   const finalChannelName = channelText
+  const userGroupRatio = other?.user_group_ratio
+  const isUserGroupRatio =
+    userGroupRatio != null &&
+    Number.isFinite(userGroupRatio) &&
+    userGroupRatio !== -1
+  const effectiveGroupRatio = isUserGroupRatio
+    ? userGroupRatio
+    : other?.group_ratio
 
   const cacheReadTokens = other?.cache_tokens || 0
   const cacheWrite5m = other?.cache_creation_tokens_5m || 0
@@ -323,13 +370,15 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
       </span>
     )
   } else if (isDisplayable && modelInfo.name) {
+    // No flex-1 here: the badge has no truncation need, and letting it grow
+    // just pushes everything after it into an empty middle gap. A dedicated
+    // spacer (see showMiddleSpacer below) absorbs the remaining space instead,
+    // so badges added after the model name sit right next to it.
     primaryContent = (
-      <div className='min-w-0 flex-1'>
-        <ModelBadge
-          modelName={modelInfo.name}
-          actualModel={modelInfo.actualModel}
-        />
-      </div>
+      <ModelBadge
+        modelName={modelInfo.name}
+        actualModel={modelInfo.actualModel}
+      />
     )
   } else {
     const fallbackContent = log.content ? log.content.slice(0, 80) : '-'
@@ -343,6 +392,9 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
       </span>
     )
   }
+  // The model-badge branch has no flex-1 of its own (see above), so it needs
+  // a dedicated spacer to push the trailing chips back to the right edge.
+  const showMiddleSpacer = !isTopup && isDisplayable && !!modelInfo.name
 
   const rowBody = (
     <div className='flex min-w-0 flex-1 flex-col gap-1'>
@@ -359,6 +411,10 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         />
         {primaryContent}
         {isError && errorBadgeLabel && <ErrorBadge label={errorBadgeLabel} />}
+        {!isTopup && isDisplayable && (
+          <GroupChip group={groupText} ratio={effectiveGroupRatio} />
+        )}
+        {showMiddleSpacer && <div className='min-w-0 flex-1' />}
         {props.isAdmin && !isTopup && (
           <ChannelChainPopover
             chain={channelChain}
@@ -394,17 +450,8 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
           {props.isAdmin && (
             <SecondaryChip label={t('User')} value={userText} />
           )}
-          {!isTopup && isDisplayable && (
-            <>
-              <SecondaryChip label={t('Group')} value={groupText} mono />
-              {props.isAdmin && (
-                <SecondaryChip
-                  label={t('Channel')}
-                  value={log.channel ? `#${log.channel}` : '-'}
-                  mono
-                />
-              )}
-            </>
+          {!isTopup && isDisplayable && props.isAdmin && (
+            <SecondaryChip label={t('Channel')} value={channelText} mono />
           )}
           {!isTopup && isDisplayable && (
             <SecondaryChip
