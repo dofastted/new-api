@@ -33,11 +33,10 @@ import {
 } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
-import { LOG_TYPE_ENUM } from '../constants'
+import { LOG_TYPE_ENUM, STREAM_COLUMNS } from '../constants'
 import type { UsageLog } from '../data/schema'
 import {
   formatModelName,
-  getFirstResponseTimeColor,
   getResponseTimeColor,
   parseLogOther,
 } from '../lib/format'
@@ -56,7 +55,7 @@ interface UsageLogsStreamRowProps {
   isAdmin: boolean
   sensitiveVisible: boolean
   isNew?: boolean
-  /** Compact display density: hides the secondary metadata line. */
+  /** Compact display density: only the Time/Type/Model/Group/Cost columns render. */
   compact?: boolean
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
   onRowClick?: (log: UsageLog) => void
@@ -124,133 +123,6 @@ function TopupContent(props: { topupInfo: TopupInfo }) {
         className='shrink-0'
       />
     </div>
-  )
-}
-
-function SecondaryChip(props: {
-  label: string
-  value: string
-  accent?: string
-  mono?: boolean
-}) {
-  if (!props.value || props.value === '-') return null
-  return (
-    <span className='text-muted-foreground inline-flex items-center gap-1 text-[11px]'>
-      <span className='text-muted-foreground/65'>{props.label}</span>
-      <span
-        className={cn(
-          'inline-flex rounded px-0.5 tabular-nums',
-          props.mono && 'font-mono',
-          props.accent
-        )}
-      >
-        {props.value}
-      </span>
-    </span>
-  )
-}
-
-const timingBgMap: Record<string, string> = {
-  success:
-    'border border-emerald-200/45 bg-emerald-50/35 !text-emerald-600 dark:border-emerald-900/40 dark:bg-emerald-950/15 dark:!text-emerald-400',
-  warning:
-    'border border-amber-200/50 bg-amber-50/35 !text-amber-600 dark:border-amber-900/40 dark:bg-amber-950/15 dark:!text-amber-400',
-  danger:
-    'border border-rose-200/55 bg-rose-50/35 !text-red-600 dark:border-rose-900/40 dark:bg-rose-950/15 dark:!text-red-400',
-  neutral:
-    'border border-border/60 bg-muted/30 dark:border-border/40 dark:bg-muted/20',
-}
-
-function TimingChip(props: {
-  seconds: number
-  completionTokens: number
-  stream: boolean
-  frt?: number
-}) {
-  const variant = getResponseTimeColor(props.seconds, props.completionTokens)
-  const tps =
-    props.seconds > 0 && props.completionTokens > 0
-      ? Math.round(props.completionTokens / props.seconds)
-      : null
-  const frtVariant = props.frt
-    ? getFirstResponseTimeColor(props.frt / 1000)
-    : null
-  return (
-    <span className='inline-flex items-center gap-1'>
-      <StatusBadge
-        label={formatUseTime(props.seconds)}
-        variant={variant as StatusVariant}
-        copyable={false}
-        showDot={false}
-        className={cn(
-          'h-5 rounded-md px-1 font-mono text-[11px] !text-foreground',
-          timingBgMap[variant]
-        )}
-      />
-      {props.stream && props.frt != null && props.frt > 0 && (
-        <StatusBadge
-          label={formatUseTime(props.frt / 1000)}
-          variant={(frtVariant ?? 'neutral') as StatusVariant}
-          copyable={false}
-          showDot={false}
-          className={cn(
-            'h-5 rounded-md px-1 font-mono text-[11px] !text-foreground',
-            timingBgMap[frtVariant ?? 'neutral']
-          )}
-        />
-      )}
-      {tps != null && (
-        <span className='text-muted-foreground/70 font-mono text-[10px] tabular-nums'>
-          {tps}
-          <span className='text-muted-foreground/45'> t/s</span>
-        </span>
-      )}
-    </span>
-  )
-}
-
-function TokensChip(props: {
-  prompt: number
-  completion: number
-  cacheRead: number
-  cacheWrite: number
-}) {
-  const { t } = useTranslation()
-  const total = props.prompt + props.completion
-  if (total === 0) return null
-  return (
-    <span className='inline-flex items-center gap-1 text-[11px]'>
-      <span
-        className='bg-chart-1/10 text-chart-1 inline-flex rounded px-1 font-mono tabular-nums'
-        title={`${t('Input tokens')}: ${props.prompt.toLocaleString()} / ${t(
-          'Output tokens'
-        )}: ${props.completion.toLocaleString()}`}
-      >
-        {props.prompt.toLocaleString()} / {props.completion.toLocaleString()}
-      </span>
-      {props.cacheRead > 0 && (
-        <span className='font-mono text-sky-600/70 tabular-nums dark:text-sky-400/70'>
-          ↓{props.cacheRead.toLocaleString()}
-        </span>
-      )}
-      {props.cacheWrite > 0 && (
-        <span className='text-chart-3/70 font-mono tabular-nums'>
-          ↑{props.cacheWrite.toLocaleString()}
-        </span>
-      )}
-    </span>
-  )
-}
-
-function ErrorBadge(props: { label: string }) {
-  return (
-    <StatusBadge
-      label={props.label}
-      variant='red'
-      copyable={false}
-      showDot={false}
-      className='h-5 max-w-[10rem] shrink-0 truncate rounded-md px-1.5 font-mono text-[11px]'
-    />
   )
 }
 
@@ -331,14 +203,14 @@ function formatGroupRatio(ratio: number): string {
 function GroupChip(props: { group: string; ratio?: number }) {
   const variant = getGroupAccentVariant(props.group)
   return (
-    <span className='inline-flex min-w-0 shrink-0 items-center gap-1'>
+    <span className='inline-flex max-w-full min-w-0 items-center gap-1'>
       <StatusBadge
         label={props.group}
         variant={variant}
         autoColor={variant ? undefined : props.group}
         copyable={false}
         showDot={false}
-        className='h-5 max-w-[8rem] truncate rounded-md px-1.5 text-[11px]'
+        className='h-5 max-w-full truncate rounded-md px-1.5 text-[11px]'
       />
       {props.ratio != null && (
         <span className='text-muted-foreground/70 shrink-0 font-mono text-[10px] tabular-nums'>
@@ -370,6 +242,77 @@ function CostChip(props: { quota: number; subscription?: boolean }) {
   )
 }
 
+function TokensCell(props: { prompt: number; completion: number }) {
+  return (
+    <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+      <span>{props.prompt.toLocaleString()}</span>
+      <span className='text-muted-foreground'>
+        {props.completion.toLocaleString()}
+      </span>
+    </div>
+  )
+}
+
+function CacheCell(props: { read: number; write: number }) {
+  if (props.read === 0 && props.write === 0) {
+    return (
+      <span className='text-muted-foreground/40 font-mono text-[11px]'>-</span>
+    )
+  }
+  return (
+    <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+      <span className='text-chart-3/80'>
+        {props.write > 0 ? `↑${props.write.toLocaleString()}` : '-'}
+      </span>
+      <span className='text-sky-600/80 dark:text-sky-400/80'>
+        {props.read > 0 ? `↓${props.read.toLocaleString()}` : '-'}
+      </span>
+    </div>
+  )
+}
+
+const performanceColorMap: Record<string, string> = {
+  success: 'text-emerald-600 dark:text-emerald-400',
+  warning: 'text-amber-600 dark:text-amber-400',
+  danger: 'text-red-600 dark:text-red-400',
+}
+
+function PerformanceCell(props: {
+  seconds: number
+  completionTokens: number
+  stream: boolean
+  frt?: number
+}) {
+  if (props.seconds <= 0) {
+    return (
+      <span className='text-muted-foreground/40 font-mono text-[11px]'>-</span>
+    )
+  }
+  const variant = getResponseTimeColor(props.seconds, props.completionTokens)
+  const tps =
+    props.completionTokens > 0
+      ? Math.round(props.completionTokens / props.seconds)
+      : null
+  let secondaryLine: string | null = null
+  if (tps != null) {
+    secondaryLine = `${tps} t/s`
+  } else if (props.stream && props.frt) {
+    secondaryLine = formatUseTime(props.frt / 1000)
+  }
+  return (
+    <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+      <span className={cn('font-semibold', performanceColorMap[variant])}>
+        {formatUseTime(props.seconds)}
+      </span>
+      {secondaryLine && (
+        <span className='text-muted-foreground/70 text-[10px]'>
+          {secondaryLine}
+        </span>
+      )}
+    </div>
+  )
+}
+
 function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const { t } = useTranslation()
   const log = props.log
@@ -386,9 +329,6 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const isError = log.type === LOG_TYPE_ENUM.ERROR
   const isDisplayable = isDisplayableLogType(log.type)
   const isTiming = isTimingLogType(log.type)
-  const lastChainEntry = channelChain.at(-1)
-  const errorBadgeLabel =
-    lastChainEntry?.error_code || lastChainEntry?.error_category || undefined
   const userText = props.isAdmin
     ? maskSensitive(
         log.username || String(log.user_id || ''),
@@ -398,7 +338,6 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const groupText = maskSensitive(log.group, props.sensitiveVisible)
   const channelText =
     log.channel_name || (log.channel ? String(log.channel) : '-')
-  const finalChannelName = channelText
   const userGroupRatio = other?.user_group_ratio
   const isUserGroupRatio =
     userGroupRatio != null &&
@@ -418,46 +357,12 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
   const isSubscription = other?.billing_source === 'subscription'
   const modelInfo = formatModelName(log)
 
-  // Primary identifier content depends on log type.
-  let primaryContent: React.ReactNode
-  if (isTopup) {
-    primaryContent = topupInfo ? (
-      <div className='min-w-0 flex-1'>
-        <TopupContent topupInfo={topupInfo} />
-      </div>
-    ) : (
-      <span className='text-muted-foreground min-w-0 flex-1 truncate text-xs'>
-        {log.content || '-'}
-      </span>
-    )
-  } else if (isDisplayable && modelInfo.name) {
-    // No flex-1 here: the badge has no truncation need, and letting it grow
-    // just pushes the group/channel/cost badges away from it, leaving a
-    // visible dead gap in the middle of the row.
-    primaryContent = (
-      <ModelBadge
-        modelName={modelInfo.name}
-        actualModel={modelInfo.actualModel}
-      />
-    )
-  } else {
-    const fallbackContent = log.content ? log.content.slice(0, 80) : '-'
-    const primaryId = log.model_name || fallbackContent
-    primaryContent = (
-      <span
-        className='text-foreground min-w-0 flex-1 truncate text-xs'
-        title={log.content || log.model_name || ''}
-      >
-        {primaryId}
-      </span>
-    )
-  }
+  let rowBody: React.ReactNode
 
-  const rowBody = (
-    <div className='flex min-w-0 flex-1 flex-col gap-1'>
-      {/* Line 1: time · type · model · chain popover */}
-      <div className='flex min-w-0 items-center gap-2'>
-        <span className='text-muted-foreground w-[7rem] shrink-0 font-mono text-[11px] tabular-nums'>
+  if (isTopup) {
+    rowBody = (
+      <div className='flex min-w-0 flex-1 items-center gap-2'>
+        <span className='text-muted-foreground w-[7.5rem] shrink-0 font-mono text-[11px] tabular-nums'>
           {formatTimestampToDate(log.created_at)}
         </span>
         <StatusBadge
@@ -466,75 +371,143 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
           copyable={false}
           className='shrink-0'
         />
-        {primaryContent}
-        {isError && errorBadgeLabel && <ErrorBadge label={errorBadgeLabel} />}
-        {!props.compact && <ExtraBillingIcons other={other} />}
-        {!isTopup && isDisplayable && (
-          <GroupChip group={groupText} ratio={effectiveGroupRatio} />
+        {topupInfo ? (
+          <div className='min-w-0 flex-1'>
+            <TopupContent topupInfo={topupInfo} />
+          </div>
+        ) : (
+          <span className='text-muted-foreground min-w-0 flex-1 truncate text-xs'>
+            {log.content || '-'}
+          </span>
         )}
-        {props.isAdmin && !isTopup && !props.compact && (
-          <ChannelChainPopover
-            chain={channelChain}
-            finalChannelName={finalChannelName}
-            className='shrink-0'
+      </div>
+    )
+  } else if (isDisplayable) {
+    // A real column grid: every cell has a flex-grow share (see STREAM_COLUMNS,
+    // shared with UsageLogsStreamHeader), so leftover width is always absorbed
+    // proportionally by the visible columns instead of collecting as a gap.
+    rowBody = (
+      <div className='flex min-w-0 flex-1 items-center gap-2'>
+        <span
+          className={cn(
+            'text-muted-foreground font-mono text-[11px] tabular-nums',
+            STREAM_COLUMNS.time
+          )}
+        >
+          {formatTimestampToDate(log.created_at)}
+        </span>
+        <div className={cn('min-w-0', STREAM_COLUMNS.type)}>
+          <StatusBadge
+            label={t(logTypeConfig.label)}
+            variant={getLogTypeVariant(logTypeConfig.color)}
+            copyable={false}
           />
+        </div>
+        {props.isAdmin && !props.compact && (
+          <div
+            className={cn(
+              'min-w-0 truncate text-[11px] text-muted-foreground',
+              STREAM_COLUMNS.user
+            )}
+            title={userText}
+          >
+            {userText}
+          </div>
         )}
-        {/* Emphasis chips on the right: cost · tokens · timing */}
-        {!isTopup && isDisplayable && (
-          <div className='flex shrink-0 items-center gap-2'>
-            <CostChip quota={log.quota} subscription={isSubscription} />
-            {!props.compact && (
-              <>
-                <TokensChip
-                  prompt={log.prompt_tokens}
-                  completion={log.completion_tokens}
-                  cacheRead={cacheReadTokens}
-                  cacheWrite={cacheWriteTokens}
-                />
-                {isTiming && (
-                  <TimingChip
-                    seconds={log.use_time}
-                    completionTokens={log.completion_tokens}
-                    stream={log.is_stream}
-                    frt={other?.frt}
-                  />
-                )}
-              </>
+        <div className={cn('min-w-0', STREAM_COLUMNS.group)}>
+          <GroupChip group={groupText} ratio={effectiveGroupRatio} />
+        </div>
+        {props.isAdmin && !props.compact && (
+          <div className={cn('min-w-0', STREAM_COLUMNS.channel)}>
+            <ChannelChainPopover
+              chain={channelChain}
+              finalChannelName={channelText}
+              className='min-w-0'
+            />
+          </div>
+        )}
+        <div
+          className={cn(
+            'flex min-w-0 items-center gap-1.5 overflow-hidden',
+            STREAM_COLUMNS.model
+          )}
+        >
+          {modelInfo.name ? (
+            <ModelBadge
+              modelName={modelInfo.name}
+              actualModel={modelInfo.actualModel}
+            />
+          ) : (
+            <span
+              className='text-foreground truncate text-xs'
+              title={log.content || ''}
+            >
+              {log.content ? log.content.slice(0, 80) : '-'}
+            </span>
+          )}
+          {!props.compact && <ExtraBillingIcons other={other} />}
+        </div>
+        {!props.compact && (
+          <>
+            <div className={cn('text-right', STREAM_COLUMNS.tokens)}>
+              <TokensCell
+                prompt={log.prompt_tokens}
+                completion={log.completion_tokens}
+              />
+            </div>
+            <div className={cn('text-right', STREAM_COLUMNS.cache)}>
+              <CacheCell read={cacheReadTokens} write={cacheWriteTokens} />
+            </div>
+          </>
+        )}
+        <div className={cn('text-right', STREAM_COLUMNS.cost)}>
+          <CostChip quota={log.quota} subscription={isSubscription} />
+        </div>
+        {!props.compact && (
+          <div className={cn('text-right', STREAM_COLUMNS.performance)}>
+            {isTiming ? (
+              <PerformanceCell
+                seconds={log.use_time}
+                completionTokens={log.completion_tokens}
+                stream={log.is_stream}
+                frt={other?.frt}
+              />
+            ) : (
+              <span className='text-muted-foreground/40 font-mono text-[11px]'>
+                -
+              </span>
             )}
           </div>
         )}
       </div>
-
-      {/* Line 2: muted secondary metadata */}
-      {!props.compact && (
-        <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-[7rem]'>
-          {props.isAdmin && (
-            <SecondaryChip label={t('User')} value={userText} />
-          )}
-          {!isTopup && isDisplayable && props.isAdmin && (
-            <SecondaryChip label={t('Channel')} value={channelText} mono />
-          )}
-          {!isTopup && isDisplayable && (
-            <SecondaryChip
-              label={`${t('Stream')} / ${t('Non-stream')}`}
-              value={log.is_stream ? t('Stream') : t('Non-stream')}
-            />
-          )}
-          {props.isAdmin && (
-            <SecondaryChip
-              label='IP'
-              value={maskSensitive(log.ip, props.sensitiveVisible)}
-              mono
-            />
-          )}
-        </div>
-      )}
-    </div>
-  )
+    )
+  } else {
+    const fallbackContent = log.content ? log.content.slice(0, 80) : '-'
+    const primaryId = log.model_name || fallbackContent
+    rowBody = (
+      <div className='flex min-w-0 flex-1 items-center gap-2'>
+        <span className='text-muted-foreground w-[7.5rem] shrink-0 font-mono text-[11px] tabular-nums'>
+          {formatTimestampToDate(log.created_at)}
+        </span>
+        <StatusBadge
+          label={t(logTypeConfig.label)}
+          variant={getLogTypeVariant(logTypeConfig.color)}
+          copyable={false}
+          className='shrink-0'
+        />
+        <span
+          className='text-foreground min-w-0 flex-1 truncate text-xs'
+          title={log.content || log.model_name || ''}
+        >
+          {primaryId}
+        </span>
+      </div>
+    )
+  }
 
   const className = cn(
     'border-border/40 hover:bg-accent/50 flex w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
-    props.compact ? 'h-[36px]' : 'h-[56px]',
+    props.compact ? 'h-[32px]' : 'h-[44px]',
     rowTint,
     isError && 'border-l-rose-500/70 dark:border-l-rose-400/60',
     props.isNew && 'usage-log-row-new',

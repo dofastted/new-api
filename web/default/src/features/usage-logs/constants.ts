@@ -107,6 +107,30 @@ export function getUsageLogsDensityStorageKey(isAdmin: boolean): string {
 }
 
 // ============================================================================
+// Stream Column Grid
+// ============================================================================
+
+/**
+ * Column width shares for the stream list, shared between
+ * `usage-logs-stream-row.tsx` and `usage-logs-stream-header.tsx` so the
+ * header and every row line up under the same grid regardless of
+ * density/admin state. Every column has a flex-grow share, so leftover row
+ * width is always absorbed proportionally instead of collecting as a gap.
+ */
+export const STREAM_COLUMNS = {
+  time: 'w-[7.5rem] shrink-0',
+  type: 'flex-[0.5] min-w-[56px]',
+  user: 'flex-[0.65] min-w-[64px]',
+  group: 'flex-[0.85] min-w-[92px]',
+  channel: 'flex-[1] min-w-[100px]',
+  model: 'flex-[1.3] min-w-[120px]',
+  tokens: 'flex-[0.65] min-w-[60px]',
+  cache: 'flex-[0.75] min-w-[68px]',
+  cost: 'flex-[0.55] min-w-[64px]',
+  performance: 'flex-[0.85] min-w-[76px]',
+} as const
+
+// ============================================================================
 // Top-up Channel Metadata
 // ============================================================================
 

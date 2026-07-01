@@ -38,7 +38,7 @@ interface RankedEntry {
 const TOP_N = 3
 
 function rankEntries(counts: Map<string, number>): RankedEntry[] {
-  return Array.from(counts.entries())
+  return [...counts.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, TOP_N)
     .map(([label, count]) => ({ label, count }))

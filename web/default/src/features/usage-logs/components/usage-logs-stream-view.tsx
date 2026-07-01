@@ -69,6 +69,7 @@ import type { LogCategory } from '../types'
 import { DetailsDialog } from './dialogs/details-dialog'
 import { TopupOrderDetail } from './topup-order-detail'
 import { UsageLogsErrorAnalysisBar } from './usage-logs-error-analysis-bar'
+import { UsageLogsStreamHeader } from './usage-logs-stream-header'
 import { UsageLogsStreamRow } from './usage-logs-stream-row'
 
 interface UsageLogsStreamViewProps {
@@ -92,15 +93,15 @@ const SKELETON_ROW_KEYS = [
 ] as const
 
 const ROW_HEIGHT: Record<UsageLogsDensity, number> = {
-  [USAGE_LOGS_DENSITY.COMFORTABLE]: 56,
-  [USAGE_LOGS_DENSITY.COMPACT]: 36,
+  [USAGE_LOGS_DENSITY.COMFORTABLE]: 44,
+  [USAGE_LOGS_DENSITY.COMPACT]: 32,
 }
 
 function UsageLogsStreamSkeleton() {
   return (
     <div className='divide-border/40 divide-y'>
       {SKELETON_ROW_KEYS.map((key) => (
-        <div key={key} className='flex h-[56px] items-center gap-3 px-3'>
+        <div key={key} className='flex h-[44px] items-center gap-3 px-3'>
           <Skeleton className='h-3 w-24 rounded' />
           <Skeleton className='h-5 w-16 rounded-full' />
           <Skeleton className='h-4 flex-1 rounded' />
@@ -333,8 +334,11 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
 
       <UsageLogsErrorAnalysisBar logs={logs} />
 
-      <div className='border-border/70 bg-card min-h-0 flex-1 overflow-hidden rounded-lg border'>
-        <div ref={parentRef} className='h-full overflow-auto'>
+      <div className='border-border/70 bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border'>
+        {!isTopupMode && (
+          <UsageLogsStreamHeader isAdmin={props.isAdmin} compact={isCompact} />
+        )}
+        <div ref={parentRef} className='min-h-0 flex-1 overflow-auto'>
           <div>
             {query.isLoading && <UsageLogsStreamSkeleton />}
 
