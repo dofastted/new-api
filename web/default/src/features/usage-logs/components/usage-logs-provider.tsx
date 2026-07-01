@@ -38,6 +38,9 @@ interface UsageLogsContextValue {
   setSensitiveVisible: (visible: boolean) => void
   topupClientFilters: TopupClientFilters
   setTopupClientFilters: (filters: TopupClientFilters) => void
+  /** Admin-only: exclude logs produced by Admin/Root role users. */
+  excludeAdminUsers: boolean
+  setExcludeAdminUsers: (exclude: boolean) => void
 }
 
 const UsageLogsContext = createContext<UsageLogsContextValue | undefined>(
@@ -53,6 +56,7 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
   const [sensitiveVisible, setSensitiveVisible] = useState(true)
   const [topupClientFilters, setTopupClientFilters] =
     useState<TopupClientFilters>(EMPTY_TOPUP_CLIENT_FILTERS)
+  const [excludeAdminUsers, setExcludeAdminUsers] = useState(false)
 
   return (
     <UsageLogsContext.Provider
@@ -69,6 +73,8 @@ export function UsageLogsProvider({ children }: { children: ReactNode }) {
         setSensitiveVisible,
         topupClientFilters,
         setTopupClientFilters,
+        excludeAdminUsers,
+        setExcludeAdminUsers,
       }}
     >
       {children}

@@ -7,7 +7,7 @@ published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 
 This program is distributed in the hope that it will be useful,
-but WITHOUT ANY WARRANTY; even the implied warranty of
+but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 
@@ -51,6 +51,8 @@ interface UsageLogsStreamRowProps {
   isAdmin: boolean
   sensitiveVisible: boolean
   isNew?: boolean
+  /** Compact display density: hides the secondary metadata line. */
+  compact?: boolean
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
   onRowClick?: (log: UsageLog) => void
 }
@@ -235,6 +237,18 @@ function TokensChip(props: {
   )
 }
 
+function ErrorBadge(props: { label: string }) {
+  return (
+    <StatusBadge
+      label={props.label}
+      variant='red'
+      copyable={false}
+      showDot={false}
+      className='h-5 max-w-[10rem] shrink-0 truncate rounded-md px-1.5 font-mono text-[11px]'
+    />
+  )
+}
+
 function CostChip(props: { quota: number; subscription?: boolean }) {
   const { t } = useTranslation()
   return (
@@ -269,8 +283,12 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     : []
 
   const isTopup = log.type === LOG_TYPE_ENUM.TOPUP
+  const isError = log.type === LOG_TYPE_ENUM.ERROR
   const isDisplayable = isDisplayableLogType(log.type)
   const isTiming = isTimingLogType(log.type)
+  const lastChainEntry = channelChain.at(-1)
+  const errorBadgeLabel =
+    lastChainEntry?.error_code || lastChainEntry?.error_category || undefined
   const userText = props.isAdmin
     ? maskSensitive(
         log.username || String(log.user_id || ''),
@@ -340,6 +358,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
           className='shrink-0'
         />
         {primaryContent}
+        {isError && errorBadgeLabel && <ErrorBadge label={errorBadgeLabel} />}
         {props.isAdmin && !isTopup && (
           <ChannelChainPopover
             chain={channelChain}
@@ -370,40 +389,46 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
       </div>
 
       {/* Line 2: muted secondary metadata */}
-      <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-[7rem]'>
-        {props.isAdmin && <SecondaryChip label={t('User')} value={userText} />}
-        {!isTopup && isDisplayable && (
-          <>
-            <SecondaryChip label={t('Group')} value={groupText} mono />
-            {props.isAdmin && (
-              <SecondaryChip
-                label={t('Channel')}
-                value={log.channel ? `#${log.channel}` : '-'}
-                mono
-              />
-            )}
-          </>
-        )}
-        {!isTopup && isDisplayable && (
-          <SecondaryChip
-            label={`${t('Stream')} / ${t('Non-stream')}`}
-            value={log.is_stream ? t('Stream') : t('Non-stream')}
-          />
-        )}
-        {props.isAdmin && (
-          <SecondaryChip
-            label='IP'
-            value={maskSensitive(log.ip, props.sensitiveVisible)}
-            mono
-          />
-        )}
-      </div>
+      {!props.compact && (
+        <div className='flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 pl-[7rem]'>
+          {props.isAdmin && (
+            <SecondaryChip label={t('User')} value={userText} />
+          )}
+          {!isTopup && isDisplayable && (
+            <>
+              <SecondaryChip label={t('Group')} value={groupText} mono />
+              {props.isAdmin && (
+                <SecondaryChip
+                  label={t('Channel')}
+                  value={log.channel ? `#${log.channel}` : '-'}
+                  mono
+                />
+              )}
+            </>
+          )}
+          {!isTopup && isDisplayable && (
+            <SecondaryChip
+              label={`${t('Stream')} / ${t('Non-stream')}`}
+              value={log.is_stream ? t('Stream') : t('Non-stream')}
+            />
+          )}
+          {props.isAdmin && (
+            <SecondaryChip
+              label='IP'
+              value={maskSensitive(log.ip, props.sensitiveVisible)}
+              mono
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 
   const className = cn(
-    'border-border/40 hover:bg-accent/50 flex h-[56px] w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
+    'border-border/40 hover:bg-accent/50 flex w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
+    props.compact ? 'h-[36px]' : 'h-[56px]',
     rowTint,
+    isError && 'border-l-rose-500/70 dark:border-l-rose-400/60',
     props.isNew && 'usage-log-row-new',
     (topupInfo || props.onRowClick) && 'cursor-pointer'
   )

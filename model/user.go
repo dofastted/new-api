@@ -742,6 +742,12 @@ func IsAdmin(userId int) bool {
 	return user.Role >= common.RoleAdminUser
 }
 
+// GetAdminUserIds returns the ids of all users whose role is Admin or Root.
+func GetAdminUserIds() (ids []int, err error) {
+	err = DB.Model(&User{}).Where("role >= ?", common.RoleAdminUser).Pluck("id", &ids).Error
+	return ids, err
+}
+
 //// IsUserEnabled checks user status from Redis first, falls back to DB if needed
 //func IsUserEnabled(id int, fromDB bool) (status bool, err error) {
 //	defer func() {

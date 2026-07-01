@@ -36,6 +36,8 @@ interface UseInfiniteLogsConfig {
   pageSize: number
   searchParams: Record<string, unknown>
   columnFilters?: Array<{ id: string; value: unknown }>
+  /** Admin-only: exclude logs produced by Admin/Root role users. */
+  excludeAdmin?: boolean
   /** Master switch for auto-refresh (live row insertion). */
   liveEnabled?: boolean
   /** Poll interval in ms when live refresh is active. */
@@ -57,6 +59,7 @@ export function useInfiniteLogs(config: UseInfiniteLogsConfig) {
     config.pageSize,
     config.columnFilters,
     config.searchParams,
+    config.excludeAdmin,
   ]
 
   const query = useInfiniteQuery({
@@ -70,6 +73,7 @@ export function useInfiniteLogs(config: UseInfiniteLogsConfig) {
         pageSize: config.pageSize,
         searchParams: config.searchParams,
         columnFilters: config.columnFilters ?? [],
+        excludeAdmin: config.excludeAdmin,
       })
 
       if (!result?.success) {
@@ -116,6 +120,7 @@ export function useInfiniteLogs(config: UseInfiniteLogsConfig) {
         pageSize: config.pageSize,
         searchParams: config.searchParams,
         columnFilters: config.columnFilters ?? [],
+        excludeAdmin: config.excludeAdmin,
       })
       if (!result?.success) {
         throw new Error(result?.message || 'Failed to load logs')

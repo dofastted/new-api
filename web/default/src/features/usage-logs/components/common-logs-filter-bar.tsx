@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { Switch } from '@/components/ui/switch'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import {
   Tooltip,
@@ -131,6 +132,8 @@ export function CommonLogsFilterBar<TData>(
     setSensitiveVisible,
     topupClientFilters,
     setTopupClientFilters,
+    excludeAdminUsers,
+    setExcludeAdminUsers,
   } = useUsageLogsContext()
   const fetchingLogs = useIsFetching({ queryKey: ['logs'] })
 
@@ -321,6 +324,21 @@ export function CommonLogsFilterBar<TData>(
         {sensitiveVisible ? t('Hide') : t('Show')}
       </TooltipContent>
     </Tooltip>
+  )
+  const excludeAdminToggle = isAdmin ? (
+    <label className='text-muted-foreground flex cursor-pointer items-center gap-1.5 text-xs'>
+      <Switch
+        checked={excludeAdminUsers}
+        onCheckedChange={(checked) => setExcludeAdminUsers(Boolean(checked))}
+      />
+      <span className='hidden sm:inline'>{t('Exclude admin users')}</span>
+    </label>
+  ) : null
+  const toolbarActionStart = (
+    <>
+      {sensitiveToggle}
+      {excludeAdminToggle}
+    </>
   )
 
   const dateRangeFilter = (
@@ -591,7 +609,7 @@ export function CommonLogsFilterBar<TData>(
       <LogsFilterToolbar
         table={props.table}
         stats={statsBar}
-        actionStart={sensitiveToggle}
+        actionStart={toolbarActionStart}
         actionEnd={props.viewToggle}
         showViewOptions={props.showViewOptions}
         primaryFilters={
@@ -626,7 +644,7 @@ export function CommonLogsFilterBar<TData>(
     <LogsFilterToolbar
       table={props.table}
       stats={statsBar}
-      actionStart={sensitiveToggle}
+      actionStart={toolbarActionStart}
       actionEnd={props.viewToggle}
       showViewOptions={props.showViewOptions}
       primaryFilters={

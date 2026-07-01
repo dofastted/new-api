@@ -91,6 +91,22 @@ export function getUsageLogsViewStorageKey(isAdmin: boolean): string {
 }
 
 // ============================================================================
+// Stream Display Density
+// ============================================================================
+
+export const USAGE_LOGS_DENSITY = {
+  COMFORTABLE: 'comfortable',
+  COMPACT: 'compact',
+} as const
+
+export type UsageLogsDensity =
+  (typeof USAGE_LOGS_DENSITY)[keyof typeof USAGE_LOGS_DENSITY]
+
+export function getUsageLogsDensityStorageKey(isAdmin: boolean): string {
+  return `usage-logs:common:${isAdmin ? 'admin' : 'user'}:density`
+}
+
+// ============================================================================
 // Top-up Channel Metadata
 // ============================================================================
 

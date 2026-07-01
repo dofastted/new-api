@@ -87,6 +87,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const isMobile = useMediaQuery('(max-width: 640px)')
   const searchParams = route.useSearch()
   const isCommon = logCategory === 'common'
+  const { topupClientFilters, excludeAdminUsers } = useUsageLogsContext()
   const viewStorageKey = getUsageLogsViewStorageKey(isAdmin)
   const [view, setView] = useState<UsageLogsView>(USAGE_LOGS_VIEW.TABLE)
 
@@ -158,6 +159,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       pagination.pageSize,
       columnFilters,
       searchParams,
+      excludeAdminUsers,
       t,
     ],
     enabled: view === USAGE_LOGS_VIEW.TABLE || !isCommon || isMobile,
@@ -169,6 +171,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         pageSize: pagination.pageSize,
         searchParams,
         columnFilters,
+        excludeAdmin: excludeAdminUsers,
       })
 
       if (!result?.success) {
@@ -190,7 +193,6 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   // Topup mode narrows the loaded page on the client (backend cannot filter by
   // payment channel / amount / plan). Other modes render the full page.
   const isTopupMode = isTopupTypeFilter(searchParams)
-  const { topupClientFilters } = useUsageLogsContext()
   const visibleLogs =
     isTopupMode && logCategory === 'common'
       ? (applyTopupClientFilters(

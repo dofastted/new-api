@@ -66,14 +66,14 @@ export function CommonLogsStats() {
   const { t } = useTranslation()
   const isAdmin = useIsAdmin()
   const searchParams = route.useSearch()
-  const { sensitiveVisible } = useUsageLogsContext()
+  const { sensitiveVisible, excludeAdminUsers } = useUsageLogsContext()
 
   const {
     data: stats,
     isLoading,
     isFetching,
   } = useQuery({
-    queryKey: ['usage-logs-stats', isAdmin, searchParams],
+    queryKey: ['usage-logs-stats', isAdmin, searchParams, excludeAdminUsers],
     queryFn: async () => {
       const params = buildApiParams({
         page: 1,
@@ -81,6 +81,7 @@ export function CommonLogsStats() {
         searchParams,
         columnFilters: [],
         isAdmin,
+        excludeAdmin: excludeAdminUsers,
       })
 
       const result = isAdmin

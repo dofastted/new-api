@@ -21,8 +21,10 @@ import {
   AlertCircle,
   ArrowUp,
   Database,
+  List,
   Loader2,
   RefreshCw,
+  Rows3,
 } from 'lucide-react'
 import {
   useCallback,
@@ -45,9 +47,20 @@ import {
 } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Switch } from '@/components/ui/switch'
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { useUsageLogsContext } from '@/features/usage-logs/components/usage-logs-provider'
 import { cn } from '@/lib/utils'
 
+import {
+  getUsageLogsDensityStorageKey,
+  USAGE_LOGS_DENSITY,
+  type UsageLogsDensity,
+} from '../constants'
 import type { UsageLog } from '../data/schema'
 import type { TopupInfo } from '../lib/parse-topup'
 import { applyTopupClientFilters, isTopupTypeFilter } from '../lib/topup-filter'
@@ -55,6 +68,7 @@ import { useInfiniteLogs } from '../lib/use-infinite-logs'
 import type { LogCategory } from '../types'
 import { DetailsDialog } from './dialogs/details-dialog'
 import { TopupOrderDetail } from './topup-order-detail'
+import { UsageLogsErrorAnalysisBar } from './usage-logs-error-analysis-bar'
 import { UsageLogsStreamRow } from './usage-logs-stream-row'
 
 interface UsageLogsStreamViewProps {
@@ -77,6 +91,11 @@ const SKELETON_ROW_KEYS = [
   'stream-skeleton-h',
 ] as const
 
+const ROW_HEIGHT: Record<UsageLogsDensity, number> = {
+  [USAGE_LOGS_DENSITY.COMFORTABLE]: 56,
+  [USAGE_LOGS_DENSITY.COMPACT]: 36,
+}
+
 function UsageLogsStreamSkeleton() {
   return (
     <div className='divide-border/40 divide-y'>
@@ -95,7 +114,8 @@ function UsageLogsStreamSkeleton() {
 export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   const { t } = useTranslation()
   const parentRef = useRef<HTMLDivElement | null>(null)
-  const { sensitiveVisible, topupClientFilters } = useUsageLogsContext()
+  const { sensitiveVisible, topupClientFilters, excludeAdminUsers } =
+    useUsageLogsContext()
   const [selectedTopup, setSelectedTopup] = useState<{
     log: UsageLog
     topupInfo: TopupInfo
@@ -106,12 +126,38 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   // browse history, polling pauses so the scroll position never jumps.
   const [isAtTop, setIsAtTop] = useState(true)
 
+  const densityStorageKey = getUsageLogsDensityStorageKey(props.isAdmin)
+  const [density, setDensity] = useState<UsageLogsDensity>(
+    USAGE_LOGS_DENSITY.COMFORTABLE
+  )
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const stored = window.localStorage.getItem(densityStorageKey)
+    if (
+      stored === USAGE_LOGS_DENSITY.COMFORTABLE ||
+      stored === USAGE_LOGS_DENSITY.COMPACT
+    ) {
+      setDensity(stored)
+    }
+  }, [densityStorageKey])
+  const handleDensityChange = useCallback(
+    (next: UsageLogsDensity) => {
+      setDensity(next)
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem(densityStorageKey, next)
+      }
+    },
+    [densityStorageKey]
+  )
+  const isCompact = density === USAGE_LOGS_DENSITY.COMPACT
+
   const query = useInfiniteLogs({
     logCategory: props.logCategory,
     isAdmin: props.isAdmin,
     pageSize: props.pageSize,
     searchParams: props.searchParams,
     columnFilters: props.columnFilters,
+    excludeAdmin: excludeAdminUsers,
     liveEnabled: autoRefresh,
     livePaused: !isAtTop,
   })
@@ -131,9 +177,15 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   const rowVirtualizer = useVirtualizer({
     count: visibleLogs.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 56,
+    estimateSize: () => ROW_HEIGHT[density],
     overscan: 10,
   })
+
+  // Row height is fixed per density mode; force a remeasure so previously
+  // cached row offsets don't linger after switching comfortable <-> compact.
+  useEffect(() => {
+    rowVirtualizer.measure()
+  }, [density, rowVirtualizer])
 
   const virtualItems = rowVirtualizer.getVirtualItems()
   const lastVirtualItem = virtualItems.at(-1)
@@ -230,7 +282,56 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
             {t('{{count}} new', { count: liveCount })}
           </Button>
         )}
+
+        <ToggleGroup
+          value={[density]}
+          onValueChange={(value) => {
+            const next = Array.isArray(value) ? value.at(-1) : value
+            if (
+              next === USAGE_LOGS_DENSITY.COMFORTABLE ||
+              next === USAGE_LOGS_DENSITY.COMPACT
+            ) {
+              handleDensityChange(next)
+            }
+          }}
+          variant='outline'
+          size='sm'
+          spacing={0}
+          className='ms-auto'
+          aria-label={t('Display density')}
+        >
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ToggleGroupItem
+                  value={USAGE_LOGS_DENSITY.COMFORTABLE}
+                  aria-label={t('Detailed')}
+                />
+              }
+            >
+              <Rows3 className='size-3.5' />
+              <span className='hidden sm:inline'>{t('Detailed')}</span>
+            </TooltipTrigger>
+            <TooltipContent>{t('Detailed')}</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <ToggleGroupItem
+                  value={USAGE_LOGS_DENSITY.COMPACT}
+                  aria-label={t('Compact')}
+                />
+              }
+            >
+              <List className='size-3.5' />
+              <span className='hidden sm:inline'>{t('Compact')}</span>
+            </TooltipTrigger>
+            <TooltipContent>{t('Compact')}</TooltipContent>
+          </Tooltip>
+        </ToggleGroup>
       </div>
+
+      <UsageLogsErrorAnalysisBar logs={logs} />
 
       <div className='border-border/70 bg-card min-h-0 flex-1 overflow-hidden rounded-lg border'>
         <div ref={parentRef} className='h-full overflow-auto'>
@@ -293,6 +394,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
                         isAdmin={props.isAdmin}
                         sensitiveVisible={sensitiveVisible}
                         isNew={recentIds.has(log.id)}
+                        compact={isCompact}
                         onTopupClick={(nextLog, topupInfo) =>
                           setSelectedTopup({ log: nextLog, topupInfo })
                         }

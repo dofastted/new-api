@@ -373,6 +373,8 @@ export interface GetLogsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  /** Admin-only: exclude logs produced by Admin/Root role users. */
+  exclude_admin?: boolean
 }
 
 export interface GetLogsResponse {
@@ -397,6 +399,8 @@ export interface GetLogStatsParams {
   group?: string
   request_id?: string
   upstream_request_id?: string
+  /** Admin-only: exclude logs produced by Admin/Root role users. */
+  exclude_admin?: boolean
 }
 
 export interface GetLogStatsResponse {
@@ -445,6 +449,8 @@ export interface FetchLogsConfig {
   pageSize: number
   searchParams: Record<string, unknown>
   columnFilters: Array<{ id: string; value: unknown }>
+  /** Admin-only: exclude logs produced by Admin/Root role users (common logs only). */
+  excludeAdmin?: boolean
 }
 
 // ============================================================================
