@@ -20,6 +20,7 @@ import (
 func RegisterScheduledSystemTasks() {
 	service.RegisterSystemTaskHandler(channelTestHandler{})
 	service.RegisterSystemTaskHandler(modelUpdateHandler{})
+	service.RegisterSystemTaskHandler(officialPricingSyncHandler{})
 	service.RegisterSystemTaskHandler(midjourneyPollHandler{})
 	service.RegisterSystemTaskHandler(asyncTaskPollHandler{})
 }
@@ -150,6 +151,33 @@ func (asyncTaskPollHandler) NewPayload() any { return nil }
 func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
 	summary := service.RunTaskPollingOnce(ctx, service.NewSystemTaskProgressReporter(task, runnerID))
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
+}
+
+type officialPricingSyncHandler struct{}
+
+func (officialPricingSyncHandler) Type() string { return model.SystemTaskTypeOfficialPricingSync }
+
+func (officialPricingSyncHandler) Enabled() bool {
+	return common.GetEnvOrDefaultBool("OFFICIAL_PRICING_SYNC_TASK_ENABLED", true)
+}
+
+func (officialPricingSyncHandler) Interval() time.Duration {
+	intervalMinutes := common.GetEnvOrDefault("OFFICIAL_PRICING_SYNC_TASK_INTERVAL_MINUTES", 24*60)
+	if intervalMinutes < 1 {
+		intervalMinutes = 24 * 60
+	}
+	return time.Duration(intervalMinutes) * time.Minute
+}
+
+func (officialPricingSyncHandler) NewPayload() any { return nil }
+
+func (officialPricingSyncHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	result, err := service.SyncOfficialPricing(ctx)
+	if err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, result, err)
+		return
+	}
+	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, result, nil)
 }
 
 func finishSystemTaskHandler(task *model.SystemTask, runnerID string, status model.SystemTaskStatus, result any, runErr error) {

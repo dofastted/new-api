@@ -301,6 +301,8 @@ func migrateDB() error {
 		&SystemInstance{},
 		&SystemTask{},
 		&SystemTaskLock{},
+		&OfficialPricingSnapshot{},
+		&OfficialModelPrice{},
 	)
 	if err != nil {
 		return err

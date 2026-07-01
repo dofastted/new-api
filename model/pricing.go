@@ -1,7 +1,6 @@
 package model
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -220,7 +219,7 @@ func updatePricing() {
 			continue
 		}
 		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			endpoints := make([]string, 0, len(raw))
 			for k, v := range raw {
 				switch v.(type) {
@@ -264,7 +263,7 @@ func updatePricing() {
 			continue
 		}
 		var raw map[string]interface{}
-		if err := json.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
+		if err := common.Unmarshal([]byte(meta.Endpoints), &raw); err == nil {
 			for k, v := range raw {
 				switch val := v.(type) {
 				case string:
@@ -304,12 +303,22 @@ func updatePricing() {
 			pricing.Tags = meta.Tags
 			pricing.VendorID = meta.VendorID
 		}
+		billingMode := ratio_setting.GetMetadataBillingMode(model)
+		billingExpr, billingExprOK := ratio_setting.GetMetadataBillingExpr(model)
+		if billingMode == "" {
+			billingMode = billing_setting.GetBillingMode(model)
+			billingExpr, billingExprOK = billing_setting.GetBillingExpr(model)
+		}
+		usesTieredBilling := billingMode == billing_setting.BillingModeTieredExpr && billingExprOK && strings.TrimSpace(billingExpr) != ""
 		modelPrice, findPrice := ratio_setting.GetModelPrice(model, false)
 		if findPrice {
 			pricing.ModelPrice = modelPrice
 			pricing.QuotaType = 1
 		} else {
-			modelRatio, _, _ := ratio_setting.GetModelRatio(model)
+			modelRatio, ratioFound, _ := ratio_setting.GetModelRatio(model)
+			if !ratioFound && ratio_setting.OfficialPricingAuthoritative() && !usesTieredBilling {
+				continue
+			}
 			pricing.ModelRatio = modelRatio
 			pricing.CompletionRatio = ratio_setting.GetCompletionRatio(model)
 			pricing.QuotaType = 0
@@ -331,11 +340,9 @@ func updatePricing() {
 			audioCompletionRatio := ratio_setting.GetAudioCompletionRatio(model)
 			pricing.AudioCompletionRatio = &audioCompletionRatio
 		}
-		if billingMode := billing_setting.GetBillingMode(model); billingMode == "tiered_expr" {
-			if expr, ok := billing_setting.GetBillingExpr(model); ok && strings.TrimSpace(expr) != "" {
-				pricing.BillingMode = billingMode
-				pricing.BillingExpr = expr
-			}
+		if usesTieredBilling {
+			pricing.BillingMode = billingMode
+			pricing.BillingExpr = billingExpr
 		}
 		pricingMap = append(pricingMap, pricing)
 	}

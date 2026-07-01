@@ -54,6 +54,18 @@ export const CLAUDE_OFFICIAL_CHANNEL_BASE_URL = 'https://platform.claude.com'
 export const CLAUDE_OFFICIAL_CHANNEL_ENDPOINT =
   'https://platform.claude.com/docs/en/about-claude/pricing.md'
 
+export const GEMINI_OFFICIAL_CHANNEL_ID = -104
+export const GEMINI_OFFICIAL_CHANNEL_NAME = 'Gemini 官方价格'
+export const GEMINI_OFFICIAL_CHANNEL_BASE_URL = 'https://ai.google.dev'
+export const GEMINI_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://ai.google.dev/gemini-api/docs/pricing'
+
+export const GLM_OFFICIAL_CHANNEL_ID = -105
+export const GLM_OFFICIAL_CHANNEL_NAME = 'GLM 官方价格'
+export const GLM_OFFICIAL_CHANNEL_BASE_URL = 'https://docs.bigmodel.cn'
+export const GLM_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5'
+
 export const OPENROUTER_ENDPOINT = 'openrouter'
 
 // Backend channel type for OpenRouter (see constant/channel.go: ChannelTypeOpenRouter = 20)

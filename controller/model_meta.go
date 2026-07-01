@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"encoding/json"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,6 +76,13 @@ func GetModelMeta(c *gin.Context) {
 	common.ApiSuccess(c, &m)
 }
 
+func refreshModelMetadataPricing() {
+	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
+		common.SysError("failed to load model metadata pricing: " + err.Error())
+	}
+	model.RefreshPricing()
+}
+
 // CreateModelMeta 新建模型
 func CreateModelMeta(c *gin.Context) {
 	var m model.Model
@@ -96,12 +102,16 @@ func CreateModelMeta(c *gin.Context) {
 		common.ApiErrorMsg(c, "模型名称已存在")
 		return
 	}
+	if err := model.ValidateModelPricingConfig(m.PricingConfig); err != nil {
+		common.ApiErrorMsg(c, "模型定价配置无效: "+err.Error())
+		return
+	}
 
 	if err := m.Insert(); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	model.RefreshPricing()
+	refreshModelMetadataPricing()
 	common.ApiSuccess(c, &m)
 }
 
@@ -134,13 +144,17 @@ func UpdateModelMeta(c *gin.Context) {
 			common.ApiErrorMsg(c, "模型名称已存在")
 			return
 		}
+		if err := model.ValidateModelPricingConfig(m.PricingConfig); err != nil {
+			common.ApiErrorMsg(c, "模型定价配置无效: "+err.Error())
+			return
+		}
 
 		if err := m.Update(); err != nil {
 			common.ApiError(c, err)
 			return
 		}
 	}
-	model.RefreshPricing()
+	refreshModelMetadataPricing()
 	common.ApiSuccess(c, &m)
 }
 
@@ -156,7 +170,7 @@ func DeleteModelMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	model.RefreshPricing()
+	refreshModelMetadataPricing()
 	common.ApiSuccess(c, nil)
 }
 
@@ -192,7 +206,7 @@ func enrichModels(models []*model.Model) {
 			mm := models[idx]
 			if mm.Endpoints == "" {
 				eps := model.GetModelSupportEndpointTypes(mm.ModelName)
-				if b, err := json.Marshal(eps); err == nil {
+				if b, err := common.Marshal(eps); err == nil {
 					mm.Endpoints = string(b)
 				}
 			}
@@ -282,7 +296,7 @@ func enrichModels(models []*model.Model) {
 			for et := range es {
 				eps = append(eps, et)
 			}
-			if b, err := json.Marshal(eps); err == nil {
+			if b, err := common.Marshal(eps); err == nil {
 				mm.Endpoints = string(b)
 			}
 		}

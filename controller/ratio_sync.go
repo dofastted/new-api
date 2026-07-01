@@ -22,6 +22,7 @@ import (
 
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/samber/lo"
@@ -49,6 +50,14 @@ const (
 	claudeOfficialPresetName    = "Claude 官方价格"
 	claudeOfficialPresetBaseURL = "https://platform.claude.com"
 	claudeOfficialEndpoint      = "https://platform.claude.com/docs/en/about-claude/pricing.md"
+	geminiOfficialPresetID      = -104
+	geminiOfficialPresetName    = "Gemini 官方价格"
+	geminiOfficialPresetBaseURL = "https://ai.google.dev"
+	geminiOfficialEndpoint      = "https://ai.google.dev/gemini-api/docs/pricing"
+	glmOfficialPresetID         = -105
+	glmOfficialPresetName       = "GLM 官方价格"
+	glmOfficialPresetBaseURL    = "https://docs.bigmodel.cn"
+	glmOfficialEndpoint         = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
 	modelsDevHost               = "models.dev"
 	modelsDevPath               = "/api.json"
 	modelsDevInputCostRatioBase = 1000.0
@@ -253,6 +262,8 @@ func FetchUpstreamRatios(c *gin.Context) {
 			isModelsDev := isModelsDevAPIEndpoint(fullURL)
 			isOpenAIOfficial := isOpenAIOfficialPricingEndpoint(fullURL)
 			isClaudeOfficial := isClaudeOfficialPricingEndpoint(fullURL)
+			isGeminiOfficial := isGeminiOfficialPricingEndpoint(fullURL)
+			isGLMOfficial := isGLMOfficialPricingEndpoint(fullURL)
 
 			uniqueName := chItem.Name
 			if chItem.ID != 0 {
@@ -313,8 +324,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
-			// Content-Type 和响应体大小校验。官方 OpenAI/Claude 价格源是 markdown，非 JSON 属于预期。
-			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") && !isOpenAIOfficial && !isClaudeOfficial {
+			// Content-Type 和响应体大小校验。官方价格源可能是 markdown 或 HTML，非 JSON 属于预期。
+			isOfficialPricingSource := isOpenAIOfficial || isClaudeOfficial || isGeminiOfficial || isGLMOfficial
+			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") && !isOfficialPricingSource {
 				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
 			}
 			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
@@ -340,6 +352,28 @@ func FetchUpstreamRatios(c *gin.Context) {
 				converted, err := convertClaudeOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
 					logger.LogWarn(c.Request.Context(), "Claude official pricing parse failed from "+chItem.Name+": "+err.Error())
+					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
+					return
+				}
+				ch <- upstreamResult{Name: uniqueName, Data: converted}
+				return
+			}
+
+			if isGeminiOfficial {
+				converted, err := service.ConvertGeminiOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), "Gemini official pricing parse failed from "+chItem.Name+": "+err.Error())
+					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
+					return
+				}
+				ch <- upstreamResult{Name: uniqueName, Data: converted}
+				return
+			}
+
+			if isGLMOfficial {
+				converted, err := service.ConvertGLMOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), "GLM official pricing parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
@@ -770,6 +804,30 @@ func isClaudeOfficialPricingEndpoint(rawURL string) bool {
 	return path == "/docs/en/about-claude/pricing" || path == "/docs/en/about-claude/pricing.md"
 }
 
+func isGeminiOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.ToLower(parsedURL.Hostname()) != "ai.google.dev" {
+		return false
+	}
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/gemini-api/docs/pricing"
+}
+
+func isGLMOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.ToLower(parsedURL.Hostname()) != "docs.bigmodel.cn" {
+		return false
+	}
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/cn/guide/models/text/glm-4.5" || path == "/cn/guide/models/text/glm-4.5.md"
+}
+
 type officialTokenPricing struct {
 	Model            string
 	InputUSDPerMTok  float64
@@ -859,40 +917,7 @@ func openAIStandardPricingSection(content string) string {
 }
 
 func convertOpenAIOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
-	bodyBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read OpenAI pricing response: %w", err)
-	}
-	section := openAIStandardPricingSection(string(bodyBytes))
-	matches := openAIPricingRowPattern.FindAllStringSubmatch(section, -1)
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("no OpenAI pricing rows found")
-	}
-
-	entries := make([]officialTokenPricing, 0, len(matches))
-	for _, match := range matches {
-		input, ok := parseOptionalPriceToken(match[2])
-		if !ok {
-			continue
-		}
-		cachedInput, hasCachedInput := parseOptionalPriceToken(match[3])
-		output, ok := parseOptionalPriceToken(match[4])
-		if !ok {
-			continue
-		}
-		var cacheReadRatio *float64
-		if hasCachedInput && input > 0 {
-			ratio := cachedInput / input
-			cacheReadRatio = &ratio
-		}
-		entries = append(entries, officialTokenPricing{
-			Model:            normalizeOpenAIModelName(match[1]),
-			InputUSDPerMTok:  input,
-			OutputUSDPerMTok: output,
-			CacheReadRatio:   cacheReadRatio,
-		})
-	}
-	return convertOfficialTokenPricingToRatioData(entries)
+	return service.ConvertOpenAIOfficialPricingToRatioData(reader)
 }
 
 func parseUSDPerMTok(cell string) (float64, bool) {
@@ -965,53 +990,7 @@ func expandClaudeOpusVariantIDs(base string) []string {
 }
 
 func convertClaudeOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
-	bodyBytes, err := io.ReadAll(reader)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read Claude pricing response: %w", err)
-	}
-	lines := strings.Split(string(bodyBytes), "\n")
-	entries := make([]officialTokenPricing, 0)
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if !strings.HasPrefix(trimmed, "| Claude ") {
-			continue
-		}
-		cells := strings.Split(trimmed, "|")
-		if len(cells) < 7 {
-			continue
-		}
-		modelIDs := claudeModelIDs(cells[1])
-		if len(modelIDs) == 0 {
-			continue
-		}
-		input, inputOK := parseUSDPerMTok(cells[2])
-		cacheWrite, cacheWriteOK := parseUSDPerMTok(cells[3])
-		cacheRead, cacheReadOK := parseUSDPerMTok(cells[5])
-		output, outputOK := parseUSDPerMTok(cells[6])
-		if !inputOK || !outputOK {
-			continue
-		}
-		var cacheReadRatio *float64
-		if cacheReadOK && input > 0 {
-			ratio := cacheRead / input
-			cacheReadRatio = &ratio
-		}
-		var cacheWriteRatio *float64
-		if cacheWriteOK && input > 0 {
-			ratio := cacheWrite / input
-			cacheWriteRatio = &ratio
-		}
-		for _, modelID := range modelIDs {
-			entries = append(entries, officialTokenPricing{
-				Model:            modelID,
-				InputUSDPerMTok:  input,
-				OutputUSDPerMTok: output,
-				CacheReadRatio:   cacheReadRatio,
-				CacheWriteRatio:  cacheWriteRatio,
-			})
-		}
-	}
-	return convertOfficialTokenPricingToRatioData(entries)
+	return service.ConvertClaudeOfficialPricingToRatioData(reader)
 }
 
 // convertOpenRouterToRatioData parses OpenRouter's /v1/models response and converts
@@ -1332,6 +1311,20 @@ func GetSyncableChannels(c *gin.Context) {
 		ID:      claudeOfficialPresetID,
 		Name:    claudeOfficialPresetName,
 		BaseURL: claudeOfficialPresetBaseURL,
+		Status:  1,
+	})
+
+	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+		ID:      geminiOfficialPresetID,
+		Name:    geminiOfficialPresetName,
+		BaseURL: geminiOfficialPresetBaseURL,
+		Status:  1,
+	})
+
+	syncableChannels = append(syncableChannels, dto.SyncableChannel{
+		ID:      glmOfficialPresetID,
+		Name:    glmOfficialPresetName,
+		BaseURL: glmOfficialPresetBaseURL,
 		Status:  1,
 	})
 	c.JSON(http.StatusOK, gin.H{

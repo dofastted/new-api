@@ -21,6 +21,7 @@ export * from './query-keys'
 
 // Utilities
 export * from './model-utils'
+export * from './model-pricing-config'
 
 // Form schemas and transformers
 export * from './model-form'

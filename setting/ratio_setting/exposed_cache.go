@@ -32,6 +32,35 @@ func cloneGinH(src gin.H) gin.H {
 	return dst
 }
 
+func applyMetadataPricingToExposedData(data gin.H) {
+	modelRatio, _ := data["model_ratio"].(map[string]float64)
+	completionRatio, _ := data["completion_ratio"].(map[string]float64)
+	cacheRatio, _ := data["cache_ratio"].(map[string]float64)
+	createCacheRatio, _ := data["create_cache_ratio"].(map[string]float64)
+	modelPrice, _ := data["model_price"].(map[string]float64)
+
+	for model, price := range GetMetadataModelPriceCopy() {
+		modelPrice[model] = price
+		delete(modelRatio, model)
+		delete(completionRatio, model)
+		delete(cacheRatio, model)
+		delete(createCacheRatio, model)
+	}
+	for model, ratio := range GetMetadataModelRatioCopy() {
+		modelRatio[model] = ratio
+		delete(modelPrice, model)
+	}
+	for model, ratio := range GetMetadataCompletionRatioCopy() {
+		completionRatio[model] = ratio
+	}
+	for model, ratio := range GetMetadataCacheRatioCopy() {
+		cacheRatio[model] = ratio
+	}
+	for model, ratio := range GetMetadataCreateCacheRatioCopy() {
+		createCacheRatio[model] = ratio
+	}
+}
+
 func GetExposedData() gin.H {
 	if c, ok := exposedData.Load().(*exposedCache); ok && c != nil && time.Now().Before(c.expiresAt) {
 		return cloneGinH(c.data)
@@ -48,6 +77,13 @@ func GetExposedData() gin.H {
 		"create_cache_ratio": GetCreateCacheRatioCopy(),
 		"model_price":        GetModelPriceCopy(),
 	}
+	if OfficialPricingAuthoritative() {
+		newData["model_ratio"] = GetOfficialModelRatioCopy()
+		newData["completion_ratio"] = GetOfficialCompletionRatioCopy()
+		newData["cache_ratio"] = GetOfficialCacheRatioCopy()
+		newData["create_cache_ratio"] = GetOfficialCreateCacheRatioCopy()
+	}
+	applyMetadataPricingToExposedData(newData)
 	exposedData.Store(&exposedCache{
 		data:      newData,
 		expiresAt: time.Now().Add(exposedDataTTL),

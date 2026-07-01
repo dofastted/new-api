@@ -355,6 +355,12 @@ func UpdateModelPriceByJSONString(jsonStr string) error {
 // GetModelPrice 返回模型的价格，如果模型不存在则返回-1，false
 func GetModelPrice(name string, printErr bool) (float64, bool) {
 	name = FormatMatchingModelName(name)
+	if price, ok := GetMetadataModelPrice(name); ok {
+		return price, true
+	}
+	if HasOfficialPricing(name) {
+		return -1, false
+	}
 
 	if price, ok := modelPriceMap.Get(name); ok {
 		return price, true
@@ -392,17 +398,29 @@ func handleThinkingBudgetModel(name, prefix, wildcard string) string {
 func GetModelRatio(name string) (float64, bool, string) {
 	name = FormatMatchingModelName(name)
 
-	ratio, ok := modelRatioMap.Get(name)
-	if !ok {
+	if ratio, ok := GetMetadataModelRatio(name); ok {
+		return ratio, true, name
+	}
+	if ratio, ok := GetOfficialModelRatio(name); ok {
+		return ratio, true, name
+	}
+
+	if !OfficialPricingAuthoritative() {
+		ratio, ok := modelRatioMap.Get(name)
+		if ok {
+			return ratio, true, name
+		}
 		if strings.HasSuffix(name, CompactModelSuffix) {
 			if wildcardRatio, ok := modelRatioMap.Get(CompactWildcardModelKey); ok {
 				return wildcardRatio, true, name
 			}
 			//return 0, true, name
 		}
-		return 37.5, operation_setting.SelfUseModeEnabled, name
 	}
-	return ratio, true, name
+	if OfficialPricingAuthoritative() {
+		return 37.5, false, name
+	}
+	return 37.5, operation_setting.SelfUseModeEnabled, name
 }
 
 func DefaultModelRatio2JSONString() string {
@@ -431,6 +449,12 @@ func UpdateCompletionRatioByJSONString(jsonStr string) error {
 
 func GetCompletionRatio(name string) float64 {
 	name = FormatMatchingModelName(name)
+	if ratio, ok := GetMetadataCompletionRatio(name); ok {
+		return ratio
+	}
+	if ratio, ok := GetOfficialCompletionRatio(name); ok {
+		return ratio
+	}
 
 	if strings.Contains(name, "/") {
 		if ratio, ok := completionRatioMap.Get(name); ok {
@@ -454,6 +478,18 @@ type CompletionRatioInfo struct {
 
 func GetCompletionRatioInfo(name string) CompletionRatioInfo {
 	name = FormatMatchingModelName(name)
+	if ratio, ok := GetMetadataCompletionRatio(name); ok {
+		return CompletionRatioInfo{
+			Ratio:  ratio,
+			Locked: false,
+		}
+	}
+	if ratio, ok := GetOfficialCompletionRatio(name); ok {
+		return CompletionRatioInfo{
+			Ratio:  ratio,
+			Locked: true,
+		}
+	}
 
 	if strings.Contains(name, "/") {
 		if ratio, ok := completionRatioMap.Get(name); ok {
@@ -617,6 +653,9 @@ func getHardcodedCompletionModelRatio(name string) (float64, bool) {
 
 func GetAudioRatio(name string) float64 {
 	name = FormatMatchingModelName(name)
+	if ratio, ok := GetMetadataAudioRatio(name); ok {
+		return ratio
+	}
 	if ratio, ok := audioRatioMap.Get(name); ok {
 		return ratio
 	}
@@ -625,6 +664,9 @@ func GetAudioRatio(name string) float64 {
 
 func GetAudioCompletionRatio(name string) float64 {
 	name = FormatMatchingModelName(name)
+	if ratio, ok := GetMetadataAudioCompletionRatio(name); ok {
+		return ratio
+	}
 	if ratio, ok := audioCompletionRatioMap.Get(name); ok {
 		return ratio
 	}
@@ -633,12 +675,18 @@ func GetAudioCompletionRatio(name string) float64 {
 
 func ContainsAudioRatio(name string) bool {
 	name = FormatMatchingModelName(name)
+	if _, ok := GetMetadataAudioRatio(name); ok {
+		return true
+	}
 	_, ok := audioRatioMap.Get(name)
 	return ok
 }
 
 func ContainsAudioCompletionRatio(name string) bool {
 	name = FormatMatchingModelName(name)
+	if _, ok := GetMetadataAudioCompletionRatio(name); ok {
+		return true
+	}
 	_, ok := audioCompletionRatioMap.Get(name)
 	return ok
 }
@@ -663,6 +711,9 @@ func UpdateImageRatioByJSONString(jsonStr string) error {
 }
 
 func GetImageRatio(name string) (float64, bool) {
+	if ratio, ok := GetMetadataImageRatio(name); ok {
+		return ratio, true
+	}
 	ratio, ok := imageRatioMap.Get(name)
 	if !ok {
 		return 1, false // Default to 1 if not found

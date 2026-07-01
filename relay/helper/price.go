@@ -59,13 +59,27 @@ func HandleGroupRatio(ctx *gin.Context, relayInfo *relaycommon.RelayInfo) types.
 	return groupRatioInfo
 }
 
+func getModelBillingMode(modelName string) string {
+	if mode := ratio_setting.GetMetadataBillingMode(modelName); mode != "" {
+		return mode
+	}
+	return billing_setting.GetBillingMode(modelName)
+}
+
+func getModelBillingExpr(modelName string) (string, bool) {
+	if expr, ok := ratio_setting.GetMetadataBillingExpr(modelName); ok {
+		return expr, true
+	}
+	return billing_setting.GetBillingExpr(modelName)
+}
+
 func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta) (types.PriceData, error) {
 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
 
 	groupRatioInfo := HandleGroupRatio(c, info)
 
 	// Check if this model uses tiered_expr billing
-	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
+	if getModelBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
 		return modelPriceHelperTiered(c, info, promptTokens, meta, groupRatioInfo)
 	}
 
@@ -226,15 +240,15 @@ func HasModelBillingConfig(modelName string) bool {
 	if _, ok, _ := ratio_setting.GetModelRatio(modelName); ok {
 		return true
 	}
-	if billing_setting.GetBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
+	if getModelBillingMode(modelName) != billing_setting.BillingModeTieredExpr {
 		return false
 	}
-	expr, ok := billing_setting.GetBillingExpr(modelName)
+	expr, ok := getModelBillingExpr(modelName)
 	return ok && strings.TrimSpace(expr) != ""
 }
 
 func modelPriceHelperTiered(c *gin.Context, info *relaycommon.RelayInfo, promptTokens int, meta *types.TokenCountMeta, groupRatioInfo types.GroupRatioInfo) (types.PriceData, error) {
-	exprStr, ok := billing_setting.GetBillingExpr(info.OriginModelName)
+	exprStr, ok := getModelBillingExpr(info.OriginModelName)
 	if !ok {
 		return types.PriceData{}, fmt.Errorf("model %s is configured as tiered_expr but has no billing expression", info.OriginModelName)
 	}

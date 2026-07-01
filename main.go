@@ -289,6 +289,15 @@ func InitResources() error {
 
 	// Initialize options, should after model.InitDB()
 	model.InitOptionMap()
+	if err := model.MigrateModelPricingConfigFromLegacyOptions(); err != nil {
+		common.SysError("failed to migrate model metadata pricing: " + err.Error())
+	}
+	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
+		common.SysError("failed to load model metadata pricing: " + err.Error())
+	}
+	if err := model.LoadActiveOfficialPricingIntoRuntime(); err != nil {
+		common.SysError("failed to load official pricing: " + err.Error())
+	}
 
 	// 清理旧的磁盘缓存文件
 	common.CleanupOldCacheFiles()

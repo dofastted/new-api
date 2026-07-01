@@ -34,6 +34,20 @@ func CreateLogCleanupSystemTask(c *gin.Context) {
 	})
 }
 
+func CreateOfficialPricingSyncSystemTask(c *gin.Context) {
+	task, _, err := service.EnqueueSystemTask(model.SystemTaskTypeOfficialPricingSync, nil)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    task.ToResponse(),
+	})
+}
+
 func GetCurrentSystemTask(c *gin.Context) {
 	taskType := c.Query("type")
 	if taskType == "" {
