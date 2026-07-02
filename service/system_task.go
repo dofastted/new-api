@@ -20,6 +20,7 @@ const (
 	systemTaskRunnerIdleInterval = 15 * time.Second
 	systemTaskLockTTL            = 60 * time.Second
 	logCleanupBatchSize          = 100
+	quotaDataRebuildBatchSize    = 1000
 
 	// systemTaskSchedulerInterval throttles how often the scheduler/stale-lock
 	// pass runs, independent of how often the runner wakes to claim tasks.
@@ -83,8 +84,32 @@ func (logCleanupHandler) Run(ctx context.Context, task *model.SystemTask, runner
 	runLogCleanupTask(ctx, task, runnerID)
 }
 
+type quotaDataRebuildHandler struct{}
+
+func (quotaDataRebuildHandler) Type() string { return model.SystemTaskTypeQuotaDataRebuild }
+
+func (quotaDataRebuildHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	payload := model.QuotaDataRebuildParams{}
+	if err := task.DecodePayload(&payload); err != nil {
+		failSystemTask(task, runnerID, err)
+		return
+	}
+	if payload.BatchSize <= 0 {
+		payload.BatchSize = quotaDataRebuildBatchSize
+	}
+	result, err := model.RebuildQuotaDataFromLogs(ctx, payload)
+	if err != nil {
+		failSystemTask(task, runnerID, err)
+		return
+	}
+	if err := model.FinishSystemTask(task.TaskID, runnerID, model.SystemTaskStatusSucceeded, result, ""); err != nil {
+		logSystemTaskLockError(ctx, task, err)
+	}
+}
+
 func init() {
 	RegisterSystemTaskHandler(logCleanupHandler{})
+	RegisterSystemTaskHandler(quotaDataRebuildHandler{})
 }
 
 type LogCleanupPayload struct {
@@ -193,6 +218,23 @@ func StartLogCleanupTask(targetTimestamp int64) (*model.SystemTask, error) {
 	}
 	notifySystemTaskRunner()
 	return task, nil
+}
+
+func StartQuotaDataRebuildTask(params model.QuotaDataRebuildParams) (*model.SystemTask, error) {
+	if params.StartTime <= 0 {
+		return nil, errors.New("start time is required")
+	}
+	if params.EndTime <= 0 {
+		return nil, errors.New("end time is required")
+	}
+	if params.EndTime < params.StartTime {
+		return nil, errors.New("end time must be greater than or equal to start time")
+	}
+	if params.BatchSize <= 0 {
+		params.BatchSize = quotaDataRebuildBatchSize
+	}
+	task, _, err := EnqueueSystemTask(model.SystemTaskTypeQuotaDataRebuild, params)
+	return task, err
 }
 
 // EnqueueSystemTask creates an on-demand task of the given type. The returned

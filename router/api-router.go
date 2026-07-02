@@ -319,6 +319,7 @@ func SetApiRouter(router *gin.Engine) {
 		{
 			systemTaskRoute.POST("/log-cleanup", controller.CreateLogCleanupSystemTask)
 			systemTaskRoute.POST("/official-pricing-sync", controller.CreateOfficialPricingSyncSystemTask)
+			systemTaskRoute.POST("/quota-data-rebuild", controller.CreateQuotaDataRebuildSystemTask)
 			systemTaskRoute.GET("/list", controller.ListSystemTasks)
 			systemTaskRoute.GET("/current", controller.GetCurrentSystemTask)
 			systemTaskRoute.GET("/:task_id", controller.GetSystemTask)

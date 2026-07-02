@@ -48,6 +48,30 @@ func CreateOfficialPricingSyncSystemTask(c *gin.Context) {
 	})
 }
 
+func CreateQuotaDataRebuildSystemTask(c *gin.Context) {
+	startTime, _ := strconv.ParseInt(c.Query("start_time"), 10, 64)
+	endTime, _ := strconv.ParseInt(c.Query("end_time"), 10, 64)
+	batchSize, _ := strconv.Atoi(c.Query("batch_size"))
+	params := model.QuotaDataRebuildParams{
+		StartTime: startTime,
+		EndTime:   endTime,
+		ModelName: c.Query("model_name"),
+		BatchSize: batchSize,
+	}
+
+	task, err := service.StartQuotaDataRebuildTask(params)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"success": true,
+		"message": "",
+		"data":    task.ToResponse(),
+	})
+}
+
 func GetCurrentSystemTask(c *gin.Context) {
 	taskType := c.Query("type")
 	if taskType == "" {
