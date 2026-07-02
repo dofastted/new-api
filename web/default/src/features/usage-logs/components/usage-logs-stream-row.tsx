@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import {
   COMPACT_STREAM_COLUMN_ORDER,
   LOG_TYPE_ENUM,
+  SIMPLE_USER_STREAM_COLUMNS,
   STREAM_COLUMNS,
   type StreamColumnId,
 } from '../constants'
@@ -62,6 +63,8 @@ interface UsageLogsStreamRowProps {
   isNew?: boolean
   /** Compact display density: only the Time/Type/Model/Group/Cost columns render. */
   compact?: boolean
+  /** Ordinary-user fixed stream view: safe summary columns only, no details affordance. */
+  simplifiedUserView?: boolean
   /**
    * Visible customizable columns, in display order (already filtered for
    * admin-only columns and user hide/reorder preferences). Ignored when
@@ -283,6 +286,7 @@ function CacheCell(props: { read: number; write: number }) {
   )
 }
 
+
 const performanceColorMap: Record<string, string> = {
   success: 'text-emerald-600 dark:text-emerald-400',
   warning: 'text-amber-600 dark:text-amber-400',
@@ -368,6 +372,95 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     : other?.cache_creation_tokens || 0
   const isSubscription = other?.billing_source === 'subscription'
   const modelInfo = formatModelName(log)
+
+  if (props.simplifiedUserView) {
+    const className = cn(
+      'border-border/40 hover:bg-accent/40 flex h-[44px] w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
+      rowTint,
+      isError && 'border-l-rose-500/70 dark:border-l-rose-400/60',
+      props.isNew && 'usage-log-row-new'
+    )
+
+    return (
+      <div className={className}>
+        <div className='flex min-w-0 flex-1 items-center gap-2'>
+          <div
+            className={cn(
+              'flex min-w-0 items-center gap-1.5 overflow-hidden',
+              SIMPLE_USER_STREAM_COLUMNS.model
+            )}
+          >
+            {modelInfo.name ? (
+              <ModelBadge
+                modelName={modelInfo.name}
+                actualModel={modelInfo.actualModel}
+              />
+            ) : (
+              <span
+                className='text-foreground truncate text-xs'
+                title={log.content || ''}
+              >
+                {log.content ? log.content.slice(0, 80) : '-'}
+              </span>
+            )}
+          </div>
+          <span
+            className={cn(
+              'text-muted-foreground truncate text-[11px]',
+              SIMPLE_USER_STREAM_COLUMNS.key
+            )}
+            title={props.sensitiveVisible ? log.token_name : undefined}
+          >
+            {maskSensitive(log.token_name, props.sensitiveVisible)}
+          </span>
+          <div className={cn('min-w-0', SIMPLE_USER_STREAM_COLUMNS.group)}>
+            <GroupChip group={groupText} ratio={effectiveGroupRatio} />
+          </div>
+          <div
+            className={cn(
+              'text-right',
+              SIMPLE_USER_STREAM_COLUMNS.performance
+            )}
+          >
+            {isTiming ? (
+              <PerformanceCell
+                seconds={log.use_time}
+                completionTokens={log.completion_tokens}
+                stream={log.is_stream}
+                frt={other?.frt}
+              />
+            ) : (
+              <span className='text-muted-foreground/40 font-mono text-[11px]'>
+                -
+              </span>
+            )}
+          </div>
+          <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.input)}>
+            <span className='font-mono text-[11px] tabular-nums'>
+              {log.prompt_tokens > 0 ? log.prompt_tokens.toLocaleString() : '-'}
+            </span>
+          </div>
+          <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.output)}>
+            <span className='font-mono text-[11px] tabular-nums'>
+              {log.completion_tokens > 0
+                ? log.completion_tokens.toLocaleString()
+                : '-'}
+            </span>
+          </div>
+          <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cache)}>
+            <span className='font-mono text-[11px] tabular-nums'>
+              {cacheReadTokens + cacheWriteTokens > 0
+                ? (cacheReadTokens + cacheWriteTokens).toLocaleString()
+                : '-'}
+            </span>
+          </div>
+          <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cost)}>
+            <CostChip quota={log.quota} subscription={isSubscription} />
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   let rowBody: React.ReactNode
 

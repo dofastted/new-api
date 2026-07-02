@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { type ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from '@tanstack/react-table'
 import { AlertTriangle } from 'lucide-react'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -127,7 +127,7 @@ export function useUpstreamRatioSyncColumns(
                                 className='max-w-[200px] truncate'
                               />
                             }
-                          ></TooltipTrigger>
+                           />
                           <TooltipContent>
                             <p className='max-w-xs text-xs break-all'>
                               {String(current)}

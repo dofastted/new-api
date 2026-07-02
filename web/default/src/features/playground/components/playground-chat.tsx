@@ -201,10 +201,10 @@ export function PlaygroundChat({
                                   {hasSources && (
                                     <Sources>
                                       <SourcesTrigger
-                                        count={message.sources!.length}
+                                        count={message.sources?.length ?? 0}
                                       />
                                       <SourcesContent>
-                                        {message.sources!.map(
+                                        {message.sources?.map(
                                           (source, sourceIndex) => (
                                             <Source
                                               href={source.href}
@@ -220,12 +220,12 @@ export function PlaygroundChat({
                                   {/* Reasoning */}
                                   {showReasoning && (
                                     <Reasoning
-                                      defaultOpen={true}
+                                      defaultOpen
                                       isStreaming={message.isReasoningStreaming}
                                     >
                                       <ReasoningTrigger />
                                       <ReasoningContent>
-                                        {message.reasoning!.content}
+                                        {message.reasoning?.content ?? ''}
                                       </ReasoningContent>
                                     </Reasoning>
                                   )}

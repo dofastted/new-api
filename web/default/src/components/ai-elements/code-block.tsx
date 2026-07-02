@@ -103,11 +103,12 @@ export const CodeBlock = ({
 
   useEffect(() => {
     let cancelled = false
-    highlightCode(code, language, showLineNumbers).then((next) => {
+    void (async () => {
+      const next = await highlightCode(code, language, showLineNumbers)
       if (!cancelled) {
         setHtml(next)
       }
-    })
+    })()
     return () => {
       cancelled = true
     }

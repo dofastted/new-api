@@ -130,6 +130,17 @@ export const STREAM_COLUMNS = {
   performance: 'flex-[0.85] min-w-[76px]',
 } as const
 
+export const SIMPLE_USER_STREAM_COLUMNS = {
+  model: 'w-[14rem] shrink-0',
+  key: 'w-[10rem] shrink-0',
+  group: 'w-[9rem] shrink-0',
+  performance: 'w-[7rem] shrink-0',
+  input: 'w-[6rem] shrink-0',
+  output: 'w-[6rem] shrink-0',
+  cache: 'w-[6rem] shrink-0',
+  cost: 'w-[6rem] shrink-0',
+} as const
+
 /**
  * Columns the user can hide and reorder in comfortable density. Time and
  * Model are the row's timeline/identity anchors and are always shown first,
@@ -505,6 +516,11 @@ export const LOG_CATEGORY_LABELS: Record<LogCategory, string> = {
  * Log types that are displayable (have detailed info)
  */
 export const DISPLAYABLE_LOG_TYPES = [0, 2, 5, 6] as const
+
+export const SIMPLE_USER_REQUEST_LOG_TYPES: readonly number[] = [
+  LOG_TYPE_ENUM.CONSUME,
+  LOG_TYPE_ENUM.ERROR,
+]
 
 /**
  * Log types that show timing info

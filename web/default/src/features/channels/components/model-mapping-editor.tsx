@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Code, Plus, Table, Trash2 } from 'lucide-react'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -57,7 +57,7 @@ function getDuplicateSources(rows: MappingRow[]): string[] {
     }
   }
 
-  return Array.from(duplicates)
+  return [...duplicates]
 }
 
 export function ModelMappingEditor(props: ModelMappingEditorProps) {
@@ -71,12 +71,12 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
   const nextRowIdRef = useRef(0)
   const duplicateSources = useMemo(() => getDuplicateSources(rows), [rows])
 
-  const createRowId = () => {
+  const createRowId = useCallback(() => {
     nextRowIdRef.current += 1
     return `mapping-${nextRowIdRef.current}`
-  }
+  }, [])
 
-  const parseJsonToRows = (json: string): boolean => {
+  const parseJsonToRows = useCallback((json: string): boolean => {
     try {
       if (!json.trim()) {
         setRows([])
@@ -121,18 +121,18 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
       })
       setJsonError(null)
       return true
-    } catch (_error) {
+    } catch {
       setJsonError(t('Model mapping must be valid JSON format'))
       return false
     }
-  }
+  }, [createRowId, t])
 
   // Parse JSON to rows when value changes externally
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setJsonValue(props.value)
     parseJsonToRows(props.value)
-  }, [props.value])
+  }, [props.value, parseJsonToRows])
 
   const convertRowsToJson = (updatedRows: MappingRow[]): string => {
     if (updatedRows.length === 0) {
@@ -268,7 +268,7 @@ export function ModelMappingEditor(props: ModelMappingEditorProps) {
               <div className='grid grid-cols-[1fr_1fr_auto] gap-2 text-sm font-medium'>
                 <div>{t('Original Model')}</div>
                 <div>{t('Replacement Model')}</div>
-                <div className='w-10'></div>
+                <div className='w-10' />
               </div>
               {rows.map((row) => (
                 <div

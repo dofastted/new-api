@@ -53,7 +53,7 @@ export function UptimePanel() {
   useEffect(() => {
     const abortController = new AbortController()
 
-    getUptimeStatus()
+    void getUptimeStatus()
       .then((res) => {
         if (abortController.signal.aborted) return
         setGroups(res?.data || [])
@@ -77,7 +77,7 @@ export function UptimePanel() {
     const abortController = new AbortController()
     setRefreshing(true)
 
-    getUptimeStatus()
+    void getUptimeStatus()
       .then((res) => {
         if (abortController.signal.aborted) return
         setGroups(res?.data || [])

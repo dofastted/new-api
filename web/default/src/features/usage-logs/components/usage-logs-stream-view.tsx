@@ -61,6 +61,7 @@ import {
   getUsageLogsDensityStorageKey,
   getUsageLogsStreamColumnsStorageKey,
   parseStreamColumnSettings,
+  SIMPLE_USER_REQUEST_LOG_TYPES,
   STREAM_CUSTOMIZABLE_COLUMNS,
   USAGE_LOGS_DENSITY,
   type StreamColumnSettings,
@@ -85,6 +86,7 @@ interface UsageLogsStreamViewProps {
   searchParams: Record<string, unknown>
   columnFilters: Array<{ id: string; value: unknown }>
   toolbar: ReactNode
+  simplifiedUserView?: boolean
 }
 
 const SKELETON_ROW_KEYS = [
@@ -102,6 +104,7 @@ const ROW_HEIGHT: Record<UsageLogsDensity, number> = {
   [USAGE_LOGS_DENSITY.COMFORTABLE]: 44,
   [USAGE_LOGS_DENSITY.COMPACT]: 32,
 }
+
 
 function UsageLogsStreamSkeleton() {
   return (
@@ -133,6 +136,11 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   // browse history, polling pauses so the scroll position never jumps.
   const [isAtTop, setIsAtTop] = useState(true)
 
+  const shouldUseSimplifiedUserView =
+    props.simplifiedUserView === true &&
+    !props.isAdmin &&
+    props.logCategory === 'common'
+
   const densityStorageKey = getUsageLogsDensityStorageKey(props.isAdmin)
   const [density, setDensity] = useState<UsageLogsDensity>(
     USAGE_LOGS_DENSITY.COMFORTABLE
@@ -156,7 +164,11 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
     },
     [densityStorageKey]
   )
-  const isCompact = density === USAGE_LOGS_DENSITY.COMPACT
+  const effectiveDensity = shouldUseSimplifiedUserView
+    ? USAGE_LOGS_DENSITY.COMFORTABLE
+    : density
+  const isCompact =
+    !shouldUseSimplifiedUserView && density === USAGE_LOGS_DENSITY.COMPACT
 
   const columnsStorageKey = getUsageLogsStreamColumnsStorageKey(props.isAdmin)
   const [columnSettings, setColumnSettings] = useState<StreamColumnSettings>(
@@ -203,19 +215,20 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   // Topup mode narrows the already-loaded page on the client (the backend
   // cannot filter by payment channel / amount / plan). Other modes render the
   // full page unchanged.
-  const isTopupMode = isTopupTypeFilter(props.searchParams)
-  const visibleLogs = useMemo(
-    () =>
-      isTopupMode
-        ? applyTopupClientFilters(query.logs, topupClientFilters)
-        : query.logs,
-    [isTopupMode, query.logs, topupClientFilters]
-  )
+  const isTopupMode =
+    !shouldUseSimplifiedUserView && isTopupTypeFilter(props.searchParams)
+  const visibleLogs = useMemo(() => {
+    const baseLogs = isTopupMode
+      ? applyTopupClientFilters(query.logs, topupClientFilters)
+      : query.logs
+    if (!shouldUseSimplifiedUserView) return baseLogs
+    return baseLogs.filter((log) => SIMPLE_USER_REQUEST_LOG_TYPES.includes(log.type))
+  }, [isTopupMode, query.logs, shouldUseSimplifiedUserView, topupClientFilters])
 
   const rowVirtualizer = useVirtualizer({
     count: visibleLogs.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => ROW_HEIGHT[density],
+    estimateSize: () => ROW_HEIGHT[effectiveDensity],
     overscan: 10,
   })
 
@@ -223,7 +236,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
   // cached row offsets don't linger after switching comfortable <-> compact.
   useEffect(() => {
     rowVirtualizer.measure()
-  }, [density, rowVirtualizer])
+  }, [effectiveDensity, rowVirtualizer])
 
   const virtualItems = rowVirtualizer.getVirtualItems()
   const lastVirtualItem = virtualItems.at(-1)
@@ -321,70 +334,73 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
           </Button>
         )}
 
-        <div className='ms-auto flex items-center gap-2'>
-          {!isCompact && (
-            <UsageLogsStreamColumnManager
-              isAdmin={props.isAdmin}
-              settings={columnSettings}
-              onChange={handleColumnSettingsChange}
-            />
-          )}
+        {!shouldUseSimplifiedUserView && (
+          <div className='ms-auto flex items-center gap-2'>
+            {!isCompact && (
+              <UsageLogsStreamColumnManager
+                isAdmin={props.isAdmin}
+                settings={columnSettings}
+                onChange={handleColumnSettingsChange}
+              />
+            )}
 
-          <ToggleGroup
-            value={[density]}
-            onValueChange={(value) => {
-              const next = Array.isArray(value) ? value.at(-1) : value
-              if (
-                next === USAGE_LOGS_DENSITY.COMFORTABLE ||
-                next === USAGE_LOGS_DENSITY.COMPACT
-              ) {
-                handleDensityChange(next)
-              }
-            }}
-            variant='outline'
-            size='sm'
-            spacing={0}
-            aria-label={t('Display density')}
-          >
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <ToggleGroupItem
-                    value={USAGE_LOGS_DENSITY.COMFORTABLE}
-                    aria-label={t('Detailed')}
-                  />
+            <ToggleGroup
+              value={[density]}
+              onValueChange={(value) => {
+                const next = Array.isArray(value) ? value.at(-1) : value
+                if (
+                  next === USAGE_LOGS_DENSITY.COMFORTABLE ||
+                  next === USAGE_LOGS_DENSITY.COMPACT
+                ) {
+                  handleDensityChange(next)
                 }
-              >
-                <Rows3 className='size-3.5' />
-                <span className='hidden sm:inline'>{t('Detailed')}</span>
-              </TooltipTrigger>
-              <TooltipContent>{t('Detailed')}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger
-                render={
-                  <ToggleGroupItem
-                    value={USAGE_LOGS_DENSITY.COMPACT}
-                    aria-label={t('Compact')}
-                  />
-                }
-              >
-                <List className='size-3.5' />
-                <span className='hidden sm:inline'>{t('Compact')}</span>
-              </TooltipTrigger>
-              <TooltipContent>{t('Compact')}</TooltipContent>
-            </Tooltip>
-          </ToggleGroup>
-        </div>
+              }}
+              variant='outline'
+              size='sm'
+              spacing={0}
+              aria-label={t('Display density')}
+            >
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <ToggleGroupItem
+                      value={USAGE_LOGS_DENSITY.COMFORTABLE}
+                      aria-label={t('Detailed')}
+                    />
+                  }
+                >
+                  <Rows3 className='size-3.5' />
+                  <span className='hidden sm:inline'>{t('Detailed')}</span>
+                </TooltipTrigger>
+                <TooltipContent>{t('Detailed')}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <ToggleGroupItem
+                      value={USAGE_LOGS_DENSITY.COMPACT}
+                      aria-label={t('Compact')}
+                    />
+                  }
+                >
+                  <List className='size-3.5' />
+                  <span className='hidden sm:inline'>{t('Compact')}</span>
+                </TooltipTrigger>
+                <TooltipContent>{t('Compact')}</TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
+        )}
       </div>
 
-      <UsageLogsErrorAnalysisBar logs={logs} />
+      {!shouldUseSimplifiedUserView && <UsageLogsErrorAnalysisBar logs={logs} />}
 
       <div className='border-border/70 bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border'>
         {!isTopupMode && (
           <UsageLogsStreamHeader
             isAdmin={props.isAdmin}
             compact={isCompact}
+            simplifiedUserView={shouldUseSimplifiedUserView}
             columnOrder={effectiveColumnOrder}
           />
         )}
@@ -449,11 +465,14 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
                         sensitiveVisible={sensitiveVisible}
                         isNew={recentIds.has(log.id)}
                         compact={isCompact}
+                        simplifiedUserView={shouldUseSimplifiedUserView}
                         columnOrder={effectiveColumnOrder}
                         onTopupClick={(nextLog, topupInfo) =>
                           setSelectedTopup({ log: nextLog, topupInfo })
                         }
-                        onRowClick={setSelectedLog}
+                        onRowClick={
+                          shouldUseSimplifiedUserView ? undefined : setSelectedLog
+                        }
                       />
                     </div>
                   )
@@ -482,16 +501,18 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
         </div>
       </div>
 
-      <TopupOrderDetail
-        log={selectedTopup?.log ?? null}
-        topupInfo={selectedTopup?.topupInfo ?? null}
-        open={selectedTopup != null}
-        onOpenChange={(open) => {
-          if (!open) setSelectedTopup(null)
-        }}
-      />
+      {!shouldUseSimplifiedUserView && (
+        <TopupOrderDetail
+          log={selectedTopup?.log ?? null}
+          topupInfo={selectedTopup?.topupInfo ?? null}
+          open={selectedTopup != null}
+          onOpenChange={(open) => {
+            if (!open) setSelectedTopup(null)
+          }}
+        />
+      )}
 
-      {selectedLog && (
+      {!shouldUseSimplifiedUserView && selectedLog && (
         <DetailsDialog
           log={selectedLog}
           isAdmin={props.isAdmin}

@@ -22,6 +22,7 @@ import { cn } from '@/lib/utils'
 
 import {
   COMPACT_STREAM_COLUMN_ORDER,
+  SIMPLE_USER_STREAM_COLUMNS,
   STREAM_COLUMNS,
   STREAM_CUSTOMIZABLE_COLUMNS,
   type StreamColumnId,
@@ -30,6 +31,7 @@ import {
 interface UsageLogsStreamHeaderProps {
   isAdmin: boolean
   compact?: boolean
+  simplifiedUserView?: boolean
   /** Visible customizable columns, in display order. Ignored when `compact`. */
   columnOrder: StreamColumnId[]
 }
@@ -45,6 +47,31 @@ const LABEL_KEY_BY_ID: Record<StreamColumnId, string> = Object.fromEntries(
  */
 export function UsageLogsStreamHeader(props: UsageLogsStreamHeaderProps) {
   const { t } = useTranslation()
+
+  if (props.simplifiedUserView) {
+    return (
+      <div className='border-border/60 bg-muted/40 text-muted-foreground flex min-w-0 items-center gap-2 border-b px-2 py-1.5 text-[11px] font-medium tracking-wide'>
+        <span className={SIMPLE_USER_STREAM_COLUMNS.model}>{t('Model')}</span>
+        <span className={SIMPLE_USER_STREAM_COLUMNS.key}>{t('Key')}</span>
+        <span className={SIMPLE_USER_STREAM_COLUMNS.group}>{t('Group')}</span>
+        <span className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.performance)}>
+          {t('Performance')}
+        </span>
+        <span className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.input)}>
+          {t('Input')}
+        </span>
+        <span className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.output)}>
+          {t('Output')}
+        </span>
+        <span className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cache)}>
+          {t('Cache')}
+        </span>
+        <span className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cost)}>
+          {t('Cost')}
+        </span>
+      </div>
+    )
+  }
 
   const orderedColumns = props.compact
     ? COMPACT_STREAM_COLUMN_ORDER

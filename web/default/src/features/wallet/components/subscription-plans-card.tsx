@@ -466,7 +466,7 @@ export function SubscriptionPlansCard({
                         <div className='text-muted-foreground mt-1'>
                           {t('Next reset')}:{' '}
                           {new Date(
-                            subscription!.next_reset_time! * 1000
+                            (subscription?.next_reset_time ?? 0) * 1000
                           ).toLocaleString()}
                         </div>
                       )}

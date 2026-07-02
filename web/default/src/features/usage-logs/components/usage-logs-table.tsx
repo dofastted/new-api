@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useQuery } from '@tanstack/react-query'
 import { getRouteApi } from '@tanstack/react-router'
 import type { ColumnDef } from '@tanstack/react-table'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -88,6 +88,14 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   const searchParams = route.useSearch()
   const isCommon = logCategory === 'common'
   const { topupClientFilters, excludeAdminUsers } = useUsageLogsContext()
+  const isUserSimplifiedCommon = isCommon && !isAdmin
+  const streamSearchParams = useMemo(
+    () =>
+      isUserSimplifiedCommon
+        ? { ...searchParams, type: [LOG_TYPE_ALL_VALUE] }
+        : searchParams,
+    [isUserSimplifiedCommon, searchParams]
+  )
   const viewStorageKey = getUsageLogsViewStorageKey(isAdmin)
   const [view, setView] = useState<UsageLogsView>(USAGE_LOGS_VIEW.TABLE)
 
@@ -162,7 +170,9 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       excludeAdminUsers,
       t,
     ],
-    enabled: view === USAGE_LOGS_VIEW.TABLE || !isCommon || isMobile,
+    enabled:
+      !isUserSimplifiedCommon &&
+      (view === USAGE_LOGS_VIEW.TABLE || !isCommon || isMobile),
     queryFn: async () => {
       const result = await fetchLogsByCategory({
         logCategory,
@@ -222,9 +232,30 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
   })
 
   const viewToggle =
-    isCommon && !isMobile ? (
+    isCommon && !isMobile && !isUserSimplifiedCommon ? (
       <UsageLogsViewToggle value={view} onValueChange={handleViewChange} />
     ) : null
+
+  if (isUserSimplifiedCommon) {
+    return (
+      <UsageLogsStreamView
+        logCategory={logCategory}
+        isAdmin={isAdmin}
+        pageSize={pagination.pageSize}
+        searchParams={streamSearchParams}
+        columnFilters={columnFilters}
+        simplifiedUserView
+        toolbar={
+          <CommonLogsFilterBar
+            table={table}
+            viewToggle={null}
+            showViewOptions={false}
+            simplifiedUserView
+          />
+        }
+      />
+    )
+  }
 
   if (isCommon && !isMobile && view === USAGE_LOGS_VIEW.STREAM) {
     return (
@@ -232,7 +263,7 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
         logCategory={logCategory}
         isAdmin={isAdmin}
         pageSize={pagination.pageSize}
-        searchParams={searchParams}
+        searchParams={streamSearchParams}
         columnFilters={columnFilters}
         toolbar={
           <CommonLogsFilterBar

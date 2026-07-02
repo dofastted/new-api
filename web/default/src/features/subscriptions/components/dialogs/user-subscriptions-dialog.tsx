@@ -74,21 +74,21 @@ function SubscriptionStatusBadge(props: {
   const isExpired = (props.sub.end_time || 0) > 0 && props.sub.end_time < now
   const isActive = props.sub.status === 'active' && !isExpired
   if (isActive)
-    return (
+    {return (
       <StatusBadge
         label={props.t('Active')}
         variant='success'
         copyable={false}
       />
-    )
+    )}
   if (props.sub.status === 'cancelled')
-    return (
+    {return (
       <StatusBadge
         label={props.t('Invalidated')}
         variant='neutral'
         copyable={false}
       />
-    )
+    )}
   return (
     <StatusBadge
       label={props.t('Expired')}
@@ -204,8 +204,7 @@ export function UserSubscriptionsDialog(props: Props) {
           <div className={sideDrawerFormClassName()}>
             <div className='flex gap-2'>
               <Select
-                items={[
-                  ...plans.map((p) => ({
+                items={plans.map((p) => ({
                     value: String(p.plan.id),
                     label: (
                       <>
@@ -213,8 +212,7 @@ export function UserSubscriptionsDialog(props: Props) {
                         {Number(p.plan.price_amount || 0).toFixed(2)})
                       </>
                     ),
-                  })),
-                ]}
+                  }))}
                 value={selectedPlanId}
                 onValueChange={(v) => v !== null && setSelectedPlanId(v)}
               >

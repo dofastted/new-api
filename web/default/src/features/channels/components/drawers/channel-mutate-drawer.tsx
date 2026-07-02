@@ -313,9 +313,9 @@ export function ChannelMutateDrawer({
 
   // Fetch channel details if editing
   const { data: channelData, isLoading: isChannelLoading } = useQuery({
-    queryKey: channelsQueryKeys.detail(currentRow?.id || 0),
-    queryFn: () => getChannel(currentRow!.id),
-    enabled: isEditing && Boolean(currentRow?.id),
+    queryKey: channelsQueryKeys.detail(channelId ?? 0),
+    queryFn: () => getChannel(channelId ?? 0),
+    enabled: isEditing && channelId != null,
   })
 
   // Fetch available groups
@@ -450,7 +450,7 @@ export function ChannelMutateDrawer({
   const groupOptions = useMemo(() => {
     if (!groupsData?.data) return []
     const allGroups = new Set([...groupsData.data, ...(currentGroups || [])])
-    return Array.from(allGroups).map((group) => ({
+    return [...allGroups].map((group) => ({
       value: group,
       label: group,
     }))
@@ -500,7 +500,7 @@ export function ChannelMutateDrawer({
   // Transform models to multi-select options
   const modelOptions = useMemo(() => {
     const allModels = new Set([...allModelsList, ...currentModelsArray])
-    return Array.from(allModels).map((model) => ({
+    return [...allModels].map((model) => ({
       value: model,
       label: model,
     }))
@@ -531,29 +531,9 @@ export function ChannelMutateDrawer({
         return acc
       }, [])
 
-      const missingSourceModels = Array.from(
-        new Set(
-          entries
-            .filter(
-              (entry) =>
-                Boolean(entry.source) &&
-                !currentModelsArray.includes(entry.source)
-            )
-            .map((entry) => entry.source)
-        )
-      )
+      const missingSourceModels = [...new Set(entries.filter((entry) => Boolean(entry.source) && !currentModelsArray.includes(entry.source)).map((entry) => entry.source))]
 
-      const exposedTargetModels = Array.from(
-        new Set(
-          entries
-            .filter(
-              (entry) =>
-                Boolean(entry.target) &&
-                currentModelsArray.includes(entry.target)
-            )
-            .map((entry) => entry.target)
-        )
-      )
+      const exposedTargetModels = [...new Set(entries.filter((entry) => Boolean(entry.target) && currentModelsArray.includes(entry.target)).map((entry) => entry.target))]
 
       return {
         invalidJson: false,
@@ -587,7 +567,7 @@ export function ChannelMutateDrawer({
 
     return {
       lastCheckTime: settings.upstream_model_update_last_check_time,
-      detectedModels: Array.from(new Set(detectedModels)),
+      detectedModels: [...new Set(detectedModels)],
     }
   }, [currentSettings])
 
@@ -991,12 +971,12 @@ export function ChannelMutateDrawer({
       }
 
       // Validate model_mapping JSON format
-      const hasModelMapping =
-        typeof data.model_mapping === 'string' &&
-        data.model_mapping.trim() !== ''
+      const modelMapping =
+        typeof data.model_mapping === 'string' ? data.model_mapping : ''
+      const hasModelMapping = modelMapping.trim() !== ''
 
       if (hasModelMapping) {
-        const validation = validateModelMappingJson(data.model_mapping!)
+        const validation = validateModelMappingJson(modelMapping)
         if (!validation.valid) {
           toast.error(t(validation.error || 'Invalid model mapping'))
           return
@@ -1009,7 +989,7 @@ export function ChannelMutateDrawer({
       // Check for missing models in model_mapping
       if (hasModelMapping) {
         const missingModels = findMissingModelsInMapping(
-          data.model_mapping!,
+          modelMapping,
           normalizedModels
         )
 
@@ -1028,9 +1008,7 @@ export function ChannelMutateDrawer({
             return
           }
           if (confirmAction === 'add') {
-            const updatedModels = Array.from(
-              new Set([...normalizedModels, ...missingModels])
-            )
+            const updatedModels = [...new Set([...normalizedModels, ...missingModels])]
             data.models = formatModelsArray(updatedModels)
             form.setValue('models', data.models)
           }
@@ -1600,7 +1578,7 @@ export function ChannelMutateDrawer({
                                 onChange={async (e) => {
                                   const fileList = e.target.files
                                   const files = fileList
-                                    ? Array.from(fileList)
+                                    ? [...fileList]
                                     : []
                                   // allow re-selecting the same file
                                   e.target.value = ''
@@ -1881,12 +1859,10 @@ export function ChannelMutateDrawer({
                             <FormItem>
                               <FormLabel>{t('Add Mode')}</FormLabel>
                               <Select
-                                items={[
-                                  ...addModeOptions.map((option) => ({
+                                items={addModeOptions.map((option) => ({
                                     value: option.value,
                                     label: t(option.label),
-                                  })),
-                                ]}
+                                  }))}
                                 onValueChange={field.onChange}
                                 value={field.value}
                               >
@@ -2903,7 +2879,7 @@ export function ChannelMutateDrawer({
                                         field.onChange(
                                           JSON.stringify(parsed, null, 2)
                                         )
-                                      } catch (_e) {
+                                      } catch {
                                         /* ignore invalid JSON */
                                       }
                                     }}

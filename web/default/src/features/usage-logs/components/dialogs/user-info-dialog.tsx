@@ -34,6 +34,20 @@ interface UserInfoDialogProps {
   onOpenChange: (open: boolean) => void
 }
 
+type InfoItemProps = {
+  label: string
+  value: string | number
+}
+
+function InfoItem(props: InfoItemProps) {
+  return (
+    <div className='space-y-1.5'>
+      <Label className='text-muted-foreground text-xs'>{props.label}</Label>
+      <div className='text-sm font-semibold'>{props.value}</div>
+    </div>
+  )
+}
+
 export function UserInfoDialog({
   userId,
   open,
@@ -70,18 +84,6 @@ export function UserInfoDialog({
     }
   }, [open, userId, fetchUserInfo])
 
-  const InfoItem = ({
-    label,
-    value,
-  }: {
-    label: string
-    value: string | number
-  }) => (
-    <div className='space-y-1.5'>
-      <Label className='text-muted-foreground text-xs'>{label}</Label>
-      <div className='text-sm font-semibold'>{value}</div>
-    </div>
-  )
 
   return (
     <Dialog

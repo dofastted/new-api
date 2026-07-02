@@ -117,6 +117,7 @@ interface CommonLogsFilterBarProps<TData> {
   table: Table<TData>
   viewToggle?: ReactNode
   showViewOptions?: boolean
+  simplifiedUserView?: boolean
 }
 
 export function CommonLogsFilterBar<TData>(
@@ -209,13 +210,13 @@ export function CommonLogsFilterBar<TData>(
       params: { section: 'common' },
       search: {
         ...filterParams,
-        type: [logType],
+        type: [props.simplifiedUserView ? LOG_TYPE_ALL_VALUE : logType],
         page: 1,
       },
     })
     queryClient.invalidateQueries({ queryKey: ['logs'] })
     queryClient.invalidateQueries({ queryKey: ['usage-logs-stats'] })
-  }, [filters, logType, navigate, queryClient])
+  }, [filters, logType, navigate, props.simplifiedUserView, queryClient])
 
   const handleReset = useCallback(() => {
     const { start, end } = getDefaultTimeRange()
@@ -257,7 +258,7 @@ export function CommonLogsFilterBar<TData>(
     !!filters.requestId ||
     !!filters.upstreamRequestId
 
-  const hasTypeFilter = logType !== LOG_TYPE_ALL_VALUE
+  const hasTypeFilter = !props.simplifiedUserView && logType !== LOG_TYPE_ALL_VALUE
   const hasAdditionalFilters =
     !!filters.model || !!filters.group || hasTypeFilter || hasExpandedFilters
 
@@ -280,7 +281,7 @@ export function CommonLogsFilterBar<TData>(
   const logTypeLabel =
     logTypeItems.find((type) => type.value === logType)?.label ?? t('All Types')
 
-  const isTopupMode = logType === LOG_TYPE_TOPUP_VALUE
+  const isTopupMode = !props.simplifiedUserView && logType === LOG_TYPE_TOPUP_VALUE
 
   const topupChannelItems = useMemo(
     () =>
@@ -652,7 +653,7 @@ export function CommonLogsFilterBar<TData>(
           {dateRangeFilter}
           {modelFilter}
           {groupFilter}
-          {typeFilter}
+          {!props.simplifiedUserView && typeFilter}
         </>
       }
       advancedFilters={advancedFilters}
@@ -661,7 +662,7 @@ export function CommonLogsFilterBar<TData>(
         <>
           {modelFilter}
           {groupFilter}
-          {typeFilter}
+          {!props.simplifiedUserView && typeFilter}
           {advancedFilters}
         </>
       }

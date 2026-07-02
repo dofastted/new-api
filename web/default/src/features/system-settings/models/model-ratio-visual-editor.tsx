@@ -16,13 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import {
-  type ColumnFiltersState,
-  type OnChangeFn,
-  type PaginationState,
-  type RowSelectionState,
-  type VisibilityState,
-  type SortingState,
+import type {
+  ColumnFiltersState,
+  OnChangeFn,
+  PaginationState,
+  RowSelectionState,
+  VisibilityState,
+  SortingState,
 } from '@tanstack/react-table'
 import { Copy, Plus } from 'lucide-react'
 import {
@@ -210,22 +210,26 @@ const ModelRatioVisualEditorComponent = forwardRef<
     const draftByName = new Map(draftRows.map((row) => [row.name, row]))
     const modelNames = new Set([...savedByName.keys(), ...draftByName.keys()])
 
-    return Array.from(modelNames)
-      .map((name) => {
+    return [...modelNames]
+      .flatMap((name) => {
         const saved = savedByName.get(name)
         const draft = draftByName.get(name)
         const displayed = saved ?? draft
         const savedSignature = getSnapshotSignature(saved)
         const draftSignature = getSnapshotSignature(draft)
 
-        return {
-          ...displayed!,
+        if (!displayed) {
+          return []
+        }
+
+        return [{
+          ...displayed,
           saved,
           draft,
           isDraftChanged: savedSignature !== draftSignature,
           isDraftDeleted: Boolean(saved && !draft),
           isDraftNew: Boolean(!saved && draft),
-        }
+        }]
       })
       .filter((row) => !row.isDraftDeleted)
       .sort((a, b) => a.name.localeCompare(b.name))
@@ -500,7 +504,7 @@ const ModelRatioVisualEditorComponent = forwardRef<
         value: string | undefined
       ) => {
         if (!value || value === '') return
-        const parsed = parseFloat(value)
+        const parsed = Number.parseFloat(value)
         if (Number.isFinite(parsed)) target[name] = parsed
       }
 

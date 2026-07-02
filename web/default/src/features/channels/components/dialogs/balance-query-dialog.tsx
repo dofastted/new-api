@@ -169,11 +169,9 @@ export function BalanceQueryDialog({
       contentHeight='auto'
       bodyClassName='space-y-4'
       footer={
-        <>
-          <Button variant='outline' onClick={handleClose} disabled={isQuerying}>
+        <Button variant='outline' onClick={handleClose} disabled={isQuerying}>
             {t('Close')}
           </Button>
-        </>
       }
     >
       <div className='space-y-4 py-4'>

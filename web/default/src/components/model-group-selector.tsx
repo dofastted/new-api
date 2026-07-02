@@ -293,53 +293,49 @@ export const ModelSelector: React.FC<ModelSelectorProps> = React.memo(
       </Command>
     )
 
-    return (
-      <>
-        {isMobile ? (
-          <Drawer open={open} onOpenChange={setOpen}>
-            <DrawerTrigger asChild>
-              <ModelTriggerButton
-                currentLabel={currentModel?.label || t('Model')}
-                triggerClassName={className}
-                isDisabled={disabled}
-                aria-expanded={open}
-              />
-            </DrawerTrigger>
-            <DrawerContent className='flex max-h-[80vh] min-h-[60vh] flex-col'>
-              <DrawerHeader className='flex-shrink-0 pb-4'>
-                <DrawerTitle className='flex items-center gap-2 text-left text-lg font-medium'>
-                  {t('Select Model')}
-                </DrawerTitle>
-              </DrawerHeader>
-              <div className='flex min-h-0 flex-1 flex-col'>
-                {renderModelCommandContent()}
-              </div>
-            </DrawerContent>
-          </Drawer>
-        ) : (
-          <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger
-              render={
-                <ModelTriggerButton
-                  currentLabel={currentModel?.label || t('Model')}
-                  triggerClassName={className}
-                  isDisabled={disabled}
-                  aria-expanded={open}
-                />
-              }
+    return isMobile ? (
+      <Drawer open={open} onOpenChange={setOpen}>
+        <DrawerTrigger asChild>
+          <ModelTriggerButton
+            currentLabel={currentModel?.label || t('Model')}
+            triggerClassName={className}
+            isDisabled={disabled}
+            aria-expanded={open}
+          />
+        </DrawerTrigger>
+        <DrawerContent className='flex max-h-[80vh] min-h-[60vh] flex-col'>
+          <DrawerHeader className='flex-shrink-0 pb-4'>
+            <DrawerTitle className='flex items-center gap-2 text-left text-lg font-medium'>
+              {t('Select Model')}
+            </DrawerTitle>
+          </DrawerHeader>
+          <div className='flex min-h-0 flex-1 flex-col'>
+            {renderModelCommandContent()}
+          </div>
+        </DrawerContent>
+      </Drawer>
+    ) : (
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <ModelTriggerButton
+              currentLabel={currentModel?.label || t('Model')}
+              triggerClassName={className}
+              isDisabled={disabled}
+              aria-expanded={open}
             />
-            <PopoverContent
-              className='bg-popover z-40 w-[90vw] max-w-[20em] rounded-lg border p-0 !shadow-none sm:w-[20em]'
-              align='start'
-              side='bottom'
-              sideOffset={4}
-              collisionPadding={8}
-            >
-              {renderModelCommandContent()}
-            </PopoverContent>
-          </Popover>
-        )}
-      </>
+          }
+        />
+        <PopoverContent
+          className='bg-popover z-40 w-[90vw] max-w-[20em] rounded-lg border p-0 !shadow-none sm:w-[20em]'
+          align='start'
+          side='bottom'
+          sideOffset={4}
+          collisionPadding={8}
+        >
+          {renderModelCommandContent()}
+        </PopoverContent>
+      </Popover>
     )
   }
 )
@@ -445,95 +441,91 @@ export const GroupSelector: React.FC<GroupSelectorProps> = React.memo(
       </Command>
     )
 
-    return (
-      <>
-        {isMobile ? (
-          <Drawer open={open} onOpenChange={setOpen}>
-            <DrawerTrigger asChild>
-              <GroupTriggerButton
-                currentLabel={currentGroup?.label || t('Group')}
-                triggerClassName={className}
-                isDisabled={disabled}
-                aria-expanded={open}
-              />
-            </DrawerTrigger>
-            <DrawerContent className='max-h-[80vh]'>
-              <DrawerHeader className='pb-4 text-left'>
-                <DrawerTitle>{t('Choose Group')}</DrawerTitle>
-              </DrawerHeader>
-              <div className='max-h-[calc(80vh-100px)] overflow-y-auto px-4 pb-6'>
-                <div className='space-y-2'>
-                  {groups.map((group) => (
-                    <Button
-                      key={group.value}
-                      variant='outline'
-                      onClick={() => handleGroupChange(group.value)}
-                      className={cn(
-                        'flex h-auto w-full items-center justify-between rounded-lg p-4 text-left whitespace-normal',
-                        'border-border hover:bg-accent',
-                        selectedGroup === group.value
-                          ? 'bg-accent border-primary/20'
-                          : 'bg-background'
-                      )}
-                    >
-                      <div className='flex min-w-0 flex-1 items-center gap-3'>
-                        <div className='flex min-w-0 flex-1 flex-col'>
-                          <span className='text-foreground text-sm font-medium'>
-                            {group.label}
-                          </span>
-                          {(group.desc || group.description) && (
-                            <div className='text-muted-foreground mt-0.5 text-xs'>
-                              {group.desc || group.description}
-                              {group.ratio && (
-                                <>
-                                  {' · '}
-                                  {t('Ratio: {{value}}', {
-                                    value: group.ratio,
-                                  })}
-                                </>
-                              )}
-                            </div>
+    return isMobile ? (
+      <Drawer open={open} onOpenChange={setOpen}>
+        <DrawerTrigger asChild>
+          <GroupTriggerButton
+            currentLabel={currentGroup?.label || t('Group')}
+            triggerClassName={className}
+            isDisabled={disabled}
+            aria-expanded={open}
+          />
+        </DrawerTrigger>
+        <DrawerContent className='max-h-[80vh]'>
+          <DrawerHeader className='pb-4 text-left'>
+            <DrawerTitle>{t('Choose Group')}</DrawerTitle>
+          </DrawerHeader>
+          <div className='max-h-[calc(80vh-100px)] overflow-y-auto px-4 pb-6'>
+            <div className='space-y-2'>
+              {groups.map((group) => (
+                <Button
+                  key={group.value}
+                  variant='outline'
+                  onClick={() => handleGroupChange(group.value)}
+                  className={cn(
+                    'flex h-auto w-full items-center justify-between rounded-lg p-4 text-left whitespace-normal',
+                    'border-border hover:bg-accent',
+                    selectedGroup === group.value
+                      ? 'bg-accent border-primary/20'
+                      : 'bg-background'
+                  )}
+                >
+                  <div className='flex min-w-0 flex-1 items-center gap-3'>
+                    <div className='flex min-w-0 flex-1 flex-col'>
+                      <span className='text-foreground text-sm font-medium'>
+                        {group.label}
+                      </span>
+                      {(group.desc || group.description) && (
+                        <div className='text-muted-foreground mt-0.5 text-xs'>
+                          {group.desc || group.description}
+                          {group.ratio && (
+                            <>
+                              {' · '}
+                              {t('Ratio: {{value}}', {
+                                value: group.ratio,
+                              })}
+                            </>
                           )}
                         </div>
-                      </div>
-                      <Check
-                        className={cn(
-                          'ml-3 h-5 w-5 shrink-0',
-                          selectedGroup === group.value
-                            ? 'opacity-100'
-                            : 'opacity-0'
-                        )}
-                      />
-                    </Button>
-                  ))}
-                </div>
-              </div>
-            </DrawerContent>
-          </Drawer>
-        ) : (
-          <Popover open={open} onOpenChange={setOpen}>
-            <PopoverTrigger
-              render={
-                <GroupTriggerButton
-                  currentLabel={currentGroup?.label || t('Group')}
-                  triggerClassName={className}
-                  isDisabled={disabled}
-                  aria-expanded={open}
-                />
-              }
+                      )}
+                    </div>
+                  </div>
+                  <Check
+                    className={cn(
+                      'ml-3 h-5 w-5 shrink-0',
+                      selectedGroup === group.value
+                        ? 'opacity-100'
+                        : 'opacity-0'
+                    )}
+                  />
+                </Button>
+              ))}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+    ) : (
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger
+          render={
+            <GroupTriggerButton
+              currentLabel={currentGroup?.label || t('Group')}
+              triggerClassName={className}
+              isDisabled={disabled}
+              aria-expanded={open}
             />
-            <PopoverContent
-              className='bg-popover z-50 w-[90vw] max-w-[14em] rounded-lg border p-0 !shadow-none sm:w-[14em]'
-              align='start'
-              side='bottom'
-              sideOffset={4}
-              collisionPadding={8}
-            >
-              {renderGroupCommandContent()}
-            </PopoverContent>
-          </Popover>
-        )}
-      </>
+          }
+        />
+        <PopoverContent
+          className='bg-popover z-50 w-[90vw] max-w-[14em] rounded-lg border p-0 !shadow-none sm:w-[14em]'
+          align='start'
+          side='bottom'
+          sideOffset={4}
+          collisionPadding={8}
+        >
+          {renderGroupCommandContent()}
+        </PopoverContent>
+      </Popover>
     )
   }
 )
