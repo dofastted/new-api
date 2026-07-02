@@ -159,16 +159,17 @@ export function formatModelName(log: UsageLog): {
   actualModel?: string
 } {
   const other = parseLogOther(log.other)
+  const actualModel =
+    other?.upstream_model_name?.trim() || other?.upstream_model?.trim()
   const isMapped = !!(
-    other?.is_model_mapped &&
-    other?.upstream_model_name &&
-    other.upstream_model_name !== ''
+    actualModel &&
+    (other?.is_model_mapped || actualModel !== log.model_name)
   )
 
   return {
     name: log.model_name,
     isMapped,
-    actualModel: isMapped ? other.upstream_model_name : undefined,
+    actualModel: isMapped ? actualModel : undefined,
   }
 }
 

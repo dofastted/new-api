@@ -331,7 +331,7 @@ export function CommonLogsFilterBar<TData>(
         checked={excludeAdminUsers}
         onCheckedChange={(checked) => setExcludeAdminUsers(Boolean(checked))}
       />
-      <span className='hidden sm:inline'>{t('Exclude admin users')}</span>
+      <span className='hidden sm:inline'>{t('Exclude root user')}</span>
     </label>
   ) : null
   const toolbarActionStart = (

@@ -1603,7 +1603,7 @@
     "Excellent": "Отлично",
     "Exchange rate is required": "Требуется курс обмена",
     "Exchange rate must be greater than 0": "Курс обмена должен быть больше 0",
-    "Exclude admin users": "Exclude admin users",
+    "Exclude root user": "Исключить корневого пользователя",
     "Execute code in a sandbox during the response": "Выполнять код в песочнице во время ответа",
     "Executor": "Исполнитель",
     "Exhausted": "Исчерпано",

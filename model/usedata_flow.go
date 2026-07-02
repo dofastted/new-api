@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/QuantumNous/new-api/common"
 	"gorm.io/gorm"
@@ -34,18 +35,29 @@ func GetFlowQuotaData(startTime int64, endTime int64, username string, userID in
 }
 
 func flowQuotaBaseQuery(startTime int64, endTime int64) *gorm.DB {
-	query := DB.Table("quota_data").
-		Where("use_group <> ''").
+	return LOG_DB.Table("logs").
+		Where("type = ?", LogTypeConsume).
+		Where("logs."+logGroupCol+" <> ''").
 		Where("created_at >= ? and created_at <= ?", startTime, endTime)
-	return query
+}
+
+func flowQuotaSelect(dimensions ...string) string {
+	selectFields := make([]string, 0, len(dimensions)+3)
+	selectFields = append(selectFields, dimensions...)
+	selectFields = append(selectFields,
+		"count(*) as count",
+		"COALESCE(sum(quota), 0) as quota",
+		"COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) as token_used",
+	)
+	return strings.Join(selectFields, ", ")
 }
 
 func getSelfFlowQuotaData(startTime int64, endTime int64, userID int) ([]*FlowQuotaData, error) {
 	rows := make([]*FlowQuotaData, 0)
 	err := flowQuotaBaseQuery(startTime, endTime).
-		Select("token_id, use_group, model_name, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used").
+		Select(flowQuotaSelect("token_id", "logs."+logGroupCol+" as use_group", "model_name")).
 		Where("user_id = ?", userID).
-		Group("token_id, use_group, model_name").
+		Group("token_id, logs." + logGroupCol + ", model_name").
 		Order("quota DESC").
 		Find(&rows).Error
 	if err != nil {
@@ -57,12 +69,12 @@ func getSelfFlowQuotaData(startTime int64, endTime int64, userID int) ([]*FlowQu
 func getAdminFlowQuotaData(startTime int64, endTime int64, username string) ([]*FlowQuotaData, error) {
 	rows := make([]*FlowQuotaData, 0)
 	query := flowQuotaBaseQuery(startTime, endTime).
-		Select("user_id, username, use_group, model_name, channel_id, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used")
+		Select(flowQuotaSelect("user_id", "username", "logs."+logGroupCol+" as use_group", "model_name", "channel_id"))
 	if username != "" {
 		query = query.Where("username = ?", username)
 	}
 	err := query.
-		Group("user_id, username, use_group, model_name, channel_id").
+		Group("user_id, username, logs." + logGroupCol + ", model_name, channel_id").
 		Order("quota DESC").
 		Find(&rows).Error
 	if err != nil {
@@ -74,12 +86,12 @@ func getAdminFlowQuotaData(startTime int64, endTime int64, username string) ([]*
 func getRootFlowQuotaData(startTime int64, endTime int64, username string) ([]*FlowQuotaData, error) {
 	rows := make([]*FlowQuotaData, 0)
 	query := flowQuotaBaseQuery(startTime, endTime).
-		Select("user_id, username, node_name, token_id, use_group, model_name, channel_id, sum(count) as count, sum(quota) as quota, sum(token_used) as token_used")
+		Select(flowQuotaSelect("user_id", "username", "? as node_name", "token_id", "logs."+logGroupCol+" as use_group", "model_name", "channel_id"), common.NodeName)
 	if username != "" {
 		query = query.Where("username = ?", username)
 	}
 	err := query.
-		Group("user_id, username, node_name, token_id, use_group, model_name, channel_id").
+		Group("user_id, username, token_id, logs." + logGroupCol + ", model_name, channel_id").
 		Order("quota DESC").
 		Find(&rows).Error
 	if err != nil {

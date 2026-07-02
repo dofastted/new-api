@@ -748,6 +748,12 @@ func GetAdminUserIds() (ids []int, err error) {
 	return ids, err
 }
 
+// GetRootUserIds returns the ids of all root users.
+func GetRootUserIds() (ids []int, err error) {
+	err = DB.Model(&User{}).Where("role >= ?", common.RoleRootUser).Pluck("id", &ids).Error
+	return ids, err
+}
+
 //// IsUserEnabled checks user status from Redis first, falls back to DB if needed
 //func IsUserEnabled(id int, fromDB bool) (status bool, err error) {
 //	defer func() {

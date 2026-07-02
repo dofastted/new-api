@@ -25,7 +25,7 @@ func GetAllLogs(c *gin.Context) {
 	var excludeUserIds []int
 	var err error
 	if c.Query("exclude_admin") == "true" {
-		excludeUserIds, err = model.GetAdminUserIds()
+		excludeUserIds, err = model.GetRootUserIds()
 		if err != nil {
 			common.ApiError(c, err)
 			return
@@ -116,7 +116,7 @@ func GetLogsStat(c *gin.Context) {
 	var excludeUserIds []int
 	var err error
 	if c.Query("exclude_admin") == "true" {
-		excludeUserIds, err = model.GetAdminUserIds()
+		excludeUserIds, err = model.GetRootUserIds()
 		if err != nil {
 			common.ApiError(c, err)
 			return

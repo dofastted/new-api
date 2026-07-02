@@ -38,7 +38,7 @@ interface UsageLogsContextValue {
   setSensitiveVisible: (visible: boolean) => void
   topupClientFilters: TopupClientFilters
   setTopupClientFilters: (filters: TopupClientFilters) => void
-  /** Admin-only: exclude logs produced by Admin/Root role users. */
+  /** Admin-only: exclude logs produced by root users. */
   excludeAdminUsers: boolean
   setExcludeAdminUsers: (exclude: boolean) => void
 }

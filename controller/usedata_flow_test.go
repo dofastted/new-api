@@ -20,35 +20,48 @@ type flowQuotaResponse struct {
 func setupFlowControllerTestDB(t *testing.T) {
 	t.Helper()
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.Token{}, &model.QuotaData{}))
+	require.NoError(t, db.AutoMigrate(&model.Token{}, &model.QuotaData{}, &model.Log{}))
 	require.NoError(t, model.DB.Create(&model.Channel{Id: 1, Name: "east"}).Error)
 	require.NoError(t, model.DB.Create(&model.Token{Id: 11, UserId: 1, Key: "sk-primary", Name: "primary"}).Error)
 	require.NoError(t, model.DB.Create(&model.Token{Id: 22, UserId: 2, Key: "sk-backup", Name: "backup"}).Error)
-	require.NoError(t, model.DB.Create(&model.QuotaData{
-		UserID:    1,
-		Username:  "alice",
-		NodeName:  "node-a",
-		TokenID:   11,
-		UseGroup:  "default",
-		ChannelID: 1,
-		ModelName: "gpt-a",
-		CreatedAt: 1100,
-		Count:     2,
-		Quota:     100,
-		TokenUsed: 40,
+	require.NoError(t, model.LOG_DB.Create(&model.Log{
+		UserId:           1,
+		Username:         "alice",
+		TokenId:          11,
+		Group:            "default",
+		ChannelId:        1,
+		ModelName:        "gpt-a",
+		CreatedAt:        1100,
+		Type:             model.LogTypeConsume,
+		Quota:            100,
+		PromptTokens:     30,
+		CompletionTokens: 10,
+	}).Error)
+	require.NoError(t, model.LOG_DB.Create(&model.Log{
+		UserId:           2,
+		Username:         "bob",
+		TokenId:          22,
+		Group:            "vip",
+		ChannelId:        1,
+		ModelName:        "gpt-b",
+		CreatedAt:        1200,
+		Type:             model.LogTypeConsume,
+		Quota:            70,
+		PromptTokens:     20,
+		CompletionTokens: 10,
 	}).Error)
 	require.NoError(t, model.DB.Create(&model.QuotaData{
 		UserID:    2,
 		Username:  "bob",
-		NodeName:  "node-b",
+		NodeName:  "stale-node",
 		TokenID:   22,
-		UseGroup:  "vip",
+		UseGroup:  "stale",
 		ChannelID: 1,
-		ModelName: "gpt-b",
+		ModelName: "stale-quota-data",
 		CreatedAt: 1200,
-		Count:     1,
-		Quota:     70,
-		TokenUsed: 30,
+		Count:     99,
+		Quota:     999,
+		TokenUsed: 999,
 	}).Error)
 }
 
@@ -82,6 +95,9 @@ func TestGetAllFlowQuotaDatesUsesAdminDimensions(t *testing.T) {
 
 func TestGetAllFlowQuotaDatesUsesRootDimensions(t *testing.T) {
 	setupFlowControllerTestDB(t)
+	originalNodeName := common.NodeName
+	common.NodeName = "node-current"
+	t.Cleanup(func() { common.NodeName = originalNodeName })
 
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
@@ -93,7 +109,7 @@ func TestGetAllFlowQuotaDatesUsesRootDimensions(t *testing.T) {
 	payload := decodeFlowQuotaResponse(t, recorder)
 	require.Len(t, payload.Data, 1)
 	require.Equal(t, "alice", payload.Data[0].Username)
-	require.Equal(t, "node-a", payload.Data[0].NodeName)
+	require.Equal(t, "node-current", payload.Data[0].NodeName)
 	require.Equal(t, "primary", payload.Data[0].TokenName)
 	require.Equal(t, "default", payload.Data[0].UseGroup)
 	require.Equal(t, "east", payload.Data[0].ChannelName)

@@ -467,6 +467,12 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const isTopup = props.log.type === 1
   const isManage = props.log.type === 3
   const isSubscription = other?.billing_source === 'subscription'
+  const actualMappedModel =
+    other?.upstream_model_name?.trim() || other?.upstream_model?.trim()
+  const hasModelMapping = !!(
+    actualMappedModel &&
+    (other?.is_model_mapped || actualMappedModel !== props.log.model_name)
+  )
   const isTieredBilling =
     isConsume &&
     !isViolation &&
@@ -1150,18 +1156,14 @@ export function DetailsDialog(props: DetailsDialogProps) {
         )}
 
         {/* Model mapping */}
-        {other?.is_model_mapped && other?.upstream_model_name && (
+        {hasModelMapping && actualMappedModel && (
           <DetailSection label={t('Model Mapping')}>
             <DetailRow
               label={t('Request Model')}
               value={props.log.model_name}
               mono
             />
-            <DetailRow
-              label={t('Actual Model')}
-              value={other.upstream_model_name}
-              mono
-            />
+            <DetailRow label={t('Actual Model')} value={actualMappedModel} mono />
           </DetailSection>
         )}
 

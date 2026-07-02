@@ -7,9 +7,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func seedFlowQuotaData(t *testing.T, quotaData QuotaData) {
+func seedFlowLog(t *testing.T, log Log) {
 	t.Helper()
-	require.NoError(t, DB.Create(&quotaData).Error)
+	require.NoError(t, LOG_DB.Create(&log).Error)
 }
 
 func seedFlowLookupData(t *testing.T) {
@@ -21,71 +21,91 @@ func seedFlowLookupData(t *testing.T) {
 	require.NoError(t, DB.Delete(&Token{Id: 11}).Error)
 }
 
-func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
+func TestGetFlowQuotaDataUsesLogBackedRoleSpecificDimensions(t *testing.T) {
 	truncateTables(t)
 	seedFlowLookupData(t)
 
-	seedFlowQuotaData(t, QuotaData{
+	seedFlowLog(t, Log{
+		UserId:           1,
+		Username:         "alice",
+		TokenId:          11,
+		Group:            "vip",
+		ModelName:        "gpt-a",
+		ChannelId:        1,
+		CreatedAt:        1000,
+		Type:             LogTypeConsume,
+		Quota:            100,
+		PromptTokens:     30,
+		CompletionTokens: 10,
+	})
+	seedFlowLog(t, Log{
+		UserId:           1,
+		Username:         "alice",
+		TokenId:          11,
+		Group:            "vip",
+		ModelName:        "gpt-a",
+		ChannelId:        1,
+		CreatedAt:        1100,
+		Type:             LogTypeConsume,
+		Quota:            50,
+		PromptTokens:     15,
+		CompletionTokens: 5,
+	})
+	seedFlowLog(t, Log{
+		UserId:           1,
+		Username:         "alice",
+		TokenId:          11,
+		Group:            "vip",
+		ModelName:        "gpt-a",
+		ChannelId:        2,
+		CreatedAt:        1200,
+		Type:             LogTypeConsume,
+		Quota:            25,
+		PromptTokens:     7,
+		CompletionTokens: 3,
+	})
+	seedFlowLog(t, Log{
+		UserId:           2,
+		Username:         "bob",
+		TokenId:          22,
+		Group:            "default",
+		ModelName:        "gpt-b",
+		ChannelId:        1,
+		CreatedAt:        1300,
+		Type:             LogTypeConsume,
+		Quota:            70,
+		PromptTokens:     20,
+		CompletionTokens: 10,
+	})
+	seedFlowLog(t, Log{
+		UserId:           1,
+		Username:         "alice",
+		TokenId:          11,
+		Group:            "vip",
+		ModelName:        "ignored-topup",
+		ChannelId:        1,
+		CreatedAt:        1400,
+		Type:             LogTypeTopup,
+		Quota:            999,
+		PromptTokens:     999,
+		CompletionTokens: 999,
+	})
+	require.NoError(t, DB.Create(&QuotaData{
 		UserID:    1,
 		Username:  "alice",
-		NodeName:  "node-a",
+		NodeName:  "stale-node",
 		TokenID:   11,
 		UseGroup:  "vip",
-		ModelName: "gpt-a",
+		ModelName: "stale-quota-data",
 		ChannelID: 1,
 		CreatedAt: 1000,
-		Count:     2,
-		Quota:     100,
-		TokenUsed: 40,
-	})
-	seedFlowQuotaData(t, QuotaData{
-		UserID:    1,
-		Username:  "alice",
-		NodeName:  "node-a",
-		TokenID:   11,
-		UseGroup:  "vip",
-		ModelName: "gpt-a",
-		ChannelID: 1,
-		CreatedAt: 1100,
-		Count:     1,
-		Quota:     50,
-		TokenUsed: 20,
-	})
-	seedFlowQuotaData(t, QuotaData{
-		UserID:    1,
-		Username:  "alice",
-		NodeName:  "node-a",
-		TokenID:   11,
-		UseGroup:  "vip",
-		ModelName: "gpt-a",
-		ChannelID: 2,
-		CreatedAt: 1200,
-		Count:     1,
-		Quota:     25,
-		TokenUsed: 10,
-	})
-	seedFlowQuotaData(t, QuotaData{
-		UserID:    2,
-		Username:  "bob",
-		NodeName:  "node-b",
-		TokenID:   22,
-		UseGroup:  "default",
-		ModelName: "gpt-b",
-		ChannelID: 1,
-		CreatedAt: 1300,
-		Count:     3,
-		Quota:     70,
-		TokenUsed: 30,
-	})
-	seedFlowQuotaData(t, QuotaData{
-		UserID:    1,
-		Username:  "alice",
-		ModelName: "legacy",
-		CreatedAt: 1400,
 		Count:     99,
 		Quota:     999,
 		TokenUsed: 999,
-	})
+	}).Error)
+	originalNodeName := common.NodeName
+	common.NodeName = "node-current"
+	t.Cleanup(func() { common.NodeName = originalNodeName })
 
 	rootRows, err := GetFlowQuotaData(900, 2000, "", 0, common.RoleRootUser)
 	require.NoError(t, err)
@@ -95,7 +115,7 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 	require.Equal(t, FlowQuotaData{
 		UserID:      1,
 		Username:    "alice",
-		NodeName:    "node-a",
+		NodeName:    "node-current",
 		TokenID:     11,
 		TokenName:   "",
 		UseGroup:    "vip",
@@ -103,7 +123,7 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 		ChannelName: "east",
 		ModelName:   "gpt-a",
 		TokenUsed:   60,
-		Count:       3,
+		Count:       2,
 		Quota:       150,
 	}, *rootRows[0])
 	// A token that still exists resolves to its current name.
