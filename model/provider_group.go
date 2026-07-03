@@ -579,12 +579,13 @@ func GetProviderAutoGroups(routeType string) ([]string, error) {
 
 func ProviderRouteTypeForPath(requestPath string) string {
 	path := strings.Split(requestPath, "?")[0]
-	switch path {
-	case "/v1/completions":
+	switch {
+	case path == "/v1/chat/completions" || strings.HasPrefix(path, "/v1/chat/completions/") ||
+		path == "/v1/completions" || strings.HasPrefix(path, "/v1/completions/"):
 		return ProviderRouteTypeCompletions
-	case "/v1/responses", "/v1/responses/compact":
+	case path == "/v1/responses" || strings.HasPrefix(path, "/v1/responses/"):
 		return ProviderRouteTypeResponses
-	case "/v1/messages":
+	case path == "/v1/messages" || strings.HasPrefix(path, "/v1/messages/"):
 		return ProviderRouteTypeMessages
 	default:
 		return ProviderRouteTypeOther
@@ -603,6 +604,9 @@ func ProviderGroupChannelSupportsPath(groupName string, channelID int, requestPa
 		First(&member).Error
 	if err != nil {
 		return true
+	}
+	if strings.TrimSpace(member.RouteTypes) != "" {
+		return providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeForPath(requestPath))
 	}
 	var channel Channel
 	if err := DB.First(&channel, channelID).Error; err != nil {

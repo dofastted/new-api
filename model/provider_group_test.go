@@ -196,6 +196,27 @@ func TestProviderRouteTypesForAdvancedCustomChannel(t *testing.T) {
 	assert.Equal(t, []string{ProviderRouteTypeResponses, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
 }
 
+func TestProviderRouteTypeForPath(t *testing.T) {
+	tests := []struct {
+		name        string
+		requestPath string
+		expected    string
+	}{
+		{name: "chat completions", requestPath: "/v1/chat/completions", expected: ProviderRouteTypeCompletions},
+		{name: "chat completions subpath", requestPath: "/v1/chat/completions/foo", expected: ProviderRouteTypeCompletions},
+		{name: "legacy completions", requestPath: "/v1/completions", expected: ProviderRouteTypeCompletions},
+		{name: "responses compact", requestPath: "/v1/responses/compact", expected: ProviderRouteTypeResponses},
+		{name: "messages", requestPath: "/v1/messages?beta=true", expected: ProviderRouteTypeMessages},
+		{name: "similar chat prefix", requestPath: "/v1/chat/completions-extra", expected: ProviderRouteTypeOther},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, ProviderRouteTypeForPath(tt.requestPath))
+		})
+	}
+}
+
 func TestSyncProviderGroupChannelsForChannel(t *testing.T) {
 	clearProviderGroupTestTables(t)
 
@@ -313,4 +334,36 @@ func TestRebuildAbilitiesRespectsGroupStatusToggle(t *testing.T) {
 	var afterCount int64
 	require.NoError(t, DB.Model(&Ability{}).Where(commonGroupCol+" = ?", "toggle-g").Count(&afterCount).Error)
 	assert.Equal(t, int64(0), afterCount, "offline group abilities must be removed on rebuild")
+}
+
+// TestProviderGroupChannelSupportsPathPrefersMemberRouteTypes guards the
+// route_types-first contract of ProviderGroupChannelSupportsPath: a
+// provider_group_channels membership with route_types=["messages"] must
+// support /v1/messages and reject /v1/responses, regardless of the
+// underlying channel's own route types (the member row is the SSOT and the
+// channel fallback must not be reached when route_types is non-empty).
+func TestProviderGroupChannelSupportsPathPrefersMemberRouteTypes(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Id: 9501, Name: "msg-only-g", DisplayName: "msg-only-g",
+		Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+	// Non-advanced channel whose own route types would otherwise span every
+	// route; the membership's route_types must override it.
+	require.NoError(t, DB.Create(&Channel{
+		Id: 9502, Type: 1, Key: "sk-msg", Status: common.ChannelStatusEnabled,
+		Name: "msg-channel", Models: "claude-3-5-sonnet",
+	}).Error)
+	routeTypes, err := common.Marshal([]string{ProviderRouteTypeMessages})
+	require.NoError(t, err)
+	require.NoError(t, DB.Create(&ProviderGroupChannel{
+		ProviderGroupId: 9501, GroupName: "msg-only-g", ChannelId: 9502,
+		RouteTypes: string(routeTypes), Enabled: true,
+	}).Error)
+
+	assert.True(t, ProviderGroupChannelSupportsPath("msg-only-g", 9502, "/v1/messages"),
+		"member route_types=[messages] must support /v1/messages")
+	assert.False(t, ProviderGroupChannelSupportsPath("msg-only-g", 9502, "/v1/responses"),
+		"member route_types=[messages] must not support /v1/responses")
 }

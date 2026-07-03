@@ -237,28 +237,12 @@ func routeAutoGroupForRequestPath(c *gin.Context, usingGroup string) string {
 		return usingGroup
 	}
 
-	requestPath := c.Request.URL.Path
-	if isChatCompletionsPath(requestPath) {
-		const routedGroup = "codex-completions"
-		common.SetContextKey(c, constant.ContextKeyUsingGroup, routedGroup)
-		common.SetContextKey(c, constant.ContextKeyTokenGroup, routedGroup)
-		return routedGroup
-	}
-
-	if isResponsesPath(requestPath) {
-		common.SetContextKey(c, constant.ContextKeyRouteAutoGroups, []string{"codex", "codex-pro"})
-	}
+	// Keep the token on auto. Route-specific provider auto rules are resolved by
+	// service.GetRequestAutoGroup via model.ProviderRouteTypeForPath, so middleware
+	// must not hard-code provider groups or it will bypass admin routing rules.
+	common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
+	common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
 	return usingGroup
-}
-
-func autoGroupForRequestPath(usingGroup string, requestPath string) (string, bool) {
-	if usingGroup != "auto" {
-		return usingGroup, false
-	}
-	if isChatCompletionsPath(requestPath) {
-		return "codex-completions", true
-	}
-	return usingGroup, false
 }
 
 func isChatCompletionsPath(requestPath string) bool {

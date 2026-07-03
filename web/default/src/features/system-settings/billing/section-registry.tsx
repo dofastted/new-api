@@ -118,15 +118,15 @@ const BILLING_SECTIONS = [
   },
   {
     id: 'group-pricing',
-    titleKey: 'User Level Groups',
+    titleKey: 'Group pricing',
     build: (settings: BillingSettings) => (
       <>
+        <ProviderGroupsOverviewSection />
         <UserLevelGroupSection
           groupRatio={settings.GroupRatio}
           topupGroupRatio={settings.TopupGroupRatio}
           rateLimitGroup={settings.ModelRequestRateLimitGroup}
         />
-        <ProviderGroupsOverviewSection />
       </>
     ),
   },

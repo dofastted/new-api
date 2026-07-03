@@ -314,8 +314,8 @@ export function UserLevelGroupForm({
           },
           {
             id: 'ratio',
-            header: t('Billing ratio'),
-            className: 'w-28',
+            header: t('User level billing ratio'),
+            className: 'w-36',
             cell: (row) => (
               <Input
                 type='number'
@@ -329,7 +329,7 @@ export function UserLevelGroupForm({
                     toFiniteNumber(event.target.value, row.ratio)
                   )
                 }
-                aria-label={t('Billing ratio')}
+                aria-label={t('User level billing ratio')}
               />
             ),
           },

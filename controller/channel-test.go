@@ -847,6 +847,22 @@ func TestChannel(c *gin.Context) {
 	testModel := c.Query("model")
 	endpointType := c.Query("endpoint_type")
 	isStream, _ := strconv.ParseBool(c.Query("stream"))
+	cacheKey := channelTestCacheKey(channel.Id, testModel, endpointType, isStream)
+	if cached, found := getCachedChannelTestResult(cacheKey); found {
+		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, true))
+		return
+	}
+	if shouldBlockManualClaudeChannelHealthProbe(channel) {
+		scheduledCacheKey := channelTestCacheKey(channel.Id, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		if scheduledCacheKey != cacheKey {
+			if cached, found := getCachedChannelTestResult(scheduledCacheKey); found {
+				c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, true))
+				return
+			}
+		}
+		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(claudeChannelHealthProbeBlockedResult(), false))
+		return
+	}
 	testUserID, err := resolveChannelTestUserID(c)
 	if err != nil {
 		common.ApiError(c, err)
@@ -859,15 +875,9 @@ func TestChannel(c *gin.Context) {
 	}
 	result := testChannel(requestCtx, channel, testUserID, testModel, endpointType, isStream)
 	if result.localErr != nil {
-		resp := gin.H{
-			"success": false,
-			"message": result.localErr.Error(),
-			"time":    0.0,
-		}
-		if result.newAPIError != nil {
-			resp["error_code"] = result.newAPIError.GetErrorCode()
-		}
-		c.JSON(http.StatusOK, resp)
+		cached := channelTestCachedResultFromTestResult(result, 0)
+		setCachedChannelTestResult(cacheKey, cached)
+		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, false))
 		return
 	}
 	tok := time.Now()
@@ -875,19 +885,14 @@ func TestChannel(c *gin.Context) {
 	go channel.UpdateResponseTime(milliseconds)
 	consumedTime := float64(milliseconds) / 1000.0
 	if result.newAPIError != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success":    false,
-			"message":    result.newAPIError.Error(),
-			"time":       consumedTime,
-			"error_code": result.newAPIError.GetErrorCode(),
-		})
+		cached := channelTestCachedResultFromTestResult(result, consumedTime)
+		setCachedChannelTestResult(cacheKey, cached)
+		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, false))
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"success": true,
-		"message": "",
-		"time":    consumedTime,
-	})
+	cached := channelTestCachedResultFromTestResult(result, consumedTime)
+	setCachedChannelTestResult(cacheKey, cached)
+	c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, false))
 }
 
 // channelTestSummary records the outcome of one channel test cycle so the
@@ -924,9 +929,11 @@ func performChannelTests(ctx context.Context, channels []*model.Channel, testUse
 		}
 		isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 		tik := time.Now()
-		result := testChannel(ctx, channel, testUserID, "", "", shouldUseStreamForAutomaticChannelTest(channel))
+		isStream := shouldUseStreamForAutomaticChannelTest(channel)
+		result := testChannel(ctx, channel, testUserID, "", "", isStream)
 		tok := time.Now()
 		milliseconds := tok.Sub(tik).Milliseconds()
+		setCachedChannelTestResult(channelTestCacheKey(channel.Id, "", "", isStream), channelTestCachedResultFromTestResult(result, float64(milliseconds)/1000.0))
 		if ctx != nil && ctx.Err() != nil {
 			break
 		}

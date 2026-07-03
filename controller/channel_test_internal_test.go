@@ -3,9 +3,11 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
@@ -127,4 +129,109 @@ func TestTestAllChannelsRejectsExistingActiveTask(t *testing.T) {
 	require.Equal(t, http.StatusConflict, recorder.Code)
 	require.Contains(t, recorder.Body.String(), existing.TaskID)
 	require.Contains(t, recorder.Body.String(), "已有通道测试任务正在运行或等待中")
+}
+
+func resetChannelTestResultCacheForTest(t *testing.T) {
+	t.Helper()
+	oldRedisEnabled := common.RedisEnabled
+	common.RedisEnabled = false
+	channelTestResultCacheOnce = sync.Once{}
+	channelTestResultCache = nil
+	t.Cleanup(func() {
+		common.RedisEnabled = oldRedisEnabled
+		channelTestResultCacheOnce = sync.Once{}
+		channelTestResultCache = nil
+	})
+}
+
+func TestChannelReturnsCachedClaudeChannelTest(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	resetChannelTestResultCacheForTest(t)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     101,
+		Type:   constant.ChannelTypeAnthropic,
+		Name:   "claude-cached",
+		Key:    "sk-test",
+		Models: "claude-sonnet-4-6",
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+
+	setCachedChannelTestResult(channelTestCacheKey(101, "", "", false), channelTestCachedResult{
+		Success:  true,
+		Message:  "",
+		Time:     1.25,
+		TestedAt: 12345,
+	})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: "101"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/101", nil)
+
+	TestChannel(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, true, body["success"])
+	require.Equal(t, true, body["cached"])
+	require.Equal(t, float64(12345), body["tested_at"])
+}
+
+func TestChannelReturnsScheduledCachedClaudeChannelTestForSpecificModel(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	resetChannelTestResultCacheForTest(t)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     103,
+		Type:   constant.ChannelTypeAnthropic,
+		Name:   "claude-specific-model-cached",
+		Key:    "sk-test",
+		Models: "claude-sonnet-4-6",
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+
+	setCachedChannelTestResult(channelTestCacheKey(103, "", "", false), channelTestCachedResult{
+		Success:  true,
+		Message:  "",
+		Time:     1.5,
+		TestedAt: 23456,
+	})
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: "103"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/103?model=claude-sonnet-4-6", nil)
+
+	TestChannel(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, true, body["success"])
+	require.Equal(t, true, body["cached"])
+	require.Equal(t, float64(23456), body["tested_at"])
+}
+
+func TestChannelBlocksUncachedClaudeChannelTest(t *testing.T) {
+	db := setupModelListControllerTestDB(t)
+	resetChannelTestResultCacheForTest(t)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:     102,
+		Type:   constant.ChannelTypeAnthropic,
+		Name:   "claude-blocked",
+		Key:    "sk-test",
+		Models: "claude-sonnet-4-6",
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Params = gin.Params{{Key: "id", Value: "102"}}
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/102", nil)
+
+	TestChannel(ctx)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var body map[string]any
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+	require.Equal(t, false, body["success"])
+	require.Equal(t, false, body["cached"])
+	require.Contains(t, body["message"], "Claude channel health probe is disabled")
 }

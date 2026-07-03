@@ -41,9 +41,9 @@ import { SettingsSection } from '../components/settings-section'
 /**
  * SettingsModule: billing-group-pricing
  * Reason: surfaces the channel-routing provider groups (the authoritative
- * source of routing membership, enabled status, and per-group usage ratio)
- * alongside the user-level billing groups so admins understand that
- * `/providers/groups` is the single source of truth and can jump there.
+ * source of routing membership, enabled status, and the API-call billing
+ * multiplier) alongside user-level billing groups so admins understand that
+ * `/providers/groups` is the single writable source for provider group ratios.
  * Read-only on this page by design; edits live on the groups page.
  */
 export function ProviderGroupsOverviewSection() {
@@ -60,13 +60,13 @@ export function ProviderGroupsOverviewSection() {
     ) ?? []
 
   return (
-    <SettingsSection title={t('Provider groups (channel routing)')}>
+    <SettingsSection title={t('Provider groups (usage billing)')}>
       <Card className='border-primary/20 bg-primary/5'>
         <CardHeader>
-          <CardTitle>{t('Provider groups are the routing source of truth')}</CardTitle>
+          <CardTitle>{t('Provider group usage ratio is the billing ratio')}</CardTitle>
           <CardDescription>
             {t(
-              'Each provider group aggregates one or more providers and is what API keys select. Usage ratio, enabled status, and member priority/order here are the final routing authority. Edit them on the Provider groups page.'
+              'Each provider group aggregates providers and is what API keys select. The usage ratio shown here is the single multiplier used for API-call billing when that provider group is selected. Edit it only on the Provider groups page.'
             )}
           </CardDescription>
         </CardHeader>
@@ -104,7 +104,7 @@ export function ProviderGroupsOverviewSection() {
                     </div>
                     <div className='flex items-center gap-3'>
                       <span className='text-sm tabular-nums'>
-                        {t('Usage ratio')}: {group.usage_ratio}x
+                        {t('Usage billing ratio')}: {group.usage_ratio}x
                       </span>
                       {group.status === PROVIDER_GROUP_STATUS.enabled ? (
                         <StatusBadge

@@ -231,6 +231,9 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	if request == nil {
 		return nil, errors.New("request is nil")
 	}
+	if isGrokSchemaCompatModel(info, request.Model) {
+		SanitizeGrokOpenAIRequestSchema(request)
+	}
 	if info.ChannelType != constant.ChannelTypeOpenAI && info.ChannelType != constant.ChannelTypeAzure {
 		request.StreamOptions = nil
 	}
@@ -602,6 +605,9 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 	}
 	if info != nil && request.Reasoning != nil && request.Reasoning.Effort != "" {
 		info.ReasoningEffort = request.Reasoning.Effort
+	}
+	if isGrokSchemaCompatModel(info, request.Model) {
+		SanitizeGrokOpenAIResponsesRequestSchema(&request)
 	}
 	return request, nil
 }

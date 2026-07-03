@@ -44,3 +44,6 @@ skills-lock.json
 .codex/
 
 .local-deploy/
+
+# Local credential/test key notes
+docs/*key*.txt
