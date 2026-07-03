@@ -164,6 +164,111 @@ func GetTokenUsage(c *gin.Context) {
 	})
 }
 
+type tokenBalanceDisplay struct {
+	Remaining      float64 `json:"remaining"`
+	Used           float64 `json:"used"`
+	Total          float64 `json:"total"`
+	Unit           string  `json:"unit"`
+	DisplayType    string  `json:"display_type"`
+	CurrencySymbol string  `json:"currency_symbol"`
+	QuotaPerUnit   float64 `json:"quota_per_unit"`
+}
+
+type tokenBalanceResponse struct {
+	Object         string              `json:"object"`
+	Scope          string              `json:"scope"`
+	TokenName      string              `json:"token_name,omitempty"`
+	RemainingQuota int                 `json:"remaining_quota"`
+	UsedQuota      int                 `json:"used_quota"`
+	TotalQuota     int                 `json:"total_quota"`
+	UnlimitedQuota bool                `json:"unlimited_quota"`
+	ExpiresAt      int64               `json:"expires_at"`
+	Display        tokenBalanceDisplay `json:"display"`
+}
+
+func quotaToDisplayAmount(quota int) float64 {
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		return float64(quota)
+	}
+	if common.QuotaPerUnit <= 0 {
+		return 0
+	}
+	rate := operation_setting.GetUsdToCurrencyRate(operation_setting.USDExchangeRate)
+	return float64(quota) / common.QuotaPerUnit * rate
+}
+
+func quotaDisplayUnit() string {
+	switch operation_setting.GetQuotaDisplayType() {
+	case operation_setting.QuotaDisplayTypeUSD:
+		return "USD"
+	case operation_setting.QuotaDisplayTypeCNY:
+		return "CNY"
+	case operation_setting.QuotaDisplayTypeTokens:
+		return "tokens"
+	case operation_setting.QuotaDisplayTypeCustom:
+		return operation_setting.GetCurrencySymbol()
+	default:
+		return "USD"
+	}
+}
+
+func normalizeTokenExpiry(expiredAt int64) int64 {
+	if expiredAt <= 0 {
+		return 0
+	}
+	return expiredAt
+}
+
+func GetTokenBalance(c *gin.Context) {
+	tokenName := ""
+	expiresAt := int64(0)
+	tokenId := c.GetInt("token_id")
+	if tokenId > 0 {
+		token, err := model.GetTokenById(tokenId)
+		if err != nil {
+			common.ApiError(c, err)
+			return
+		}
+		tokenName = token.Name
+		expiresAt = normalizeTokenExpiry(token.ExpiredTime)
+	}
+
+	userId := c.GetInt("id")
+	remainingQuota, err := model.GetUserQuota(userId, false)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	usedQuota, err := model.GetUserUsedQuota(userId)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+
+	displayRemaining := quotaToDisplayAmount(remainingQuota)
+	displayUsed := quotaToDisplayAmount(usedQuota)
+
+	common.ApiSuccess(c, tokenBalanceResponse{
+		Object:         "newapi_balance",
+		Scope:          "account",
+		TokenName:      tokenName,
+		RemainingQuota: remainingQuota,
+		UsedQuota:      usedQuota,
+		TotalQuota:     remainingQuota + usedQuota,
+		UnlimitedQuota: false,
+		ExpiresAt:      expiresAt,
+		Display: tokenBalanceDisplay{
+			Remaining:      displayRemaining,
+			Used:           displayUsed,
+			Total:          displayRemaining + displayUsed,
+			Unit:           quotaDisplayUnit(),
+			DisplayType:    operation_setting.GetQuotaDisplayType(),
+			CurrencySymbol: operation_setting.GetCurrencySymbol(),
+			QuotaPerUnit:   common.QuotaPerUnit,
+		},
+	})
+}
+
 func validateTokenProviderGroup(c *gin.Context, group string) bool {
 	if group == "" {
 		return true

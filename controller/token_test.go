@@ -14,8 +14,11 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -537,4 +540,95 @@ func TestGetTokenKeyRequiresOwnershipAndReturnsFullKey(t *testing.T) {
 	if strings.Contains(unauthorizedRecorder.Body.String(), token.Key) {
 		t.Fatalf("unauthorized key response leaked raw token key: %s", unauthorizedRecorder.Body.String())
 	}
+}
+
+func TestGetTokenBalanceUsesAccountQuotaWithTokenMetadata(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	oldDisplayTokenStatEnabled := common.DisplayTokenStatEnabled
+	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	oldQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		common.DisplayTokenStatEnabled = oldDisplayTokenStatEnabled
+		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplayType
+		common.QuotaPerUnit = oldQuotaPerUnit
+	})
+	common.DisplayTokenStatEnabled = true
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeUSD
+	common.QuotaPerUnit = 500000
+
+	require.NoError(t, db.Create(&model.User{
+		Id:        1,
+		Username:  "balance-owner",
+		Password:  "password123",
+		Status:    common.UserStatusEnabled,
+		Quota:     1500000,
+		UsedQuota: 500000,
+		Group:     "default",
+	}).Error)
+	token := seedToken(t, db, 1, "ccswitch-token", "balance1234token5678")
+	token.ExpiredTime = 123
+	require.NoError(t, db.Save(token).Error)
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/usage/balance", nil, 1)
+	ctx.Set("token_id", token.Id)
+	GetTokenBalance(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var balance tokenBalanceResponse
+	require.NoError(t, common.Unmarshal(response.Data, &balance))
+	assert.Equal(t, "newapi_balance", balance.Object)
+	assert.Equal(t, "account", balance.Scope)
+	assert.Equal(t, "ccswitch-token", balance.TokenName)
+	assert.Equal(t, 1500000, balance.RemainingQuota)
+	assert.Equal(t, 500000, balance.UsedQuota)
+	assert.Equal(t, int64(123), balance.ExpiresAt)
+	assert.False(t, balance.UnlimitedQuota)
+	assert.InDelta(t, 3.0, balance.Display.Remaining, 0.000001)
+	assert.InDelta(t, 1.0, balance.Display.Used, 0.000001)
+	assert.InDelta(t, 4.0, balance.Display.Total, 0.000001)
+	assert.Equal(t, "USD", balance.Display.Unit)
+}
+
+func TestGetTokenBalanceUsesUserQuotaWhenTokenStatsDisabled(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}))
+	oldDisplayTokenStatEnabled := common.DisplayTokenStatEnabled
+	oldDisplayType := operation_setting.GetGeneralSetting().QuotaDisplayType
+	t.Cleanup(func() {
+		common.DisplayTokenStatEnabled = oldDisplayTokenStatEnabled
+		operation_setting.GetGeneralSetting().QuotaDisplayType = oldDisplayType
+	})
+	common.DisplayTokenStatEnabled = false
+	operation_setting.GetGeneralSetting().QuotaDisplayType = operation_setting.QuotaDisplayTypeTokens
+
+	require.NoError(t, db.Create(&model.User{
+		Id:        7,
+		Username:  "balance-user",
+		Password:  "password123",
+		Status:    common.UserStatusEnabled,
+		Quota:     900,
+		UsedQuota: 100,
+		Group:     "default",
+	}).Error)
+
+	ctx, recorder := newAuthenticatedContext(t, http.MethodGet, "/api/usage/balance", nil, 7)
+	GetTokenBalance(ctx)
+
+	response := decodeAPIResponse(t, recorder)
+	require.True(t, response.Success, response.Message)
+
+	var balance tokenBalanceResponse
+	require.NoError(t, common.Unmarshal(response.Data, &balance))
+	assert.Equal(t, "account", balance.Scope)
+	assert.Empty(t, balance.TokenName)
+	assert.Equal(t, 900, balance.RemainingQuota)
+	assert.Equal(t, 100, balance.UsedQuota)
+	assert.Equal(t, 1000, balance.TotalQuota)
+	assert.InDelta(t, 900.0, balance.Display.Remaining, 0.000001)
+	assert.InDelta(t, 100.0, balance.Display.Used, 0.000001)
+	assert.InDelta(t, 1000.0, balance.Display.Total, 0.000001)
+	assert.Equal(t, "tokens", balance.Display.Unit)
 }

@@ -289,6 +289,7 @@ func SetApiRouter(router *gin.Engine) {
 			{
 				tokenUsageRoute.GET("/", controller.GetTokenUsage)
 			}
+			usageRoute.GET("/balance", middleware.TokenAuthReadOnly(), controller.GetTokenBalance)
 		}
 
 		redemptionRoute := apiRouter.Group("/redemption")

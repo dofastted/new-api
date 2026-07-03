@@ -91,7 +91,7 @@ export function useTopNavLinks(): TopNavLink[] {
     if (docsLink) {
       links.push({ title: t('Docs'), href: docsLink, external: true })
     } else {
-      links.push({ title: t('Docs'), href: '/docs' })
+      links.push({ title: t('Docs'), href: '/about' })
     }
   }
 

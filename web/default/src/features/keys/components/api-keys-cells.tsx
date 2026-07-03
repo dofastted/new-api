@@ -47,6 +47,9 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     loadingKeys,
     copiedKeyId,
     markKeyCopied,
+    setOpen,
+    setCurrentRow,
+    setResolvedKey,
   } = useApiKeys()
   const [popoverOpen, setPopoverOpen] = useState(false)
 
@@ -78,15 +81,33 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
     }
   }, [resolvedFullKey, resolveRealKey, apiKey.id, markKeyCopied, t])
 
+  const handleOpenCCSwitch = useCallback(async () => {
+    const realKey = await resolveRealKey(apiKey.id)
+    if (!realKey) return
+    setResolvedKey(realKey)
+    setCurrentRow(apiKey)
+    setOpen('cc-switch')
+  }, [apiKey, resolveRealKey, setCurrentRow, setOpen, setResolvedKey])
+
+  let copyIcon = <Copy className='size-3.5' />
+  let copyTooltip = t('Copy API key')
+  if (isLoading) {
+    copyIcon = <Loader2 className='size-3.5 animate-spin' />
+    copyTooltip = t('Loading...')
+  } else if (isCopied) {
+    copyIcon = <Check className='size-3.5 text-green-600' />
+    copyTooltip = t('Copied!')
+  }
+
   return (
-    <div className='flex max-w-full min-w-0 items-center'>
+    <div className='flex max-w-full min-w-0 items-center gap-1'>
       <Popover open={popoverOpen} onOpenChange={handlePopoverOpen}>
         <PopoverTrigger
           render={
             <Button
               variant='ghost'
               size='sm'
-              className='text-muted-foreground h-7 max-w-full min-w-0 justify-start truncate px-0 font-mono text-xs hover:bg-transparent aria-expanded:bg-transparent'
+              className='text-muted-foreground h-7 min-w-0 flex-1 justify-start truncate px-0 font-mono text-xs hover:bg-transparent aria-expanded:bg-transparent'
             />
           }
         >
@@ -135,21 +156,40 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
             />
           }
         >
+          {copyIcon}
+        </TooltipTrigger>
+        <TooltipContent>{copyTooltip}</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              variant='ghost'
+              size='icon'
+              className='text-primary size-7 shrink-0'
+              onClick={handleOpenCCSwitch}
+              onFocus={() => {
+                if (!resolvedFullKey) void resolveRealKey(apiKey.id)
+              }}
+              onPointerEnter={() => {
+                if (!resolvedFullKey) void resolveRealKey(apiKey.id)
+              }}
+              disabled={isLoading}
+              aria-label={t('Use with ccswitch')}
+            />
+          }
+        >
           {isLoading ? (
             <Loader2 className='size-3.5 animate-spin' />
-          ) : isCopied ? (
-            <Check className='size-3.5 text-green-600' />
           ) : (
-            <Copy className='size-3.5' />
+            <img
+              src='/ccswitch-icon.png'
+              alt=''
+              className='size-4 rounded-sm object-contain'
+            />
           )}
         </TooltipTrigger>
-        <TooltipContent>
-          {isLoading
-            ? t('Loading...')
-            : isCopied
-              ? t('Copied!')
-              : t('Copy API key')}
-        </TooltipContent>
+        <TooltipContent>{t('Use with ccswitch')}</TooltipContent>
       </Tooltip>
     </div>
   )

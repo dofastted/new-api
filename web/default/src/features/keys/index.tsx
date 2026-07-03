@@ -20,6 +20,7 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 
+import { CCSwitchOnboardingGuide } from './components/cc-switch-onboarding-guide'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
@@ -35,7 +36,10 @@ export function ApiKeys() {
           <ApiKeysPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <ApiKeysTable />
+          <div className='space-y-4'>
+            <CCSwitchOnboardingGuide />
+            <ApiKeysTable />
+          </div>
         </SectionPageLayout.Content>
       </SectionPageLayout>
 

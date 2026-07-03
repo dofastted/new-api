@@ -23,7 +23,6 @@ import {
   Power,
   PowerOff,
   ExternalLink,
-  ArrowRightLeft,
   Copy,
   Link,
   Loader2,
@@ -284,7 +283,11 @@ export function DataTableRowActions<TData>({
         >
           {t('CC Switch')}
           <DropdownMenuShortcut>
-            <ArrowRightLeft size={16} />
+            <img
+              src='/ccswitch-icon.png'
+              alt=''
+              className='size-4 rounded-sm object-contain'
+            />
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         {hasChatPresets && (
