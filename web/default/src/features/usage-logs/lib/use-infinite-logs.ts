@@ -36,7 +36,7 @@ interface UseInfiniteLogsConfig {
   pageSize: number
   searchParams: Record<string, unknown>
   columnFilters?: Array<{ id: string; value: unknown }>
-  /** Admin-only: exclude logs produced by root users. */
+  /** Admin-only: exclude logs produced by admin and root users. */
   excludeAdmin?: boolean
   /** Master switch for auto-refresh (live row insertion). */
   liveEnabled?: boolean
