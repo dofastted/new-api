@@ -181,6 +181,13 @@ export interface LogOtherData {
     admin_role?: number
     auth_method?: 'session' | 'access_token' | string
   }
+  topup?: {
+    payment_method?: string
+    callback_payment_method?: string
+    quota_delta?: number
+    balance_after?: number
+    pay_amount?: number
+  }
   // Language-independent operation descriptor (audit/login logs).
   // Frontend renders localized content from action + params via i18n templates.
   op?: {

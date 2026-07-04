@@ -57,6 +57,7 @@ import { useUsageLogsContext } from '@/features/usage-logs/components/usage-logs
 import { cn } from '@/lib/utils'
 
 import {
+  COMPACT_STREAM_COLUMN_ORDER,
   DEFAULT_STREAM_COLUMN_SETTINGS,
   getUsageLogsDensityStorageKey,
   getUsageLogsStreamColumnsStorageKey,
@@ -200,6 +201,33 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
       }),
     [columnSettings, props.isAdmin]
   )
+  const compactColumnOrder = useMemo(
+    () =>
+      COMPACT_STREAM_COLUMN_ORDER.filter((id) => {
+        if (id === 'type' && columnSettings.hidden.includes(id)) return false
+        const def = STREAM_CUSTOMIZABLE_COLUMNS.find(
+          (column) => column.id === id
+        )
+        return !(def?.adminOnly && !props.isAdmin)
+      }),
+    [columnSettings.hidden, props.isAdmin]
+  )
+  const renderedColumnOrder = isCompact
+    ? compactColumnOrder
+    : effectiveColumnOrder
+  const compactTypeVisible = !columnSettings.hidden.includes('type')
+  const handleCompactTypeVisibilityChange = useCallback(
+    (checked: boolean) => {
+      const hiddenWithoutType = columnSettings.hidden.filter(
+        (id) => id !== 'type'
+      )
+      const nextHidden: StreamColumnSettings['hidden'] = checked
+        ? hiddenWithoutType
+        : [...hiddenWithoutType, 'type']
+      handleColumnSettingsChange({ ...columnSettings, hidden: nextHidden })
+    },
+    [columnSettings, handleColumnSettingsChange]
+  )
 
   const query = useInfiniteLogs({
     logCategory: props.logCategory,
@@ -336,7 +364,17 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
 
         {!shouldUseSimplifiedUserView && (
           <div className='ms-auto flex items-center gap-2'>
-            {!isCompact && (
+            {isCompact ? (
+              <label className='border-border/70 bg-background/70 text-muted-foreground flex h-8 items-center gap-2 rounded-md border px-2 text-xs'>
+                <Switch
+                  size='sm'
+                  checked={compactTypeVisible}
+                  onCheckedChange={handleCompactTypeVisibilityChange}
+                  aria-label={t('Type')}
+                />
+                {t('Type')}
+              </label>
+            ) : (
               <UsageLogsStreamColumnManager
                 isAdmin={props.isAdmin}
                 settings={columnSettings}
@@ -401,7 +439,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
             isAdmin={props.isAdmin}
             compact={isCompact}
             simplifiedUserView={shouldUseSimplifiedUserView}
-            columnOrder={effectiveColumnOrder}
+            columnOrder={renderedColumnOrder}
           />
         )}
         <div ref={parentRef} className='min-h-0 flex-1 overflow-auto'>
@@ -466,7 +504,7 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
                         isNew={recentIds.has(log.id)}
                         compact={isCompact}
                         simplifiedUserView={shouldUseSimplifiedUserView}
-                        columnOrder={effectiveColumnOrder}
+                        columnOrder={renderedColumnOrder}
                         onTopupClick={(nextLog, topupInfo) =>
                           setSelectedTopup({ log: nextLog, topupInfo })
                         }

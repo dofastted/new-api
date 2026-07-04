@@ -34,7 +34,6 @@ import {
 import { cn } from '@/lib/utils'
 
 import {
-  COMPACT_STREAM_COLUMN_ORDER,
   LOG_TYPE_ENUM,
   SIMPLE_USER_STREAM_COLUMNS,
   STREAM_COLUMNS,
@@ -61,15 +60,14 @@ interface UsageLogsStreamRowProps {
   isAdmin: boolean
   sensitiveVisible: boolean
   isNew?: boolean
-  /** Compact display density: only the Time/Type/Model/Group/Cost columns render. */
+  /** Compact display density: caller passes the compact column subset. */
   compact?: boolean
   /** Ordinary-user fixed stream view: safe summary columns only, no details affordance. */
   simplifiedUserView?: boolean
   /**
    * Visible customizable columns, in display order (already filtered for
-   * admin-only columns and user hide/reorder preferences). Ignored when
-   * `compact` is set. Time and Model are fixed anchors and always render
-   * first regardless of this list.
+   * admin-only columns and user hide/reorder preferences). Time and Model are
+   * fixed anchors and always render first regardless of this list.
    */
   columnOrder: StreamColumnId[]
   onTopupClick: (log: UsageLog, topupInfo: TopupInfo) => void
@@ -102,12 +100,36 @@ function getLogTypeVariant(variant: string): StatusVariant {
   return variant === 'default' ? 'neutral' : (variant as StatusVariant)
 }
 
-function TopupContent(props: { topupInfo: TopupInfo }) {
+function TopupContent(props: { topupInfo: TopupInfo; userText?: string }) {
   const { t } = useTranslation()
   const info = props.topupInfo
+  const quotaText =
+    info.rechargeQuotaText ??
+    (info.quotaDelta != null ? formatLogQuota(info.quotaDelta) : null)
 
   if (info.kind === 'unknown') {
-    return <span className='text-muted-foreground truncate'>{info.raw}</span>
+    return (
+      <div className='flex min-w-0 items-center gap-2 overflow-hidden'>
+        <span className='text-muted-foreground min-w-0 flex-1 truncate'>
+          {info.raw}
+        </span>
+        {props.userText && (
+          <span className='text-muted-foreground max-w-[8rem] shrink-0 truncate text-xs'>
+            {t('User')}: {props.userText}
+          </span>
+        )}
+        {quotaText && (
+          <span className='border-border/70 bg-background/70 inline-flex h-6 min-w-0 shrink-0 items-center rounded-md border px-2 font-mono text-xs tabular-nums'>
+            <span className='truncate'>{quotaText}</span>
+          </span>
+        )}
+        {info.balanceAfter != null && (
+          <span className='text-muted-foreground shrink-0 font-mono text-xs tabular-nums'>
+            {t('Balance')}: {formatLogQuota(info.balanceAfter)}
+          </span>
+        )}
+      </div>
+    )
   }
 
   return (
@@ -117,9 +139,14 @@ function TopupContent(props: { topupInfo: TopupInfo }) {
         variant={info.channelVariant}
         copyable={false}
       />
-      {info.rechargeQuotaText && (
+      {quotaText && (
         <span className='border-border/70 bg-background/70 inline-flex h-6 min-w-0 items-center rounded-md border px-2 font-mono text-xs tabular-nums'>
-          <span className='truncate'>{info.rechargeQuotaText}</span>
+          <span className='truncate'>{quotaText}</span>
+        </span>
+      )}
+      {props.userText && (
+        <span className='text-muted-foreground max-w-[8rem] shrink-0 truncate text-xs'>
+          {t('User')}: {props.userText}
         </span>
       )}
       {info.planTitle && (
@@ -130,6 +157,11 @@ function TopupContent(props: { topupInfo: TopupInfo }) {
       <span className='text-muted-foreground shrink-0 font-mono text-xs tabular-nums'>
         {t('Paid')}: {formatPaymentAmount(info.payAmount)}
       </span>
+      {info.balanceAfter != null && (
+        <span className='text-muted-foreground shrink-0 font-mono text-xs tabular-nums'>
+          {t('Balance')}: {formatLogQuota(info.balanceAfter)}
+        </span>
+      )}
       <StatusBadge
         label={t('Completed')}
         icon={CheckCircle2}
@@ -478,7 +510,10 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
         />
         {topupInfo ? (
           <div className='min-w-0 flex-1'>
-            <TopupContent topupInfo={topupInfo} />
+            <TopupContent
+              topupInfo={topupInfo}
+              userText={props.isAdmin ? userText : undefined}
+            />
           </div>
         ) : (
           <span className='text-muted-foreground min-w-0 flex-1 truncate text-xs'>
@@ -582,9 +617,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
       }
     }
 
-    const orderedColumns = props.compact
-      ? COMPACT_STREAM_COLUMN_ORDER
-      : props.columnOrder
+    const orderedColumns = props.columnOrder
 
     rowBody = (
       <div className='flex min-w-0 flex-1 items-center gap-2'>

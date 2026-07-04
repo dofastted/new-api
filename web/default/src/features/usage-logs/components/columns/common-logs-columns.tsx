@@ -55,6 +55,7 @@ import {
   isViolationFeeLog,
   renderAuditContent,
 } from '../../lib/format'
+import { parseTopup } from '../../lib/parse-topup'
 import {
   isDisplayableLogType,
   isTimingLogType,
@@ -103,10 +104,82 @@ function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
   return { prefix: match[1], amount: match[2] }
 }
 
-function buildDetailSegments(
+function buildTopupDetailSegments(
+  log: UsageLog,
+  sensitiveVisible: boolean,
+  t: (key: string, opts?: Record<string, unknown>) => string
+): DetailSegment[] {
+  const info = parseTopup(log)
+  const userText = log.username || (log.user_id ? `${t('ID')}: ${log.user_id}` : '')
+  const quotaText =
+    info.rechargeQuotaText ??
+    (info.quotaDelta != null ? formatLogQuota(info.quotaDelta) : null)
+  const segments: DetailSegment[] = []
+  if (userText) {
+    segments.push({ text: `${t('User')}: ${sensitiveVisible ? userText : '••••'}` })
+  }
+  if (quotaText) {
+    segments.push({ text: `${t('Recharge quota')}: ${quotaText}`, muted: true })
+  }
+  if (info.balanceAfter != null) {
+    segments.push({
+      text: `${t('Balance')}: ${formatLogQuota(info.balanceAfter)}`,
+      muted: true,
+    })
+  }
+  return segments
+}
+
+function buildErrorDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string
+): DetailSegment[] {
+  if (!other) return []
+  const segments: DetailSegment[] = []
+  if (other.reject_reason) {
+    segments.push({ text: `${t('Reject Reason')}: ${other.reject_reason}`, danger: true })
+  }
+  if (other.stream_status?.end_error) {
+    segments.push({ text: `${t('End Error')}: ${other.stream_status.end_error}`, danger: true })
+  }
+  if (other.stream_status?.end_reason) {
+    segments.push({ text: `${t('End Reason')}: ${other.stream_status.end_reason}`, muted: true })
+  }
+  if ((other.stream_status?.error_count ?? 0) > 0) {
+    segments.push({
+      text: `${t('Soft Errors')}: ${other.stream_status?.error_count}`,
+      muted: true,
+    })
+  }
+  const failedEntry = Array.isArray(other.channel_chain)
+    ? [...other.channel_chain]
+        .reverse()
+        .find((entry) => entry.error_code || entry.error_category)
+    : undefined
+  if (failedEntry?.error_code) {
+    segments.push({ text: `${t('Error Code')}: ${failedEntry.error_code}`, muted: true })
+  }
+  if (failedEntry?.error_category) {
+    segments.push({
+      text: `${t('Error Category')}: ${failedEntry.error_category}`,
+      muted: true,
+    })
+  }
+  if (log.upstream_request_id) {
+    segments.push({
+      text: `${t('Upstream Request ID')}: ${log.upstream_request_id}`,
+      muted: true,
+    })
+  }
+  return segments
+}
+
+function buildDetailSegments(
+  log: UsageLog,
+  other: LogOtherData | null,
+  t: (key: string, opts?: Record<string, unknown>) => string,
+  sensitiveVisible: boolean
 ): DetailSegment[] {
   // Audit (type=3) and login (type=7) logs: render localized content from the
   // structured op descriptor instead of the raw (English-fallback) content.
@@ -115,9 +188,15 @@ function buildDetailSegments(
     return text ? [{ text }] : []
   }
 
+
+  if (log.type === 1) {
+    return buildTopupDetailSegments(log, sensitiveVisible, t)
+  }
   if (log.type === 6) {
     return [{ text: t('Async task refund') }]
   }
+
+  if (log.type === 5) return buildErrorDetailSegments(log, other, t)
 
   if (log.type !== 2) return []
 
@@ -817,8 +896,9 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const [dialogOpen, setDialogOpen] = useState(false)
         const log = row.original
         const other = parseLogOther(log.other)
+        const { sensitiveVisible } = useUsageLogsContext()
 
-        const segments = buildDetailSegments(log, other, t)
+        const segments = buildDetailSegments(log, other, t, sensitiveVisible)
         const primary = segments[0]
         const hasMore = segments.length > 1
 

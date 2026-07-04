@@ -126,6 +126,7 @@ func Redeem(key string, userId int) (quota int, err error) {
 		keyCol = `"key"`
 	}
 	common.RandomSleep()
+	var balanceAfter int
 	err = DB.Transaction(func(tx *gorm.DB) error {
 		err := tx.Set("gorm:query_option", "FOR UPDATE").Where(keyCol+" = ?", key).First(redemption).Error
 		if err != nil {
@@ -141,6 +142,11 @@ func Redeem(key string, userId int) (quota int, err error) {
 		if err != nil {
 			return err
 		}
+		balance, err := readUserQuotaTx(tx, userId)
+		if err != nil {
+			return err
+		}
+		balanceAfter = balance
 		redemption.RedeemedTime = common.GetTimestamp()
 		redemption.Status = common.RedemptionCodeStatusUsed
 		redemption.UsedUserId = userId
@@ -151,7 +157,14 @@ func Redeem(key string, userId int) (quota int, err error) {
 		common.SysError("redemption failed: " + err.Error())
 		return 0, ErrRedeemFailed
 	}
-	RecordLog(userId, LogTypeTopup, fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id))
+	RecordTopupLog(TopupLogDetails{
+		UserID:                userId,
+		Content:               fmt.Sprintf("通过兑换码充值 %s，兑换码ID %d", logger.LogQuota(redemption.Quota), redemption.Id),
+		PaymentMethod:         PaymentMethodRedemption,
+		CallbackPaymentMethod: PaymentMethodRedemption,
+		QuotaDelta:            redemption.Quota,
+		BalanceAfter:          &balanceAfter,
+	})
 	return redemption.Quota, nil
 }
 

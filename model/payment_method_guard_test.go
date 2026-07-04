@@ -93,7 +93,7 @@ func TestRechargeWaffoPancake_RejectsMismatchedPaymentMethod(t *testing.T) {
 	insertUserForPaymentGuardTest(t, 101, 0)
 	insertTopUpForPaymentGuardTest(t, "waffo-pancake-guard", 101, PaymentProviderStripe)
 
-	err := RechargeWaffoPancake("waffo-pancake-guard")
+	err := RechargeWaffoPancake("waffo-pancake-guard", "127.0.0.1")
 	require.Error(t, err)
 
 	topUp := GetTopUpByTradeNo("waffo-pancake-guard")

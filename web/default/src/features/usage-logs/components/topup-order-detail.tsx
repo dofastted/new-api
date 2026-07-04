@@ -28,11 +28,12 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Progress } from '@/components/ui/progress'
-import { formatTimestampToDate } from '@/lib/format'
+import { formatLogQuota, formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import type { UsageLog } from '../data/schema'
 import type { TopupInfo } from '../lib/parse-topup'
+import { useUsageLogsContext } from './usage-logs-provider'
 
 interface TopupOrderDetailProps {
   log: UsageLog | null
@@ -70,6 +71,11 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
   const { t } = useTranslation()
   const log = props.log
   const topupInfo = props.topupInfo
+  const { sensitiveVisible } = useUsageLogsContext()
+  const userText = log
+    ? log.username || (log.user_id ? `${t('ID')}: ${log.user_id}` : '')
+    : ''
+  const displayedUser = sensitiveVisible ? userText : '••••'
   const isUnknown = topupInfo?.kind === 'unknown'
 
   return (
@@ -159,6 +165,12 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
                 />
               }
             />
+            {userText && (
+              <DetailItem
+                label={t('User')}
+                value={<span className='font-mono'>{displayedUser}</span>}
+              />
+            )}
             <DetailItem
               label={t('Payment channel')}
               value={
@@ -189,6 +201,16 @@ export function TopupOrderDetail(props: TopupOrderDetailProps) {
                 </span>
               }
             />
+            {topupInfo?.balanceAfter != null && (
+              <DetailItem
+                label={t('Balance')}
+                value={
+                  <span className='font-mono tabular-nums'>
+                    {formatLogQuota(topupInfo.balanceAfter)}
+                  </span>
+                }
+              />
+            )}
             {topupInfo?.planTitle && (
               <DetailItem label={t('Plan')} value={topupInfo.planTitle} />
             )}

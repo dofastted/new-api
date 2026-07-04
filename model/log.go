@@ -231,27 +231,57 @@ func RecordOperationAuditLog(logUserId int, content string, ip string, action st
 	}
 }
 
-func RecordTopupLog(userId int, content string, callerIp string, paymentMethod string, callbackPaymentMethod string) {
-	username, _ := GetUsernameById(userId, false)
+type TopupLogDetails struct {
+	UserID                int
+	Content               string
+	CallerIP              string
+	PaymentMethod         string
+	CallbackPaymentMethod string
+	QuotaDelta            int
+	BalanceAfter          *int
+	PayAmount             float64
+}
+
+func buildTopupLogOther(details TopupLogDetails) map[string]interface{} {
 	adminInfo := map[string]interface{}{
 		"server_ip":               common.GetIp(),
-		"node_name":               common.NodeName,
-		"caller_ip":               callerIp,
-		"payment_method":          paymentMethod,
-		"callback_payment_method": callbackPaymentMethod,
+		"caller_ip":               details.CallerIP,
+		"payment_method":          details.PaymentMethod,
+		"callback_payment_method": details.CallbackPaymentMethod,
 		"version":                 common.Version,
+		"node_name":               common.NodeName,
 	}
-	other := map[string]interface{}{
+
+	topupInfo := map[string]interface{}{
+		"payment_method":          details.PaymentMethod,
+		"callback_payment_method": details.CallbackPaymentMethod,
+	}
+	if details.QuotaDelta != 0 {
+		topupInfo["quota_delta"] = details.QuotaDelta
+	}
+	if details.BalanceAfter != nil {
+		topupInfo["balance_after"] = *details.BalanceAfter
+	}
+	if details.PayAmount != 0 {
+		topupInfo["pay_amount"] = details.PayAmount
+	}
+
+	return map[string]interface{}{
 		"admin_info": adminInfo,
+		"topup":      topupInfo,
 	}
+}
+
+func RecordTopupLog(details TopupLogDetails) {
+	username, _ := GetUsernameById(details.UserID, false)
 	log := &Log{
-		UserId:    userId,
+		UserId:    details.UserID,
 		Username:  username,
 		CreatedAt: common.GetTimestamp(),
 		Type:      LogTypeTopup,
-		Content:   content,
-		Ip:        callerIp,
-		Other:     common.MapToJsonStr(other),
+		Content:   details.Content,
+		Ip:        details.CallerIP,
+		Other:     common.MapToJsonStr(buildTopupLogOther(details)),
 	}
 	err := createLog(log)
 	if err != nil {

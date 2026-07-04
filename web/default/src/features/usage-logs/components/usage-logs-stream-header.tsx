@@ -21,7 +21,6 @@ import { useTranslation } from 'react-i18next'
 import { cn } from '@/lib/utils'
 
 import {
-  COMPACT_STREAM_COLUMN_ORDER,
   SIMPLE_USER_STREAM_COLUMNS,
   STREAM_COLUMNS,
   STREAM_CUSTOMIZABLE_COLUMNS,
@@ -32,7 +31,7 @@ interface UsageLogsStreamHeaderProps {
   isAdmin: boolean
   compact?: boolean
   simplifiedUserView?: boolean
-  /** Visible customizable columns, in display order. Ignored when `compact`. */
+  /** Visible customizable columns, in display order. */
   columnOrder: StreamColumnId[]
 }
 
@@ -73,9 +72,7 @@ export function UsageLogsStreamHeader(props: UsageLogsStreamHeaderProps) {
     )
   }
 
-  const orderedColumns = props.compact
-    ? COMPACT_STREAM_COLUMN_ORDER
-    : props.columnOrder
+  const orderedColumns = props.columnOrder
   const alignRight = new Set<StreamColumnId>([
     'tokens',
     'cache',

@@ -56,6 +56,7 @@ import {
   getResponseTimeColor,
   renderAuditContent,
 } from '../../lib/format'
+import { parseTopup } from '../../lib/parse-topup'
 import {
   getLogTypeConfig,
   isPerCallBilling,
@@ -63,6 +64,7 @@ import {
 } from '../../lib/utils'
 import type { LogOtherData } from '../../types'
 import { DecisionChain } from '../decision-chain'
+import { useUsageLogsContext } from '../usage-logs-provider'
 
 // Maps a channel-update changed-field token (as recorded by the backend audit)
 // to its i18n label key for display in the audit details.
@@ -457,6 +459,7 @@ interface DetailsDialogProps {
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
+  const { sensitiveVisible } = useUsageLogsContext()
   const details = props.log.content ?? ''
   const other = parseLogOther(props.log.other)
   const typeConfig = getLogTypeConfig(props.log.type)
@@ -483,6 +486,28 @@ export function DetailsDialog(props: DetailsDialogProps) {
   const showAdminIp =
     !!props.log.ip && (showTiming || (props.isAdmin && isTopup))
   const adminInfo = other?.admin_info
+  const topupInfo = isTopup ? parseTopup(props.log) : null
+  const topupUserText = props.log.username || (props.log.user_id ? `${t('ID')}: ${props.log.user_id}` : '')
+  const topupQuotaText = topupInfo
+    ? topupInfo.rechargeQuotaText ??
+      (topupInfo.quotaDelta != null ? formatLogQuota(topupInfo.quotaDelta) : null)
+    : null
+  const topupSummaryFields = isTopup
+    ? ([
+        topupUserText && {
+          label: t('User'),
+          value: sensitiveVisible ? topupUserText : '••••',
+        },
+        topupQuotaText && {
+          label: t('Recharge quota'),
+          value: topupQuotaText,
+        },
+        topupInfo?.balanceAfter != null && {
+          label: t('Balance'),
+          value: formatLogQuota(topupInfo.balanceAfter),
+        },
+      ].filter(Boolean) as Array<{ label: string; value: string }>)
+    : []
   const topupAuditFields =
     isTopup && props.isAdmin && adminInfo
       ? ([
@@ -973,6 +998,19 @@ export function DetailsDialog(props: DetailsDialogProps) {
             {other.reason && (
               <DetailRow label={t('Reason')} value={other.reason} />
             )}
+          </DetailSection>
+        )}
+
+        {topupSummaryFields.length > 0 && (
+          <DetailSection label={t('Top-up order details')}>
+            {topupSummaryFields.map((field) => (
+              <DetailRow
+                key={field.label}
+                label={field.label}
+                value={field.value}
+                mono
+              />
+            ))}
           </DetailSection>
         )}
 

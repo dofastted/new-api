@@ -30,6 +30,8 @@ export interface TopupInfo {
   rechargeQuotaText: string | null
   payAmount: number | null
   planTitle: string | null
+  quotaDelta: number | null
+  balanceAfter: number | null
   completed: true
   raw: string
 }
@@ -43,27 +45,40 @@ interface ExtractedTopupFields {
 
 const AMOUNT_PATTERN = '([+-]?(?:\\d+(?:\\.\\d+)?|\\.\\d+))'
 
-function createTopupInfo(raw: string, fields: ExtractedTopupFields): TopupInfo {
+function readFiniteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null
+}
+
+function createTopupInfo(
+  raw: string,
+  fields: ExtractedTopupFields,
+  other?: LogOtherData | null
+): TopupInfo {
   const meta = TOPUP_CHANNEL_META[fields.kind]
   return {
     kind: fields.kind,
     channelLabelKey: meta.labelKey,
     channelVariant: meta.variant,
     rechargeQuotaText: fields.rechargeQuotaText,
-    payAmount: fields.payAmount,
+    payAmount: readFiniteNumber(other?.topup?.pay_amount) ?? fields.payAmount,
     planTitle: fields.planTitle,
+    quotaDelta: readFiniteNumber(other?.topup?.quota_delta),
+    balanceAfter: readFiniteNumber(other?.topup?.balance_after),
     completed: true,
     raw,
   }
 }
 
-function createUnknownTopupInfo(raw: string): TopupInfo {
+function createUnknownTopupInfo(
+  raw: string,
+  other?: LogOtherData | null
+): TopupInfo {
   return createTopupInfo(raw, {
     kind: 'unknown',
     rechargeQuotaText: null,
     payAmount: null,
     planTitle: null,
-  })
+  }, other)
 }
 
 function normalizeMethod(method: string | undefined): string {
@@ -212,6 +227,6 @@ export function parseTopup(
   const preferredKind = kindFromOther(other)
   const fields = extractTopupFields(raw, preferredKind)
 
-  if (!fields) return createUnknownTopupInfo(raw)
-  return createTopupInfo(raw, fields)
+  if (!fields) return createUnknownTopupInfo(raw, other)
+  return createTopupInfo(raw, fields, other)
 }

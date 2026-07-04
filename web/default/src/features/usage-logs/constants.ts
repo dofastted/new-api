@@ -163,12 +163,13 @@ export const DEFAULT_STREAM_COLUMN_ORDER: StreamColumnId[] =
   STREAM_CUSTOMIZABLE_COLUMNS.map((column) => column.id)
 
 /**
- * Compact density ignores the user's column customization entirely: it's a
- * fixed "quick scan" preset, not a subset of it. Shared by the row and header
- * so both render the same three columns in the same order.
+ * Compact density uses a fixed quick-scan preset, but still respects the
+ * persisted visibility of Type so admins can hide the category chip. Shared by
+ * the row and header so both render columns in the same order.
  */
 export const COMPACT_STREAM_COLUMN_ORDER: StreamColumnId[] = [
   'type',
+  'user',
   'group',
   'cost',
 ]
