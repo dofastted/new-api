@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { AbuseGuardSection } from '../request-limits/abuse-guard-section'
 import { RateLimitSection } from '../request-limits/rate-limit-section'
 import { SensitiveWordsSection } from '../request-limits/sensitive-words-section'
 import { SSRFSection } from '../request-limits/ssrf-section'
@@ -54,6 +55,51 @@ const SECURITY_SECTIONS = [
           CheckSensitiveEnabled: settings.CheckSensitiveEnabled,
           CheckSensitiveOnPromptEnabled: settings.CheckSensitiveOnPromptEnabled,
           SensitiveWords: settings.SensitiveWords,
+        }}
+      />
+    ),
+  },
+  {
+    id: 'abuse-guard',
+    titleKey: 'Abuse Guard',
+    build: (settings: SecuritySettings) => (
+      <AbuseGuardSection
+        defaultValues={{
+          'abuse_guard.enabled': settings['abuse_guard.enabled'],
+          'abuse_guard.monitor_only': settings['abuse_guard.monitor_only'],
+          'abuse_guard.model_scope_patterns':
+            settings['abuse_guard.model_scope_patterns'],
+          'abuse_guard.exempt_groups': settings['abuse_guard.exempt_groups'],
+          'abuse_guard.block_words': settings['abuse_guard.block_words'],
+          'abuse_guard.disabled_builtin_ids':
+            settings['abuse_guard.disabled_builtin_ids'],
+          'abuse_guard.custom_patterns':
+            settings['abuse_guard.custom_patterns'],
+          'abuse_guard.pattern_block_score':
+            settings['abuse_guard.pattern_block_score'],
+          'abuse_guard.scan_window_kb': settings['abuse_guard.scan_window_kb'],
+          'abuse_guard.moderation_api_key':
+            settings['abuse_guard.moderation_api_key'],
+          'abuse_guard.moderation_base_url':
+            settings['abuse_guard.moderation_base_url'],
+          'abuse_guard.moderation_model':
+            settings['abuse_guard.moderation_model'],
+          'abuse_guard.sample_rate_percent':
+            settings['abuse_guard.sample_rate_percent'],
+          'abuse_guard.review_snippet_kb':
+            settings['abuse_guard.review_snippet_kb'],
+          'abuse_guard.queue_size': settings['abuse_guard.queue_size'],
+          'abuse_guard.worker_count': settings['abuse_guard.worker_count'],
+          'abuse_guard.category_scores':
+            settings['abuse_guard.category_scores'],
+          'abuse_guard.instant_ban_categories':
+            settings['abuse_guard.instant_ban_categories'],
+          'abuse_guard.score_window_hours':
+            settings['abuse_guard.score_window_hours'],
+          'abuse_guard.ban_threshold': settings['abuse_guard.ban_threshold'],
+          'abuse_guard.temp_ban_hours': settings['abuse_guard.temp_ban_hours'],
+          'abuse_guard.perm_ban_after_temp_bans':
+            settings['abuse_guard.perm_ban_after_temp_bans'],
         }}
       />
     ),

@@ -23,6 +23,7 @@ import (
 	"github.com/QuantumNous/new-api/relay/helper"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/setting/abuse_guard_setting"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 
@@ -139,10 +140,11 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}
 
 	needSensitiveCheck := setting.ShouldCheckPromptSensitive()
+	needAbuseGuard := abuse_guard_setting.GetAbuseGuardSetting().Enabled
 	needCountToken := constant.CountToken
-	// Avoid building huge CombineText (strings.Join) when token counting and sensitive check are both disabled.
+	// Avoid building huge CombineText (strings.Join) when token counting and content checks are all disabled.
 	var meta *types.TokenCountMeta
-	if needSensitiveCheck || needCountToken {
+	if needSensitiveCheck || needCountToken || needAbuseGuard {
 		meta = request.GetTokenCountMeta()
 	} else {
 		meta = fastTokenCountMetaForPricing(request)
@@ -153,6 +155,27 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 		if contains {
 			logger.LogWarn(c, fmt.Sprintf("user sensitive words detected: %s", strings.Join(words, ", ")))
 			newAPIError = types.NewError(err, types.ErrorCodeSensitiveWordsDetected)
+			return
+		}
+	}
+
+	if needAbuseGuard && meta != nil {
+		result := service.AbuseGuardCheck(service.AbuseGuardInput{
+			UserId:      relayInfo.UserId,
+			UserRole:    c.GetInt("role"),
+			Group:       relayInfo.UsingGroup,
+			ModelName:   relayInfo.OriginModelName,
+			CombineText: meta.CombineText,
+			RequestId:   requestId,
+			Ip:          c.ClientIP(),
+		})
+		switch result.Decision {
+		case service.AbuseBlock:
+			logger.LogWarn(c, fmt.Sprintf("abuse guard blocked request for user %d model %s", relayInfo.UserId, relayInfo.OriginModelName))
+			newAPIError = types.NewErrorWithStatusCode(errors.New(result.Message), types.ErrorCodeAbuseContentBlocked, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+			return
+		case service.AbuseTempBanned:
+			newAPIError = types.NewErrorWithStatusCode(errors.New(result.Message), types.ErrorCodeAbuseTempBanned, http.StatusForbidden, types.ErrOptionWithSkipRetry())
 			return
 		}
 	}

@@ -271,14 +271,14 @@ export function ModelMutateDrawer({
       setAdvancedOpen(false)
       form.reset({
         model_name: currentRow?.model_name || '',
-        description: '',
-        icon: '',
-        tags: [],
-        vendor_id: undefined,
-        endpoints: '',
-        name_rule: 0,
-        status: true,
-        sync_official: true,
+        description: currentRow?.description || '',
+        icon: currentRow?.icon || '',
+        tags: parseModelTags(currentRow?.tags),
+        vendor_id: currentRow?.vendor_id,
+        endpoints: currentRow?.endpoints || '',
+        name_rule: currentRow?.name_rule ?? 0,
+        status: currentRow?.status === 0 ? false : true,
+        sync_official: currentRow?.sync_official === 0 ? false : true,
         price: '',
         ratio: '',
         cacheRatio: '',
@@ -342,6 +342,7 @@ export function ModelMutateDrawer({
               : 'Model created successfully'
           )
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
+          queryClient.invalidateQueries({ queryKey: ['pricing'] })
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')

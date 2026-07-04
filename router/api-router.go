@@ -315,6 +315,14 @@ func SetApiRouter(router *gin.Engine) {
 		logRoute.GET("/self", middleware.UserAuth(), controller.GetUserLogs)
 		logRoute.GET("/self/search", middleware.UserAuth(), middleware.SearchRateLimit(), controller.SearchUserLogs)
 
+		abuseGuardRoute := apiRouter.Group("/abuse_guard")
+		abuseGuardRoute.Use(middleware.AdminAuth())
+		{
+			abuseGuardRoute.GET("/events", controller.GetRiskEvents)
+			abuseGuardRoute.POST("/unban/:id", controller.UnbanAbuseUser)
+			abuseGuardRoute.POST("/reset/:id", controller.ResetAbuseScore)
+		}
+
 		systemTaskRoute := apiRouter.Group("/system-task")
 		systemTaskRoute.Use(middleware.RootAuth())
 		{

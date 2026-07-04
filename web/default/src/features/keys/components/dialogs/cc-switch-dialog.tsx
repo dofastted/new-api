@@ -77,6 +77,40 @@ const APP_MODEL_PRIORITIES: Record<AppType, string[]> = {
   gemini: ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini'],
 }
 
+const APP_DEFAULT_MODEL_FIELDS: Partial<
+  Record<AppType, Record<string, string>>
+> = {
+  claude: {
+    model: 'claude-opus-4-8',
+    opusModel: 'claude-opus-4-8',
+  },
+  codex: {
+    model: 'gpt-5.5',
+  },
+}
+
+function pickConfiguredDefaultModel(models: string[], preferred: string): string {
+  const normalizedPreferred = preferred.toLowerCase()
+  return (
+    models.find((model) => model.toLowerCase() === normalizedPreferred) ??
+    preferred
+  )
+}
+
+function getConfiguredDefaultModels(
+  app: AppType,
+  models: string[]
+): Record<string, string> {
+  const configuredDefaults = APP_DEFAULT_MODEL_FIELDS[app]
+  if (!configuredDefaults) return {}
+
+  const defaults: Record<string, string> = {}
+  for (const [fieldKey, preferredModel] of Object.entries(configuredDefaults)) {
+    defaults[fieldKey] = pickConfiguredDefaultModel(models, preferredModel)
+  }
+  return defaults
+}
+
 function getStatusString(status: unknown, key: string): string {
   if (!status || typeof status !== 'object') return ''
   const record = status as Record<string, unknown>
@@ -163,15 +197,18 @@ function getDefaultModels(
   models: string[]
 ): Record<string, string> {
   const candidates = getAppModelCandidates(app, models)
-  if (candidates.length === 0) return {}
+  const configuredDefaults = getConfiguredDefaultModels(app, candidates)
   if (app !== 'claude') {
+    if (Object.keys(configuredDefaults).length > 0) return configuredDefaults
+    if (candidates.length === 0) return {}
     return { model: pickPreferredModel(candidates, APP_MODEL_PRIORITIES[app]) }
   }
+
   const sonnetModel = pickPreferredModel(
     candidates.filter((model) => modelMatches(model, ['sonnet'])),
     ['sonnet']
   )
-  const opusModel = pickPreferredModel(
+  const fallbackOpusModel = pickPreferredModel(
     candidates.filter((model) => modelMatches(model, ['opus'])),
     ['opus']
   )
@@ -179,10 +216,12 @@ function getDefaultModels(
     candidates.filter((model) => modelMatches(model, ['haiku'])),
     ['haiku']
   )
+  const opusModel = configuredDefaults.opusModel || fallbackOpusModel
   return {
     model:
-      sonnetModel ||
+      configuredDefaults.model ||
       opusModel ||
+      sonnetModel ||
       haikuModel ||
       pickPreferredModel(candidates, APP_MODEL_PRIORITIES.claude),
     haikuModel,

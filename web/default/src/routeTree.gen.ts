@@ -42,6 +42,7 @@ import { Route as AuthenticatedUsageLogsIndexRouteImport } from './routes/_authe
 import { Route as AuthenticatedSystemSettingsIndexRouteImport } from './routes/_authenticated/system-settings/index'
 import { Route as AuthenticatedSystemInfoIndexRouteImport } from './routes/_authenticated/system-info/index'
 import { Route as AuthenticatedSubscriptionsIndexRouteImport } from './routes/_authenticated/subscriptions/index'
+import { Route as AuthenticatedRiskEventsIndexRouteImport } from './routes/_authenticated/risk-events/index'
 import { Route as AuthenticatedRedemptionCodesIndexRouteImport } from './routes/_authenticated/redemption-codes/index'
 import { Route as AuthenticatedProvidersIndexRouteImport } from './routes/_authenticated/providers/index'
 import { Route as AuthenticatedProviderGroupsIndexRouteImport } from './routes/_authenticated/provider-groups/index'
@@ -241,6 +242,12 @@ const AuthenticatedSubscriptionsIndexRoute =
   AuthenticatedSubscriptionsIndexRouteImport.update({
     id: '/subscriptions/',
     path: '/subscriptions/',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
+const AuthenticatedRiskEventsIndexRoute =
+  AuthenticatedRiskEventsIndexRouteImport.update({
+    id: '/risk-events/',
+    path: '/risk-events/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
 const AuthenticatedRedemptionCodesIndexRoute =
@@ -469,6 +476,7 @@ export interface FileRoutesByFullPath {
   '/provider-groups/': typeof AuthenticatedProviderGroupsIndexRoute
   '/providers/': typeof AuthenticatedProvidersIndexRoute
   '/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/risk-events/': typeof AuthenticatedRiskEventsIndexRoute
   '/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -532,6 +540,7 @@ export interface FileRoutesByTo {
   '/provider-groups': typeof AuthenticatedProviderGroupsIndexRoute
   '/providers': typeof AuthenticatedProvidersIndexRoute
   '/redemption-codes': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/risk-events': typeof AuthenticatedRiskEventsIndexRoute
   '/subscriptions': typeof AuthenticatedSubscriptionsIndexRoute
   '/system-info': typeof AuthenticatedSystemInfoIndexRoute
   '/system-settings': typeof AuthenticatedSystemSettingsIndexRoute
@@ -599,6 +608,7 @@ export interface FileRoutesById {
   '/_authenticated/provider-groups/': typeof AuthenticatedProviderGroupsIndexRoute
   '/_authenticated/providers/': typeof AuthenticatedProvidersIndexRoute
   '/_authenticated/redemption-codes/': typeof AuthenticatedRedemptionCodesIndexRoute
+  '/_authenticated/risk-events/': typeof AuthenticatedRiskEventsIndexRoute
   '/_authenticated/subscriptions/': typeof AuthenticatedSubscriptionsIndexRoute
   '/_authenticated/system-info/': typeof AuthenticatedSystemInfoIndexRoute
   '/_authenticated/system-settings/': typeof AuthenticatedSystemSettingsIndexRoute
@@ -665,6 +675,7 @@ export interface FileRouteTypes {
     | '/provider-groups/'
     | '/providers/'
     | '/redemption-codes/'
+    | '/risk-events/'
     | '/subscriptions/'
     | '/system-info/'
     | '/system-settings/'
@@ -728,6 +739,7 @@ export interface FileRouteTypes {
     | '/provider-groups'
     | '/providers'
     | '/redemption-codes'
+    | '/risk-events'
     | '/subscriptions'
     | '/system-info'
     | '/system-settings'
@@ -794,6 +806,7 @@ export interface FileRouteTypes {
     | '/_authenticated/provider-groups/'
     | '/_authenticated/providers/'
     | '/_authenticated/redemption-codes/'
+    | '/_authenticated/risk-events/'
     | '/_authenticated/subscriptions/'
     | '/_authenticated/system-info/'
     | '/_authenticated/system-settings/'
@@ -1069,6 +1082,13 @@ declare module '@tanstack/react-router' {
       path: '/subscriptions'
       fullPath: '/subscriptions/'
       preLoaderRoute: typeof AuthenticatedSubscriptionsIndexRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/risk-events/': {
+      id: '/_authenticated/risk-events/'
+      path: '/risk-events'
+      fullPath: '/risk-events/'
+      preLoaderRoute: typeof AuthenticatedRiskEventsIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/redemption-codes/': {
@@ -1393,6 +1413,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedProviderGroupsIndexRoute: typeof AuthenticatedProviderGroupsIndexRoute
   AuthenticatedProvidersIndexRoute: typeof AuthenticatedProvidersIndexRoute
   AuthenticatedRedemptionCodesIndexRoute: typeof AuthenticatedRedemptionCodesIndexRoute
+  AuthenticatedRiskEventsIndexRoute: typeof AuthenticatedRiskEventsIndexRoute
   AuthenticatedSubscriptionsIndexRoute: typeof AuthenticatedSubscriptionsIndexRoute
   AuthenticatedSystemInfoIndexRoute: typeof AuthenticatedSystemInfoIndexRoute
   AuthenticatedUsageLogsIndexRoute: typeof AuthenticatedUsageLogsIndexRoute
@@ -1421,6 +1442,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedProvidersIndexRoute: AuthenticatedProvidersIndexRoute,
   AuthenticatedRedemptionCodesIndexRoute:
     AuthenticatedRedemptionCodesIndexRoute,
+  AuthenticatedRiskEventsIndexRoute: AuthenticatedRiskEventsIndexRoute,
   AuthenticatedSubscriptionsIndexRoute: AuthenticatedSubscriptionsIndexRoute,
   AuthenticatedSystemInfoIndexRoute: AuthenticatedSystemInfoIndexRoute,
   AuthenticatedUsageLogsIndexRoute: AuthenticatedUsageLogsIndexRoute,
