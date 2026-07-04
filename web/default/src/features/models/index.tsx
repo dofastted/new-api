@@ -56,8 +56,9 @@ const SECTION_META: Record<ModelsSectionId, { titleKey: string }> = {
 function ModelsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
-  const { tabCategory, setTabCategory } = useModels()
+  const { tabCategory, setTabCategory, setOpen, setCurrentRow } = useModels()
   const params = route.useParams()
+  const search = route.useSearch()
   const activeSection = (params.section ??
     MODELS_DEFAULT_SECTION) as ModelsSectionId
 
@@ -70,6 +71,29 @@ function ModelsContent() {
       setTabCategory(activeSection)
     }
   }, [activeSection, setTabCategory, tabCategory])
+
+  useEffect(() => {
+    const prefillModel = search.prefillModel?.trim()
+    if (activeSection !== 'metadata' || !prefillModel) {
+      return
+    }
+    setCurrentRow({
+      id: 0,
+      model_name: prefillModel,
+      status: 1,
+      sync_official: 0,
+      created_time: 0,
+      updated_time: 0,
+      name_rule: 0,
+    })
+    setOpen('create-model')
+    void navigate({
+      to: '/models/$section',
+      params: { section: 'metadata' },
+      search: { ...search, prefillModel: undefined },
+      replace: true,
+    })
+  }, [activeSection, navigate, search, setCurrentRow, setOpen])
 
   const handleSectionChange = useCallback(
     (section: string) => {

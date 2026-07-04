@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { Search } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -25,11 +25,17 @@ export interface EmptyStateProps {
   searchQuery?: string
   hasActiveFilters: boolean
   onClearFilters: () => void
+  canAddCustomModel?: boolean
+  customModelName?: string
+  onAddCustomModel?: () => void
 }
 
 export function EmptyState(props: EmptyStateProps) {
   const { t } = useTranslation()
   const hasSearch = Boolean(props.searchQuery?.trim())
+  const canAddCustomModel = Boolean(
+    props.canAddCustomModel && props.customModelName?.trim()
+  )
 
   return (
     <div className='flex min-h-[320px] flex-col items-center justify-center rounded-lg border border-dashed px-6 py-12 text-center'>
@@ -48,10 +54,22 @@ export function EmptyState(props: EmptyStateProps) {
           : t('No models match your current filters.')}
       </p>
 
-      {(props.hasActiveFilters || hasSearch) && (
-        <Button variant='outline' size='sm' onClick={props.onClearFilters}>
-          {t('Clear all filters')}
-        </Button>
+      {(props.hasActiveFilters || hasSearch || canAddCustomModel) && (
+        <div className='flex flex-wrap items-center justify-center gap-2'>
+          {(props.hasActiveFilters || hasSearch) && (
+            <Button variant='outline' size='sm' onClick={props.onClearFilters}>
+              {t('Clear all filters')}
+            </Button>
+          )}
+          {canAddCustomModel && props.onAddCustomModel && (
+            <Button size='sm' onClick={props.onAddCustomModel}>
+              <Plus aria-hidden='true' className='size-4' />
+              {t('Add custom model "{{value}}"', {
+                value: props.customModelName,
+              })}
+            </Button>
+          )}
+        </div>
       )}
     </div>
   )

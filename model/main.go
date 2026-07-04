@@ -303,6 +303,7 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&OfficialPricingSnapshot{},
 		&OfficialModelPrice{},
+		&RiskEvent{},
 	)
 	if err != nil {
 		return err

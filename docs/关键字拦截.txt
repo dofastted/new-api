@@ -1,0 +1,89 @@
+credential stealer
+steal passwords
+steal cookies
+steal api keys
+steal private keys
+exfiltrate credentials
+session hijacking
+account takeover
+ransomware builder
+ransomware payload
+keylogger script
+keylogger malware
+trojan backdoor
+malware persistence
+reverse shell payload
+process injection malware
+bypass antivirus
+bypass edr
+undetectable malware
+disable defender
+phishing page
+fake login page
+clone login page
+bank login clone
+paypal login clone
+microsoft login clone
+google login clone
+scam script
+ddos attack
+udp flood attack
+tcp flood attack
+syn flood attack
+http flood attack
+booter service
+stresser service
+credit card dump
+stolen credit card
+carding tutorial
+bin attack
+payment bypass
+fake payment proof
+child porn
+child pornography
+underage porn
+minor porn
+loli porn
+shota porn
+revenge porn
+hidden camera nude
+upskirt porn
+how to kill myself
+painless suicide
+suicide method
+how to kill someone
+violent attack plan
+钓鱼页面
+假登录页
+盗号页面
+收集账号密码
+诈骗脚本
+盗刷
+黑卡
+信用卡料
+伪造付款截图
+勒索软件 payload
+键盘记录器 木马
+盗号木马
+反弹 shell payload
+免杀 木马
+免杀 后门
+ddos 攻击
+流量攻击
+压垮网站
+打死网站
+儿童 色情
+儿童 裸体
+未成年 色情
+未成年 裸体
+幼女 色情
+萝莉 色情
+正太 色情
+报复性色情
+偷拍裙底
+裸照威胁
+怎么自杀
+无痛自杀
+自杀方法
+如何杀人
+暴力袭击计划

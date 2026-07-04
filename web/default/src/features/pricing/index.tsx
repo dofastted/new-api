@@ -16,11 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { useNavigate } from '@tanstack/react-router'
 import { useCallback, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PublicLayout } from '@/components/layout'
 import { PageTransition } from '@/components/page-transition'
+import { useIsAdmin } from '@/hooks/use-admin'
 
 import {
   LoadingSkeleton,
@@ -38,6 +40,8 @@ import { usePricingData } from './hooks/use-pricing-data'
 
 export function Pricing() {
   const { t } = useTranslation()
+  const navigate = useNavigate()
+  const isAdmin = useIsAdmin()
   const [selectedModelName, setSelectedModelName] = useState<string | null>(
     null
   )
@@ -82,6 +86,18 @@ export function Pricing() {
     clearFilters,
     clearSearch,
   } = useFilters(models || [])
+  const customModelName = searchInput.trim()
+
+  const handleAddCustomModel = useCallback(() => {
+    if (!customModelName) {
+      return
+    }
+    void navigate({
+      to: '/models/$section',
+      params: { section: 'metadata' },
+      search: { prefillModel: customModelName },
+    })
+  }, [customModelName, navigate])
 
   const handleModelClick = useCallback((modelName: string) => {
     setSelectedModelName(modelName)
@@ -117,6 +133,9 @@ export function Pricing() {
           searchQuery={searchInput}
           hasActiveFilters={hasActiveFilters}
           onClearFilters={handleClearAll}
+          canAddCustomModel={isAdmin && Boolean(customModelName)}
+          customModelName={customModelName}
+          onAddCustomModel={handleAddCustomModel}
         />
       )
     }
@@ -252,6 +271,9 @@ export function Pricing() {
                 hasActiveFilters={hasActiveFilters}
                 activeFilterCount={activeFilterCount}
                 onClearFilters={clearFilters}
+                canAddCustomModel={isAdmin && Boolean(customModelName)}
+                customModelName={customModelName}
+                onAddCustomModel={handleAddCustomModel}
               />
 
               {renderPricingContent()}

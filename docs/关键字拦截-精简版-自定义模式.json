@@ -1,0 +1,9 @@
+[
+  {"id":"c_malware","kind":"regex","weight":10,"pattern":"(write|generate|create|build|make|code|develop|provide|give\\s*me|给我|帮我写|帮我生成|帮我做|生成|制作|编写|开发|我要|想要).{0,25}(keylogger|ransomware|rootkit|botnet|reverse\\s*shell|trojan\\s*backdoor|undetectable\\s*malware|木马|勒索软件|键盘记录|反弹\\s*shell|盗号木马|免杀\\s*(木马|后门))","note":"硬拦:创建恶意软件意图"},
+  {"id":"c_phish","kind":"regex","weight":10,"pattern":"(write|create|build|clone|make|generate|做一个|制作|生成|克隆|伪造|帮我做|帮我写).{0,20}(phishing\\s*page|fake\\s*login|login\\s*clone|钓鱼页面|假登录|盗号页面|付款截图|payment\\s*proof)","note":"硬拦:制作钓鱼/伪造页面意图"},
+  {"id":"c_fraud","kind":"regex","weight":10,"pattern":"(carding\\s*tutorial|credit\\s*card\\s*dump|stolen\\s*credit\\s*card|(buy|sell|购买|出售|求|要).{0,6}(信用卡料|黑卡)|(教程|教我|帮我).{0,4}盗刷)","note":"硬拦:信用卡欺诈/盗刷意图"},
+  {"id":"c_ddos","kind":"regex","weight":10,"pattern":"(launch|perform|发起|执行|帮我|help\\s*me|给我|我要).{0,12}(ddos|flood\\s*attack|流量攻击|压垮网站|打死网站)|booter\\s*service|stresser\\s*service","note":"硬拦:发起 DDoS 攻击意图"},
+  {"id":"s_malware_bare","kind":"regex","weight":6,"pattern":"ransomware\\s*(payload|builder)|keylogger\\s*(malware|script)|盗号木马|免杀\\s*(木马|后门)|反弹\\s*shell\\s*payload","note":"送审:恶意软件强信号裸词(不硬拦,交 Moderation 判意图)"},
+  {"id":"s_violence","kind":"regex","weight":6,"pattern":"how\\s*to\\s*kill\\s*someone|如何杀人|杀人方法|violent\\s*attack\\s*plan|暴力袭击计划","note":"送审:暴力(游戏语境由 Moderation 放行,不硬拦)"},
+  {"id":"s_ncii","kind":"regex","weight":6,"pattern":"(生成|制作|create|generate|make|写|画|求).{0,15}(revenge\\s*porn|报复性色情|偷拍裙底|upskirt|hidden\\s*camera\\s*nude|裸照威胁)","note":"送审:非自愿性影像生成意图"}
+]

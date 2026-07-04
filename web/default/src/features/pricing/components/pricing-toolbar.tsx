@@ -16,7 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { ArrowUpDown, Check, Filter, Grid2X2, Table2 } from 'lucide-react'
+import { ArrowUpDown, Check, Filter, Grid2X2, Plus, Table2 } from 'lucide-react'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -92,6 +92,9 @@ export interface PricingToolbarProps {
   hasActiveFilters: boolean
   activeFilterCount: number
   onClearFilters: () => void
+  canAddCustomModel?: boolean
+  customModelName?: string
+  onAddCustomModel?: () => void
 }
 
 function SegmentedControl(props: {
@@ -219,6 +222,25 @@ export function PricingToolbar(props: PricingToolbarProps) {
               ariaLabel={t('Token unit')}
             />
           </div>
+
+          {props.canAddCustomModel &&
+            props.customModelName &&
+            props.onAddCustomModel && (
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                onClick={props.onAddCustomModel}
+                className='h-8 max-w-[280px] gap-1.5 px-3 text-xs'
+              >
+                <Plus aria-hidden='true' className='size-3.5 shrink-0' />
+                <span className='truncate'>
+                  {t('Add custom model "{{value}}"', {
+                    value: props.customModelName,
+                  })}
+                </span>
+              </Button>
+            )}
 
           <DropdownMenu>
             <DropdownMenuTrigger

@@ -49,6 +49,7 @@ func TestMain(m *testing.M) {
 		&model.ProviderGroup{},
 		&model.ProviderGroupChannel{},
 		&model.ProviderGroupAutoRule{},
+		&model.RiskEvent{},
 	); err != nil {
 		panic("failed to migrate: " + err.Error())
 	}

@@ -386,6 +386,28 @@ export type SecuritySettings = {
   'fetch_setting.allowed_ports': number[]
   'fetch_setting.apply_ip_filter_for_domain': boolean
   'token_setting.max_user_tokens': number
+  'abuse_guard.enabled': boolean
+  'abuse_guard.monitor_only': boolean
+  'abuse_guard.model_scope_patterns': string[]
+  'abuse_guard.exempt_groups': string[]
+  'abuse_guard.block_words': string[]
+  'abuse_guard.disabled_builtin_ids': string[]
+  'abuse_guard.custom_patterns': string
+  'abuse_guard.pattern_block_score': number
+  'abuse_guard.scan_window_kb': number
+  'abuse_guard.moderation_api_key': string
+  'abuse_guard.moderation_base_url': string
+  'abuse_guard.moderation_model': string
+  'abuse_guard.sample_rate_percent': number
+  'abuse_guard.review_snippet_kb': number
+  'abuse_guard.queue_size': number
+  'abuse_guard.worker_count': number
+  'abuse_guard.category_scores': string
+  'abuse_guard.instant_ban_categories': string[]
+  'abuse_guard.score_window_hours': number
+  'abuse_guard.ban_threshold': number
+  'abuse_guard.temp_ban_hours': number
+  'abuse_guard.perm_ban_after_temp_bans': number
 }
 
 export type UpstreamChannel = {
