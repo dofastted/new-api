@@ -117,7 +117,7 @@ func TestOfficialModelMetadataSyncClearsStaleOfficialVendorRowsOutsidePriceRows(
 		PricingConfig: `{"mode":"per-token","ratio":8,"completion_ratio":9}`,
 		VendorID:      openAIVendor.Id,
 		Status:        1,
-		SyncOfficial:  0,
+		SyncOfficial:  1,
 		NameRule:      model.NameRuleExact,
 	}
 	require.NoError(t, existingModel.Insert())
@@ -144,10 +144,55 @@ func TestOfficialModelMetadataSyncClearsStaleOfficialVendorRowsOutsidePriceRows(
 	assert.Empty(t, existing.Tags)
 	assert.Empty(t, existing.Endpoints)
 	assert.Empty(t, existing.PricingConfig)
+	assert.Equal(t, 1, existing.SyncOfficial)
+}
+
+func TestOfficialModelMetadataSyncPreservesStaleLocalRowsOutsidePriceRows(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+
+	openAIVendor := model.Vendor{Name: "OpenAI", Icon: "OpenAI", Status: 1}
+	require.NoError(t, model.DB.Create(&openAIVendor).Error)
+	localPricingConfig := `{"mode":"per-token","ratio":8,"completion_ratio":9}`
+	localModel := model.Model{
+		ModelName:     "gpt-image-local-price-test",
+		Description:   "local description",
+		Icon:          "Local.Icon",
+		Tags:          "local-tag",
+		Endpoints:     `[{"name":"local"}]`,
+		PricingConfig: localPricingConfig,
+		VendorID:      openAIVendor.Id,
+		Status:        1,
+		SyncOfficial:  0,
+		NameRule:      model.NameRuleExact,
+	}
+	require.NoError(t, localModel.Insert())
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderOpenAI,
+		ModelName:       "gpt-priced-local-trigger-test",
+		SourceURL:       OfficialPricingOpenAIURL,
+		ModelRatio:      1.25,
+		CompletionRatio: 2,
+		Active:          true,
+	}).Error)
+
+	result, err := SyncOfficialModelMetadata(context.Background())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, 1, result.CreatedModels)
+	assert.Equal(t, 0, result.UpdatedModels)
+	assert.Equal(t, 0, result.CreatedVendors)
+
+	var existing model.Model
+	require.NoError(t, model.DB.Where("model_name = ?", "gpt-image-local-price-test").First(&existing).Error)
+	assert.Equal(t, "local description", existing.Description)
+	assert.Equal(t, "Local.Icon", existing.Icon)
+	assert.Equal(t, "local-tag", existing.Tags)
+	assert.Equal(t, `[{"name":"local"}]`, existing.Endpoints)
+	assert.Equal(t, localPricingConfig, existing.PricingConfig)
 	assert.Equal(t, 0, existing.SyncOfficial)
 }
 
-func TestOfficialModelMetadataSyncStandardizesExistingOfficialModelOptedOutOfOfficialSync(t *testing.T) {
+func TestOfficialModelMetadataSyncPreservesExistingModelOptedOutOfOfficialSync(t *testing.T) {
 	setupOfficialMetadataServiceTestDB(t)
 
 	customVendor := model.Vendor{Name: "Custom Vendor", Icon: "CustomVendor.Icon", Status: 1}
@@ -179,33 +224,21 @@ func TestOfficialModelMetadataSyncStandardizesExistingOfficialModelOptedOutOfOff
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, 0, result.CreatedModels)
-	assert.Equal(t, 1, result.UpdatedModels)
+	assert.Equal(t, 0, result.UpdatedModels)
 	assert.Equal(t, 1, result.CreatedVendors)
-	assert.Empty(t, result.SkippedModels)
-	assert.ElementsMatch(t, []string{"gemini-custom-opt-out-test"}, result.UpdatedList)
+	assert.ElementsMatch(t, []string{"gemini-custom-opt-out-test"}, result.SkippedModels)
+	assert.Empty(t, result.UpdatedList)
 
-	var googleVendor model.Vendor
-	require.NoError(t, model.DB.Where("name = ?", "Google").First(&googleVendor).Error)
-	assert.Equal(t, "Gemini.Color", googleVendor.Icon)
-
-	var standardized model.Model
-	require.NoError(t, model.DB.Where("model_name = ?", "gemini-custom-opt-out-test").First(&standardized).Error)
-	assert.Equal(t, googleVendor.Id, standardized.VendorID)
-	assert.Empty(t, standardized.Description)
-	assert.Empty(t, standardized.Icon)
-	assert.Empty(t, standardized.Tags)
-	assert.Empty(t, standardized.Endpoints)
-	assert.Equal(t, 1, standardized.SyncOfficial)
-	assert.Equal(t, model.NameRuleExact, standardized.NameRule)
-
-	cfg, ok, err := model.ParseModelPricingConfig(standardized.PricingConfig)
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, model.ModelPricingModePerToken, cfg.Mode)
-	require.NotNil(t, cfg.Ratio)
-	assert.Equal(t, 0.5, *cfg.Ratio)
-	require.NotNil(t, cfg.CompletionRatio)
-	assert.Equal(t, 3.5, *cfg.CompletionRatio)
+	var preserved model.Model
+	require.NoError(t, model.DB.Where("model_name = ?", "gemini-custom-opt-out-test").First(&preserved).Error)
+	assert.Equal(t, customVendor.Id, preserved.VendorID)
+	assert.Equal(t, "custom description", preserved.Description)
+	assert.Equal(t, "Custom.Model.Icon", preserved.Icon)
+	assert.Equal(t, "custom-tag", preserved.Tags)
+	assert.Equal(t, `[{"name":"custom"}]`, preserved.Endpoints)
+	assert.Equal(t, 0, preserved.SyncOfficial)
+	assert.Equal(t, model.NameRuleContains, preserved.NameRule)
+	assert.Equal(t, customPricingConfig, preserved.PricingConfig)
 }
 
 func TestConvertGeminiOfficialPricingToRatioData(t *testing.T) {

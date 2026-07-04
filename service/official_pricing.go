@@ -377,6 +377,10 @@ func syncOfficialModelMetadataRows(rows []model.OfficialModelPrice) (*OfficialMo
 				result.CreatedList = append(result.CreatedList, entry.ModelName)
 				continue
 			}
+			if current.SyncOfficial == 0 {
+				result.SkippedModels = append(result.SkippedModels, entry.ModelName)
+				continue
+			}
 			updates := officialMetadataModelUpdates(current, entry, vendorID, now)
 			if len(updates) == 0 {
 				continue
@@ -389,6 +393,7 @@ func syncOfficialModelMetadataRows(rows []model.OfficialModelPrice) (*OfficialMo
 		}
 		staleResult := tx.Model(&model.Model{}).
 			Where("vendor_id IN ?", officialMetadataVendorIDs(vendorIDs)).
+			Where("sync_official = ?", 1).
 			Where("model_name NOT IN ?", officialMetadataModelNames(entries)).
 			Where("icon <> ? OR description <> ? OR tags <> ? OR endpoints <> ? OR pricing_config <> ?", "", "", "", "", "").
 			Updates(map[string]any{
