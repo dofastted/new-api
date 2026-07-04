@@ -43,6 +43,9 @@ export const STATIC_I18N_KEYS = [
   'Integrations',
   'Models',
   'Routing Reliability',
+  'Error Rewrite',
+  'Save error rewrite rules',
+  'Restore defaults',
   'Maintenance',
 
   // System info

@@ -197,6 +197,10 @@ func (channel *Channel) GetKeys() []string {
 }
 
 func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
+	return channel.GetNextEnabledKeyExcept(nil)
+}
+
+func (channel *Channel) GetNextEnabledKeyExcept(excluded map[int]struct{}) (string, int, *types.NewAPIError) {
 	// If not in multi-key mode, return the original key string directly.
 	if !channel.ChannelInfo.IsMultiKey {
 		return channel.Key, 0, nil
@@ -225,12 +229,16 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		return common.ChannelStatusEnabled
 	}
 
-	// Collect indexes of enabled keys
+	// Collect indexes of enabled keys that have not failed in this request.
 	enabledIdx := make([]int, 0, len(keys))
 	for i := range keys {
-		if getStatus(i) == common.ChannelStatusEnabled {
-			enabledIdx = append(enabledIdx, i)
+		if getStatus(i) != common.ChannelStatusEnabled {
+			continue
 		}
+		if _, skip := excluded[i]; skip {
+			continue
+		}
+		enabledIdx = append(enabledIdx, i)
 	}
 	// If no specific status list or none enabled, return an explicit error so caller can
 	// properly handle a channel with no available keys (e.g. mark channel disabled).
@@ -266,13 +274,17 @@ func (channel *Channel) GetNextEnabledKey() (string, int, *types.NewAPIError) {
 		if start < 0 || start >= len(keys) {
 			start = 0
 		}
-		for i := 0; i < len(keys); i++ {
+		for i := range len(keys) {
 			idx := (start + i) % len(keys)
-			if getStatus(idx) == common.ChannelStatusEnabled {
-				// update polling index for next call (point to the next position)
-				channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
-				return keys[idx], idx, nil
+			if getStatus(idx) != common.ChannelStatusEnabled {
+				continue
 			}
+			if _, skip := excluded[idx]; skip {
+				continue
+			}
+			// update polling index for next call (point to the next position)
+			channel.ChannelInfo.MultiKeyPollingIndex = (idx + 1) % len(keys)
+			return keys[idx], idx, nil
 		}
 		// Fallback – should not happen, but return first enabled key
 		return keys[enabledIdx[0]], enabledIdx[0], nil
@@ -480,7 +492,6 @@ func (channel *Channel) GetPriority() int64 {
 	}
 	return *channel.Priority
 }
-
 
 func (channel *Channel) GetWeight() int {
 	if channel.Weight == nil {
@@ -1000,6 +1011,9 @@ func (channel *Channel) ValidateSettings() error {
 		if err != nil {
 			return err
 		}
+	}
+	if channelParams.RateLimitRPM < 0 {
+		return fmt.Errorf("rate_limit_rpm must be non-negative")
 	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {

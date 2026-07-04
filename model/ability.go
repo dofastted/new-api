@@ -104,7 +104,7 @@ func getChannelQuery(group string, model string, retry int) (*gorm.DB, error) {
 	return channelQuery, nil
 }
 
-func GetChannel(group string, model string, retry int, requestPath string) (*Channel, error) {
+func GetChannel(group string, model string, retry int, requestPath string, excluded map[int]struct{}) (*Channel, error) {
 	var abilities []Ability
 
 	var err error = nil
@@ -123,6 +123,7 @@ func GetChannel(group string, model string, retry int, requestPath string) (*Cha
 	abilities = filterAbilitiesByRequestPath(abilities, requestPath)
 	channel := Channel{}
 	abilities = filterOpenCircuitAbilities(abilities)
+	abilities = filterExcludedAbilities(abilities, excluded)
 	if len(abilities) == 0 {
 		return nil, nil
 	}
@@ -201,6 +202,19 @@ func filterOpenCircuitAbilities(abilities []Ability) []Ability {
 	filtered := make([]Ability, 0, len(abilities))
 	for _, ability := range abilities {
 		if !IsChannelCircuitOpen(ability.ChannelId) {
+			filtered = append(filtered, ability)
+		}
+	}
+	return filtered
+}
+
+func filterExcludedAbilities(abilities []Ability, excluded map[int]struct{}) []Ability {
+	if len(abilities) == 0 || len(excluded) == 0 {
+		return abilities
+	}
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		if _, ok := excluded[ability.ChannelId]; !ok {
 			filtered = append(filtered, ability)
 		}
 	}

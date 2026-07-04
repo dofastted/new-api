@@ -231,6 +231,9 @@ export type ModelSettings = {
   AutomaticDisableKeywords: string
   AutomaticDisableStatusCodes: string
   AutomaticRetryStatusCodes: string
+  ChannelRateLimitCooldownSeconds: number
+  'error_rewrite.enabled': boolean
+  'error_rewrite.rules': string
   'monitor_setting.auto_test_channel_enabled': boolean
   'monitor_setting.auto_test_channel_minutes': number
   'monitor_setting.channel_test_mode': 'scheduled_all' | 'passive_recovery'
@@ -367,6 +370,9 @@ export type SecuritySettings = {
   ModelRequestRateLimitCount: number
   ModelRequestRateLimitSuccessCount: number
   ModelRequestRateLimitDurationMinutes: number
+  ModelRequestRateLimitWaitEnabled: boolean
+  RateLimitWaitTimeoutSeconds: number
+  RateLimitMaxWaitingPerUser: number
   ModelRequestRateLimitGroup: string
   CheckSensitiveEnabled: boolean
   CheckSensitiveOnPromptEnabled: boolean

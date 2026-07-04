@@ -72,6 +72,9 @@ const createRateLimitSchema = (t: (key: string) => string) =>
     ModelRequestRateLimitDurationMinutes: z.number().min(0),
     ModelRequestRateLimitCount: z.number().min(0).max(100000000),
     ModelRequestRateLimitSuccessCount: z.number().min(1).max(100000000),
+    ModelRequestRateLimitWaitEnabled: z.boolean(),
+    RateLimitWaitTimeoutSeconds: z.number().int().min(0).max(3600),
+    RateLimitMaxWaitingPerUser: z.number().int().min(0).max(100000),
     ModelRequestRateLimitGroup: z
       .string()
       .optional()
@@ -133,6 +136,29 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                   <FormDescription>
                     {t(
                       'This controls model request rate limiting. Web/API route throttling is configured by environment variables and may still return 429.'
+                    )}
+                  </FormDescription>
+                </SettingsSwitchContent>
+                <FormControl>
+                  <Switch
+                    checked={field.value}
+                    onCheckedChange={field.onChange}
+                  />
+                </FormControl>
+              </SettingsSwitchItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name='ModelRequestRateLimitWaitEnabled'
+            render={({ field }) => (
+              <SettingsSwitchItem>
+                <SettingsSwitchContent>
+                  <FormLabel>{t('Queue instead of rejecting')}</FormLabel>
+                  <FormDescription>
+                    {t(
+                      'When a user reaches the model RPM limit, wait for capacity instead of returning 429 immediately.'
                     )}
                   </FormDescription>
                 </SettingsSwitchContent>
@@ -233,6 +259,69 @@ export function RateLimitSection({ defaultValues }: RateLimitSectionProps) {
                   </FormControl>
                   <FormDescription>
                     {t('Only successful requests')}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+          </div>
+
+          <div className='grid gap-4 md:grid-cols-2'>
+            <FormField
+              control={form.control}
+              name='RateLimitWaitTimeoutSeconds'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Maximum wait time')}</FormLabel>
+                  <FormControl>
+                    <div className='flex items-center gap-2'>
+                      <Input
+                        type='number'
+                        min={0}
+                        max={3600}
+                        step={1}
+                        {...field}
+                        onChange={(e) =>
+                          field.onChange(Number.parseInt(e.target.value) || 0)
+                        }
+                      />
+                      <span className='text-muted-foreground text-sm'>
+                        {t('seconds')}
+                      </span>
+                    </div>
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Shared wait budget for user limits, channel RPM limits, and upstream 429 retries. 0 disables waiting.'
+                    )}
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name='RateLimitMaxWaitingPerUser'
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>{t('Max queued requests per user')}</FormLabel>
+                  <FormControl>
+                    <Input
+                      type='number'
+                      min={0}
+                      max={100000}
+                      step={1}
+                      {...field}
+                      onChange={(e) =>
+                        field.onChange(Number.parseInt(e.target.value) || 0)
+                      }
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    {t(
+                      'Prevents one user from occupying too many waiting requests. 0 rejects overflow immediately.'
+                    )}
                   </FormDescription>
                   <FormMessage />
                 </FormItem>

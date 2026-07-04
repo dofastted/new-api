@@ -68,3 +68,26 @@ func (l *InMemoryRateLimiter) Request(key string, maxRequestNum int, duration in
 	}
 	return true
 }
+
+// Allow checks whether a request would fit in the current window without
+// recording it. Request should still be used for counters that must consume a
+// slot immediately.
+func (l *InMemoryRateLimiter) Allow(key string, maxRequestNum int, duration int64) bool {
+	if maxRequestNum == 0 {
+		return true
+	}
+
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	queue, ok := l.store[key]
+	if !ok || len(*queue) == 0 {
+		return true
+	}
+	if len(*queue) < maxRequestNum {
+		return true
+	}
+
+	now := time.Now().Unix()
+	return now-(*queue)[0] >= duration
+}

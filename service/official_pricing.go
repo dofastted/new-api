@@ -13,21 +13,28 @@ import (
 	"strings"
 	"time"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+
+	"gorm.io/gorm"
 )
 
 const (
-	OfficialPricingProviderOpenAI = "openai"
-	OfficialPricingProviderClaude = "claude"
-	OfficialPricingProviderGemini = "gemini"
-	OfficialPricingProviderGLM    = "glm"
+	OfficialPricingProviderOpenAI   = "openai"
+	OfficialPricingProviderClaude   = "claude"
+	OfficialPricingProviderXAI      = "xai"
+	OfficialPricingProviderGemini   = "gemini"
+	OfficialPricingProviderGLM      = "glm"
+	OfficialPricingProviderDeepSeek = "deepseek"
 
-	OfficialPricingOpenAIURL = "https://developers.openai.com/api/docs/pricing.md"
-	OfficialPricingClaudeURL = "https://platform.claude.com/docs/en/about-claude/pricing.md"
-	OfficialPricingGeminiURL = "https://ai.google.dev/gemini-api/docs/pricing"
-	OfficialPricingGLMURL    = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
-	maxOfficialPricingBytes  = 10 << 20
+	OfficialPricingOpenAIURL   = "https://developers.openai.com/api/docs/pricing.md"
+	OfficialPricingClaudeURL   = "https://platform.claude.com/docs/en/about-claude/pricing.md"
+	OfficialPricingXAIURL      = "https://docs.x.ai/developers/models.md"
+	OfficialPricingGeminiURL   = "https://ai.google.dev/gemini-api/docs/pricing"
+	OfficialPricingGLMURL      = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
+	OfficialPricingDeepSeekURL = "https://api-docs.deepseek.com/quick_start/pricing"
+	maxOfficialPricingBytes    = 10 << 20
 )
 
 type OfficialPricingSource struct {
@@ -37,11 +44,63 @@ type OfficialPricingSource struct {
 }
 
 type OfficialPricingSyncResult struct {
-	SnapshotID   string                  `json:"snapshot_id"`
-	EntriesCount int                     `json:"entries_count"`
-	Sources      []OfficialPricingSource `json:"sources"`
-	Counts       map[string]int          `json:"counts"`
-	Errors       map[string]string       `json:"errors,omitempty"`
+	SnapshotID   string                           `json:"snapshot_id"`
+	EntriesCount int                              `json:"entries_count"`
+	Sources      []OfficialPricingSource          `json:"sources"`
+	Counts       map[string]int                   `json:"counts"`
+	Errors       map[string]string                `json:"errors,omitempty"`
+	MetadataSync *OfficialModelMetadataSyncResult `json:"metadata_sync,omitempty"`
+}
+
+type OfficialModelMetadataSyncResult struct {
+	CreatedModels  int                    `json:"created_models"`
+	UpdatedModels  int                    `json:"updated_models"`
+	CreatedVendors int                    `json:"created_vendors"`
+	SkippedModels  []string               `json:"skipped_models"`
+	CreatedList    []string               `json:"created_list"`
+	UpdatedList    []string               `json:"updated_list"`
+	Source         OfficialMetadataSource `json:"source"`
+}
+
+type OfficialModelMetadataPreview struct {
+	Missing   []OfficialModelMetadataItem `json:"missing"`
+	Conflicts []OfficialMetadataConflict  `json:"conflicts"`
+	Source    OfficialMetadataSource      `json:"source"`
+}
+
+type OfficialModelMetadataItem struct {
+	ModelName     string `json:"model_name"`
+	Vendor        string `json:"vendor"`
+	PricingConfig string `json:"pricing_config,omitempty"`
+}
+
+type OfficialMetadataConflict struct {
+	ModelName string                  `json:"model_name"`
+	Fields    []OfficialConflictField `json:"fields"`
+}
+
+type OfficialConflictField struct {
+	Field    string `json:"field"`
+	Local    any    `json:"local"`
+	Upstream any    `json:"upstream"`
+}
+
+type OfficialMetadataSource struct {
+	Name       string                  `json:"name"`
+	Providers  []OfficialPricingSource `json:"providers"`
+	ModelCount int                     `json:"model_count"`
+}
+
+type officialVendorMetadata struct {
+	Name string
+	Icon string
+}
+
+type officialModelMetadataEntry struct {
+	ModelName     string
+	VendorName    string
+	VendorIcon    string
+	PricingConfig string
 }
 
 type OfficialTokenPricing struct {
@@ -60,8 +119,10 @@ func DefaultOfficialPricingSources() []OfficialPricingSource {
 	return []OfficialPricingSource{
 		{Provider: OfficialPricingProviderOpenAI, Name: "OpenAI 官方价格", URL: OfficialPricingOpenAIURL},
 		{Provider: OfficialPricingProviderClaude, Name: "Claude 官方价格", URL: OfficialPricingClaudeURL},
+		{Provider: OfficialPricingProviderXAI, Name: "xAI 官方价格", URL: OfficialPricingXAIURL},
 		{Provider: OfficialPricingProviderGemini, Name: "Gemini 官方价格", URL: OfficialPricingGeminiURL},
 		{Provider: OfficialPricingProviderGLM, Name: "GLM 官方价格", URL: OfficialPricingGLMURL},
+		{Provider: OfficialPricingProviderDeepSeek, Name: "DeepSeek 官方价格", URL: OfficialPricingDeepSeekURL},
 	}
 }
 
@@ -73,14 +134,7 @@ func SyncOfficialPricing(ctx context.Context) (*OfficialPricingSyncResult, error
 		_ = model.RecordFailedOfficialPricingSnapshot(snapshotID, officialPricingSourcesText(sources), err)
 		return result, err
 	}
-	rows := make([]model.OfficialModelPrice, 0, len(entries))
-	for _, entry := range entries {
-		row := officialTokenPricingToRow(snapshotID, entry)
-		if row.ModelName == "" {
-			continue
-		}
-		rows = append(rows, row)
-	}
+	rows := officialPricingRowsFromEntries(snapshotID, entries)
 	if len(rows) == 0 {
 		err = fmt.Errorf("official pricing sync produced no rows")
 		_ = model.RecordFailedOfficialPricingSnapshot(snapshotID, officialPricingSourcesText(sources), err)
@@ -92,8 +146,69 @@ func SyncOfficialPricing(ctx context.Context) (*OfficialPricingSyncResult, error
 	if err := model.LoadActiveOfficialPricingIntoRuntime(); err != nil {
 		return result, err
 	}
+	metadataResult, err := syncOfficialModelMetadataRows(rows)
+	if err != nil {
+		return result, err
+	}
+	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
+		return result, err
+	}
+	model.RefreshPricing()
+	result.MetadataSync = metadataResult
 	result.EntriesCount = len(rows)
 	return result, nil
+}
+
+func SyncOfficialModelMetadata(ctx context.Context) (*OfficialModelMetadataSyncResult, error) {
+	rows, err := model.GetActiveOfficialPricingRows()
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		pricingResult, err := SyncOfficialPricing(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if pricingResult != nil && pricingResult.MetadataSync != nil {
+			return pricingResult.MetadataSync, nil
+		}
+		rows, err = model.GetActiveOfficialPricingRows()
+		if err != nil {
+			return nil, err
+		}
+	}
+	metadataResult, err := syncOfficialModelMetadataRows(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
+		return nil, err
+	}
+	model.RefreshPricing()
+	return metadataResult, nil
+}
+
+func PreviewOfficialModelMetadata(ctx context.Context) (*OfficialModelMetadataPreview, error) {
+	rows, err := model.GetActiveOfficialPricingRows()
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		entries, _, err := FetchOfficialPricing(ctx, model.NewOfficialPricingSnapshotID(), DefaultOfficialPricingSources())
+		if err != nil {
+			return nil, err
+		}
+		rows = officialPricingRowsFromEntries("", entries)
+	}
+	entries, err := officialModelMetadataEntries(rows)
+	if err != nil {
+		return nil, err
+	}
+	preview, err := previewOfficialModelMetadataEntries(entries)
+	if err != nil {
+		return nil, err
+	}
+	return preview, nil
 }
 
 func FetchOfficialPricing(ctx context.Context, snapshotID string, sources []OfficialPricingSource) ([]OfficialTokenPricing, *OfficialPricingSyncResult, error) {
@@ -149,10 +264,14 @@ func fetchOfficialPricingSource(ctx context.Context, client *http.Client, source
 		return ParseOpenAIOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	case OfficialPricingProviderClaude:
 		return ParseClaudeOfficialTokenPricing(bytes.NewReader(body), source.URL)
+	case OfficialPricingProviderXAI:
+		return ParseXAIOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	case OfficialPricingProviderGemini:
 		return ParseGeminiOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	case OfficialPricingProviderGLM:
 		return ParseGLMOfficialTokenPricing(bytes.NewReader(body), source.URL)
+	case OfficialPricingProviderDeepSeek:
+		return ParseDeepSeekOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	default:
 		return nil, fmt.Errorf("unsupported official pricing provider: %s", source.Provider)
 	}
@@ -196,6 +315,318 @@ func officialTokenPricingToRow(snapshotID string, entry OfficialTokenPricing) mo
 		CacheRatio:              roundOfficialRatioPointer(cacheRatio),
 		CreateCacheRatio:        roundOfficialRatioPointer(createCacheRatio),
 	}
+}
+
+func officialPricingRowsFromEntries(snapshotID string, entries []OfficialTokenPricing) []model.OfficialModelPrice {
+	rows := make([]model.OfficialModelPrice, 0, len(entries))
+	for _, entry := range entries {
+		row := officialTokenPricingToRow(snapshotID, entry)
+		if row.ModelName == "" {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows
+}
+
+func syncOfficialModelMetadataRows(rows []model.OfficialModelPrice) (*OfficialModelMetadataSyncResult, error) {
+	entries, err := officialModelMetadataEntries(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("official model metadata sync has no model entries")
+	}
+
+	result := &OfficialModelMetadataSyncResult{
+		SkippedModels: []string{},
+		CreatedList:   []string{},
+		UpdatedList:   []string{},
+		Source:        officialMetadataSource(len(entries)),
+	}
+	err = model.DB.Transaction(func(tx *gorm.DB) error {
+		vendorIDs, createdVendors, err := ensureOfficialMetadataVendors(tx, entries)
+		if err != nil {
+			return err
+		}
+		result.CreatedVendors = createdVendors
+
+		existing, err := loadOfficialMetadataModels(tx, entries)
+		if err != nil {
+			return err
+		}
+		now := common.GetTimestamp()
+		for _, entry := range entries {
+			vendorID := vendorIDs[entry.VendorName]
+			current, ok := existing[entry.ModelName]
+			if !ok {
+				item := model.Model{
+					ModelName:     entry.ModelName,
+					VendorID:      vendorID,
+					PricingConfig: entry.PricingConfig,
+					Status:        1,
+					SyncOfficial:  1,
+					NameRule:      model.NameRuleExact,
+					CreatedTime:   now,
+					UpdatedTime:   now,
+				}
+				if err := tx.Create(&item).Error; err != nil {
+					return err
+				}
+				result.CreatedModels++
+				result.CreatedList = append(result.CreatedList, entry.ModelName)
+				continue
+			}
+			updates := officialMetadataModelUpdates(current, entry, vendorID, now)
+			if len(updates) == 0 {
+				continue
+			}
+			if err := tx.Model(&model.Model{}).Where("id = ?", current.Id).Updates(updates).Error; err != nil {
+				return err
+			}
+			result.UpdatedModels++
+			result.UpdatedList = append(result.UpdatedList, entry.ModelName)
+		}
+		staleResult := tx.Model(&model.Model{}).
+			Where("vendor_id IN ?", officialMetadataVendorIDs(vendorIDs)).
+			Where("model_name NOT IN ?", officialMetadataModelNames(entries)).
+			Where("icon <> ? OR description <> ? OR tags <> ? OR endpoints <> ? OR pricing_config <> ?", "", "", "", "", "").
+			Updates(map[string]any{
+				"icon":           "",
+				"description":    "",
+				"tags":           "",
+				"endpoints":      "",
+				"pricing_config": "",
+				"updated_time":   now,
+			})
+		if staleResult.Error != nil {
+			return staleResult.Error
+		}
+		if staleResult.RowsAffected > 0 {
+			result.UpdatedModels += int(staleResult.RowsAffected)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func officialMetadataVendorIDs(vendorIDs map[string]int) []int {
+	ids := make([]int, 0, len(vendorIDs))
+	for _, id := range vendorIDs {
+		if id != 0 {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
+func officialMetadataModelNames(entries []officialModelMetadataEntry) []string {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.ModelName != "" {
+			names = append(names, entry.ModelName)
+		}
+	}
+	return names
+}
+
+func previewOfficialModelMetadataEntries(entries []officialModelMetadataEntry) (*OfficialModelMetadataPreview, error) {
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("official model metadata preview has no model entries")
+	}
+	existing, err := loadOfficialMetadataModels(model.DB, entries)
+	if err != nil {
+		return nil, err
+	}
+	missing := make([]OfficialModelMetadataItem, 0)
+	for _, entry := range entries {
+		if _, ok := existing[entry.ModelName]; ok {
+			continue
+		}
+		missing = append(missing, OfficialModelMetadataItem{
+			ModelName:     entry.ModelName,
+			Vendor:        entry.VendorName,
+			PricingConfig: entry.PricingConfig,
+		})
+	}
+	return &OfficialModelMetadataPreview{
+		Missing:   missing,
+		Conflicts: []OfficialMetadataConflict{},
+		Source:    officialMetadataSource(len(entries)),
+	}, nil
+}
+
+func officialModelMetadataEntries(rows []model.OfficialModelPrice) ([]officialModelMetadataEntry, error) {
+	entries := make([]officialModelMetadataEntry, 0, len(rows))
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		modelName := strings.TrimSpace(row.ModelName)
+		if modelName == "" {
+			continue
+		}
+		if _, ok := seen[modelName]; ok {
+			continue
+		}
+		vendor, ok := officialPricingProviderVendor(row.Provider)
+		if !ok {
+			continue
+		}
+		pricingConfig, err := officialModelPricingConfig(row)
+		if err != nil {
+			return nil, err
+		}
+		seen[modelName] = struct{}{}
+		entries = append(entries, officialModelMetadataEntry{
+			ModelName:     modelName,
+			VendorName:    vendor.Name,
+			VendorIcon:    vendor.Icon,
+			PricingConfig: pricingConfig,
+		})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].ModelName < entries[j].ModelName
+	})
+	return entries, nil
+}
+
+func officialModelPricingConfig(row model.OfficialModelPrice) (string, error) {
+	cfg := model.ModelPricingConfig{
+		Mode:            model.ModelPricingModePerToken,
+		Ratio:           float64Pointer(row.ModelRatio),
+		CompletionRatio: float64Pointer(row.CompletionRatio),
+	}
+	if row.CacheRatio != nil {
+		cfg.CacheRatio = float64Pointer(*row.CacheRatio)
+	}
+	if row.CreateCacheRatio != nil {
+		cfg.CreateCacheRatio = float64Pointer(*row.CreateCacheRatio)
+	}
+	payload, err := common.Marshal(cfg)
+	if err != nil {
+		return "", fmt.Errorf("marshal official pricing config for %s: %w", row.ModelName, err)
+	}
+	return string(payload), nil
+}
+
+func float64Pointer(value float64) *float64 {
+	return &value
+}
+
+func officialPricingProviderVendor(provider string) (officialVendorMetadata, bool) {
+	switch provider {
+	case OfficialPricingProviderOpenAI:
+		return officialVendorMetadata{Name: "OpenAI", Icon: "OpenAI"}, true
+	case OfficialPricingProviderClaude:
+		return officialVendorMetadata{Name: "Anthropic", Icon: "Claude.Color"}, true
+	case OfficialPricingProviderXAI:
+		return officialVendorMetadata{Name: "xAI", Icon: "XAI"}, true
+	case OfficialPricingProviderGemini:
+		return officialVendorMetadata{Name: "Google", Icon: "Gemini.Color"}, true
+	case OfficialPricingProviderGLM:
+		return officialVendorMetadata{Name: "智谱", Icon: "Zhipu.Color"}, true
+	case OfficialPricingProviderDeepSeek:
+		return officialVendorMetadata{Name: "DeepSeek", Icon: "DeepSeek.Color"}, true
+	default:
+		return officialVendorMetadata{}, false
+	}
+}
+
+func officialMetadataSource(modelCount int) OfficialMetadataSource {
+	return OfficialMetadataSource{
+		Name:       "official-pricing",
+		Providers:  DefaultOfficialPricingSources(),
+		ModelCount: modelCount,
+	}
+}
+
+func ensureOfficialMetadataVendors(tx *gorm.DB, entries []officialModelMetadataEntry) (map[string]int, int, error) {
+	vendorNames := make([]string, 0)
+	vendorByName := make(map[string]officialVendorMetadata)
+	for _, entry := range entries {
+		if _, ok := vendorByName[entry.VendorName]; ok {
+			continue
+		}
+		vendorByName[entry.VendorName] = officialVendorMetadata{Name: entry.VendorName, Icon: entry.VendorIcon}
+		vendorNames = append(vendorNames, entry.VendorName)
+	}
+	var existing []model.Vendor
+	if err := tx.Where("name IN ?", vendorNames).Find(&existing).Error; err != nil {
+		return nil, 0, err
+	}
+	vendorIDs := make(map[string]int, len(vendorNames))
+	for _, item := range existing {
+		vendorIDs[item.Name] = item.Id
+	}
+	created := 0
+	now := common.GetTimestamp()
+	for _, name := range vendorNames {
+		if _, ok := vendorIDs[name]; ok {
+			continue
+		}
+		metadata := vendorByName[name]
+		vendor := model.Vendor{
+			Name:        metadata.Name,
+			Icon:        metadata.Icon,
+			Status:      1,
+			CreatedTime: now,
+			UpdatedTime: now,
+		}
+		if err := tx.Create(&vendor).Error; err != nil {
+			return nil, created, err
+		}
+		vendorIDs[name] = vendor.Id
+		created++
+	}
+	return vendorIDs, created, nil
+}
+
+func loadOfficialMetadataModels(tx *gorm.DB, entries []officialModelMetadataEntry) (map[string]model.Model, error) {
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.ModelName)
+	}
+	var models []model.Model
+	if err := tx.Where("model_name IN ?", names).Find(&models).Error; err != nil {
+		return nil, err
+	}
+	byName := make(map[string]model.Model, len(models))
+	for _, item := range models {
+		byName[item.ModelName] = item
+	}
+	return byName, nil
+}
+
+func officialMetadataModelUpdates(current model.Model, entry officialModelMetadataEntry, vendorID int, now int64) map[string]any {
+	updates := make(map[string]any)
+	if current.VendorID != vendorID {
+		updates["vendor_id"] = vendorID
+	}
+	if current.Icon != "" {
+		updates["icon"] = ""
+	}
+	if current.Description != "" {
+		updates["description"] = ""
+	}
+	if current.Tags != "" {
+		updates["tags"] = ""
+	}
+	if current.Endpoints != "" {
+		updates["endpoints"] = ""
+	}
+	if current.PricingConfig != entry.PricingConfig {
+		updates["pricing_config"] = entry.PricingConfig
+	}
+	if current.NameRule != model.NameRuleExact {
+		updates["name_rule"] = model.NameRuleExact
+	}
+	if len(updates) > 0 {
+		updates["sync_official"] = 1
+		updates["updated_time"] = now
+	}
+	return updates
 }
 
 func dedupeOfficialPricing(entries []OfficialTokenPricing) []OfficialTokenPricing {
@@ -286,6 +717,22 @@ func ConvertGeminiOfficialPricingToRatioData(reader io.Reader) (map[string]any, 
 
 func ConvertGLMOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
 	entries, err := ParseGLMOfficialTokenPricing(reader, OfficialPricingGLMURL)
+	if err != nil {
+		return nil, err
+	}
+	return ConvertOfficialTokenPricingToRatioData(entries)
+}
+
+func ConvertXAIOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
+	entries, err := ParseXAIOfficialTokenPricing(reader, OfficialPricingXAIURL)
+	if err != nil {
+		return nil, err
+	}
+	return ConvertOfficialTokenPricingToRatioData(entries)
+}
+
+func ConvertDeepSeekOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
+	entries, err := ParseDeepSeekOfficialTokenPricing(reader, OfficialPricingDeepSeekURL)
 	if err != nil {
 		return nil, err
 	}
@@ -511,6 +958,17 @@ func ParseGeminiOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 		return nil, fmt.Errorf("failed to read Gemini pricing response: %w", err)
 	}
 	content := stripHTML(string(bodyBytes))
+	entries := parseGeminiMarkdownPricing(content, sourceURL)
+	if len(entries) == 0 {
+		entries = parseGeminiNormalizedPricing(content, sourceURL)
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid Gemini pricing entries found")
+	}
+	return entries, nil
+}
+
+func parseGeminiMarkdownPricing(content string, sourceURL string) []OfficialTokenPricing {
 	lines := strings.Split(content, "\n")
 	entries := make([]OfficialTokenPricing, 0)
 	modelIDs := make([]string, 0)
@@ -591,10 +1049,80 @@ func ParseGeminiOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 		}
 	}
 	flush()
-	if len(entries) == 0 {
-		return nil, fmt.Errorf("no valid Gemini pricing entries found")
+	return entries
+}
+
+func parseGeminiNormalizedPricing(content string, sourceURL string) []OfficialTokenPricing {
+	normalized := strings.Join(strings.Fields(content), " ")
+	modelMatches := geminiModelIDPattern.FindAllStringIndex(normalized, -1)
+	entries := make([]OfficialTokenPricing, 0)
+	seen := make(map[string]struct{}, len(modelMatches))
+	for _, match := range modelMatches {
+		modelID := normalized[match[0]:match[1]]
+		if !isGeminiPricingModelID(modelID) {
+			continue
+		}
+		if _, ok := seen[modelID]; ok {
+			continue
+		}
+		end := match[0] + 5000
+		if end > len(normalized) {
+			end = len(normalized)
+		}
+		input, output, cacheRead, cacheOK, ok := parseGeminiStandardPrices(normalized[match[0]:end])
+		if !ok {
+			continue
+		}
+		var cacheReadRatio *float64
+		var cacheReadPrice *float64
+		if cacheOK && input > 0 {
+			ratio := cacheRead / input
+			cacheReadRatio = &ratio
+			cacheReadPrice = &cacheRead
+		}
+		seen[modelID] = struct{}{}
+		entries = append(entries, OfficialTokenPricing{
+			Provider:            OfficialPricingProviderGemini,
+			Model:               modelID,
+			SourceURL:           sourceURL,
+			InputUSDPerMTok:     input,
+			OutputUSDPerMTok:    output,
+			CacheReadUSDPerMTok: cacheReadPrice,
+			CacheReadRatio:      cacheReadRatio,
+		})
 	}
-	return entries, nil
+	return entries
+}
+
+func isGeminiPricingModelID(modelID string) bool {
+	return strings.HasPrefix(modelID, "gemini-") &&
+		!strings.HasPrefix(modelID, "gemini-api") &&
+		!strings.Contains(modelID, "/")
+}
+
+var geminiModelIDPattern = regexp.MustCompile(`gemini-[a-z0-9][a-z0-9.-]*`)
+var geminiStandardPricePattern = regexp.MustCompile(`(?i)Standard\s+.*?Input price\s+[^$]*\$\s*([0-9]+(?:\.[0-9]+)?).*?Output price[^$]*\$\s*([0-9]+(?:\.[0-9]+)?)`)
+var geminiCacheReadPricePattern = regexp.MustCompile(`(?i)Context caching price\s+[^$]*\$\s*([0-9]+(?:\.[0-9]+)?)`)
+
+func parseGeminiStandardPrices(content string) (input float64, output float64, cacheRead float64, cacheOK bool, ok bool) {
+	match := geminiStandardPricePattern.FindStringSubmatch(content)
+	if len(match) < 3 {
+		return 0, 0, 0, false, false
+	}
+	input, err := strconv.ParseFloat(match[1], 64)
+	if err != nil || !isValidOfficialCost(input) {
+		return 0, 0, 0, false, false
+	}
+	output, err = strconv.ParseFloat(match[2], 64)
+	if err != nil || !isValidOfficialCost(output) {
+		return 0, 0, 0, false, false
+	}
+	cacheMatch := geminiCacheReadPricePattern.FindStringSubmatch(content)
+	if len(cacheMatch) >= 2 {
+		cacheRead, err = strconv.ParseFloat(cacheMatch[1], 64)
+		cacheOK = err == nil && isValidOfficialCost(cacheRead)
+	}
+	return input, output, cacheRead, cacheOK, true
 }
 
 var codeModelPattern = regexp.MustCompile("`([^`]+)`")
@@ -684,6 +1212,133 @@ func glmModelIDsFromContent(content string) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+var xAIPricingRowPattern = regexp.MustCompile(`(?m)^\|\s*(grok-[^|]+?)\s*\|\s*[^|]+\|\s*\$?\s*([0-9]+(?:\.[0-9]+)?)\s*\|\s*\$?\s*([0-9]+(?:\.[0-9]+)?)\s*\|`)
+
+func ParseXAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]OfficialTokenPricing, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read xAI pricing response: %w", err)
+	}
+	matches := xAIPricingRowPattern.FindAllStringSubmatch(string(bodyBytes), -1)
+	entries := make([]OfficialTokenPricing, 0, len(matches))
+	for _, match := range matches {
+		input, inputErr := strconv.ParseFloat(match[2], 64)
+		output, outputErr := strconv.ParseFloat(match[3], 64)
+		if inputErr != nil || outputErr != nil || !isValidOfficialCost(input) || !isValidOfficialCost(output) {
+			continue
+		}
+		entries = append(entries, OfficialTokenPricing{
+			Provider:         OfficialPricingProviderXAI,
+			Model:            strings.TrimSpace(match[1]),
+			SourceURL:        sourceURL,
+			InputUSDPerMTok:  input,
+			OutputUSDPerMTok: output,
+		})
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid xAI pricing entries found")
+	}
+	return entries, nil
+}
+
+func ParseDeepSeekOfficialTokenPricing(reader io.Reader, sourceURL string) ([]OfficialTokenPricing, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read DeepSeek pricing response: %w", err)
+	}
+	content := stripHTML(string(bodyBytes))
+	modelIDs := deepSeekPrimaryModelIDs(content)
+	cacheHitPrices, cacheHitOK := parseDeepSeekPriceRow(content, "INPUT TOKENS (CACHE HIT)")
+	cacheMissPrices, cacheMissOK := parseDeepSeekPriceRow(content, "INPUT TOKENS (CACHE MISS)")
+	outputPrices, outputOK := parseDeepSeekPriceRow(content, "OUTPUT TOKENS")
+	if len(modelIDs) == 0 || !cacheHitOK || !cacheMissOK || !outputOK || len(cacheMissPrices) < len(modelIDs) || len(outputPrices) < len(modelIDs) || len(cacheHitPrices) < len(modelIDs) {
+		return nil, fmt.Errorf("no valid DeepSeek pricing rows found")
+	}
+	entries := make([]OfficialTokenPricing, 0, len(modelIDs)+2)
+	for idx, modelID := range modelIDs {
+		input := cacheMissPrices[idx]
+		output := outputPrices[idx]
+		cacheRead := cacheHitPrices[idx]
+		if !isValidOfficialCost(input) || !isValidOfficialCost(output) || !isValidOfficialCost(cacheRead) {
+			continue
+		}
+		var cacheReadRatio *float64
+		var cacheReadPrice *float64
+		if input > 0 {
+			ratio := cacheRead / input
+			cacheReadRatio = &ratio
+			cacheReadPrice = &cacheRead
+		}
+		for _, name := range append([]string{modelID}, deepSeekModelAliases(modelID)...) {
+			entries = append(entries, OfficialTokenPricing{
+				Provider:            OfficialPricingProviderDeepSeek,
+				Model:               name,
+				SourceURL:           sourceURL,
+				InputUSDPerMTok:     input,
+				OutputUSDPerMTok:    output,
+				CacheReadUSDPerMTok: cacheReadPrice,
+				CacheReadRatio:      cacheReadRatio,
+			})
+		}
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid DeepSeek pricing entries found")
+	}
+	return entries, nil
+}
+
+var deepSeekNamePattern = regexp.MustCompile(`deepseek-[a-z0-9]+(?:-[a-z0-9]+)*`)
+
+func deepSeekPrimaryModelIDs(content string) []string {
+	normalized := strings.Join(strings.Fields(content), " ")
+	upper := strings.ToUpper(normalized)
+	start := strings.Index(upper, "MODEL ")
+	end := strings.Index(upper, " BASE URL")
+	if start >= 0 && end > start {
+		return uniqueDeepSeekModelIDs(normalized[start:end])
+	}
+	return uniqueDeepSeekModelIDs(normalized)
+}
+
+func uniqueDeepSeekModelIDs(content string) []string {
+	matches := deepSeekNamePattern.FindAllString(strings.ToLower(content), -1)
+	seen := map[string]bool{}
+	out := make([]string, 0, len(matches))
+	for _, match := range matches {
+		if seen[match] || match == "deepseek-chat" || match == "deepseek-reasoner" {
+			continue
+		}
+		seen[match] = true
+		out = append(out, match)
+	}
+	return out
+}
+
+func parseDeepSeekPriceRow(content string, label string) ([]float64, bool) {
+	normalized := strings.Join(strings.Fields(content), " ")
+	pattern := regexp.MustCompile(`(?i)(?:1M\s+)?` + regexp.QuoteMeta(label) + `\s+\$?([0-9]+(?:\.[0-9]+)?)\s+\$?([0-9]+(?:\.[0-9]+)?)`)
+	match := pattern.FindStringSubmatch(normalized)
+	if len(match) < 3 {
+		return nil, false
+	}
+	values := make([]float64, 0, 2)
+	for _, raw := range match[1:] {
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || !isValidOfficialCost(value) {
+			return nil, false
+		}
+		values = append(values, value)
+	}
+	return values, true
+}
+
+func deepSeekModelAliases(modelID string) []string {
+	if modelID == "deepseek-v4-flash" {
+		return []string{"deepseek-chat", "deepseek-reasoner"}
+	}
+	return nil
 }
 
 var htmlTagPattern = regexp.MustCompile(`<[^>]+>`)

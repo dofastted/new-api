@@ -70,6 +70,9 @@ const defaultModelSettings: ModelSettings = {
   AutomaticDisableStatusCodes: '401',
   AutomaticRetryStatusCodes:
     '100-199,300-399,401-407,409-499,500-503,505-523,525-599',
+  ChannelRateLimitCooldownSeconds: 30,
+  'error_rewrite.enabled': true,
+  'error_rewrite.rules': '[]',
   'monitor_setting.auto_test_channel_enabled': false,
   'monitor_setting.auto_test_channel_minutes': 10,
   'monitor_setting.channel_test_mode': 'scheduled_all',

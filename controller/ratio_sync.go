@@ -10,9 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"regexp"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -21,7 +18,6 @@ import (
 	"github.com/QuantumNous/new-api/logger"
 
 	"github.com/QuantumNous/new-api/dto"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/billing_setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
@@ -31,36 +27,35 @@ import (
 )
 
 const (
-	defaultTimeoutSeconds       = 10
-	defaultEndpoint             = "/api/pricing"
-	maxConcurrentFetches        = 8
-	maxRatioConfigBytes         = 10 << 20 // 10MB
-	floatEpsilon                = 1e-9
-	officialRatioPresetID       = -100
-	officialRatioPresetName     = "官方倍率预设"
-	officialRatioPresetBaseURL  = "https://basellm.github.io"
-	modelsDevPresetID           = -101
-	modelsDevPresetName         = "models.dev 价格预设"
-	modelsDevPresetBaseURL      = "https://models.dev"
-	openAIOfficialPresetID      = -102
-	openAIOfficialPresetName    = "OpenAI 官方价格"
-	openAIOfficialPresetBaseURL = "https://developers.openai.com"
-	openAIOfficialEndpoint      = "https://developers.openai.com/api/docs/pricing.md"
-	claudeOfficialPresetID      = -103
-	claudeOfficialPresetName    = "Claude 官方价格"
-	claudeOfficialPresetBaseURL = "https://platform.claude.com"
-	claudeOfficialEndpoint      = "https://platform.claude.com/docs/en/about-claude/pricing.md"
-	geminiOfficialPresetID      = -104
-	geminiOfficialPresetName    = "Gemini 官方价格"
-	geminiOfficialPresetBaseURL = "https://ai.google.dev"
-	geminiOfficialEndpoint      = "https://ai.google.dev/gemini-api/docs/pricing"
-	glmOfficialPresetID         = -105
-	glmOfficialPresetName       = "GLM 官方价格"
-	glmOfficialPresetBaseURL    = "https://docs.bigmodel.cn"
-	glmOfficialEndpoint         = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
-	modelsDevHost               = "models.dev"
-	modelsDevPath               = "/api.json"
-	modelsDevInputCostRatioBase = 1000.0
+	defaultTimeoutSeconds         = 10
+	defaultEndpoint               = "/api/pricing"
+	maxConcurrentFetches          = 8
+	maxRatioConfigBytes           = 10 << 20 // 10MB
+	floatEpsilon                  = 1e-9
+	openAIOfficialPresetID        = -102
+	openAIOfficialPresetName      = "OpenAI 官方价格"
+	openAIOfficialPresetBaseURL   = "https://developers.openai.com"
+	openAIOfficialEndpoint        = "https://developers.openai.com/api/docs/pricing.md"
+	claudeOfficialPresetID        = -103
+	claudeOfficialPresetName      = "Claude 官方价格"
+	claudeOfficialPresetBaseURL   = "https://platform.claude.com"
+	claudeOfficialEndpoint        = "https://platform.claude.com/docs/en/about-claude/pricing.md"
+	geminiOfficialPresetID        = -104
+	geminiOfficialPresetName      = "Gemini 官方价格"
+	geminiOfficialPresetBaseURL   = "https://ai.google.dev"
+	geminiOfficialEndpoint        = "https://ai.google.dev/gemini-api/docs/pricing"
+	glmOfficialPresetID           = -105
+	glmOfficialPresetName         = "GLM 官方价格"
+	glmOfficialPresetBaseURL      = "https://docs.bigmodel.cn"
+	glmOfficialEndpoint           = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
+	xAIOfficialPresetID           = -106
+	xAIOfficialPresetName         = "xAI 官方价格"
+	xAIOfficialPresetBaseURL      = "https://docs.x.ai"
+	xAIOfficialEndpoint           = "https://docs.x.ai/developers/models.md"
+	deepSeekOfficialPresetID      = -107
+	deepSeekOfficialPresetName    = "DeepSeek 官方价格"
+	deepSeekOfficialPresetBaseURL = "https://api-docs.deepseek.com"
+	deepSeekOfficialEndpoint      = "https://api-docs.deepseek.com/quick_start/pricing"
 )
 
 func nearlyEqual(a, b float64) bool {
@@ -181,27 +176,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 				upstreams = append(upstreams, u)
 			}
 		}
-	} else if len(req.ChannelIDs) > 0 {
-		intIds := make([]int, 0, len(req.ChannelIDs))
-		for _, id64 := range req.ChannelIDs {
-			intIds = append(intIds, int(id64))
-		}
-		dbChannels, err := model.GetChannelsByIds(intIds)
-		if err != nil {
-			logger.LogError(c.Request.Context(), "failed to query channels: "+err.Error())
-			c.JSON(http.StatusInternalServerError, gin.H{"success": false, "message": "查询渠道失败"})
-			return
-		}
-		for _, ch := range dbChannels {
-			if base := ch.GetBaseURL(); strings.HasPrefix(base, "http") {
-				upstreams = append(upstreams, dto.UpstreamDTO{
-					ID:       ch.Id,
-					Name:     ch.Name,
-					BaseURL:  strings.TrimRight(base, "/"),
-					Endpoint: "",
-				})
-			}
-		}
 	}
 
 	if len(upstreams) == 0 {
@@ -243,13 +217,9 @@ func FetchUpstreamRatios(c *gin.Context) {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
-			isOpenRouter := chItem.Endpoint == "openrouter"
-
 			endpoint := chItem.Endpoint
 			var fullURL string
-			if isOpenRouter {
-				fullURL = chItem.BaseURL + "/v1/models"
-			} else if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
+			if strings.HasPrefix(endpoint, "http://") || strings.HasPrefix(endpoint, "https://") {
 				fullURL = endpoint
 			} else {
 				if endpoint == "" {
@@ -259,15 +229,21 @@ func FetchUpstreamRatios(c *gin.Context) {
 				}
 				fullURL = chItem.BaseURL + endpoint
 			}
-			isModelsDev := isModelsDevAPIEndpoint(fullURL)
 			isOpenAIOfficial := isOpenAIOfficialPricingEndpoint(fullURL)
 			isClaudeOfficial := isClaudeOfficialPricingEndpoint(fullURL)
+			isXAIOfficial := isXAIOfficialPricingEndpoint(fullURL)
 			isGeminiOfficial := isGeminiOfficialPricingEndpoint(fullURL)
 			isGLMOfficial := isGLMOfficialPricingEndpoint(fullURL)
+			isDeepSeekOfficial := isDeepSeekOfficialPricingEndpoint(fullURL)
+			isOfficialPricingSource := isOpenAIOfficial || isClaudeOfficial || isXAIOfficial || isGeminiOfficial || isGLMOfficial || isDeepSeekOfficial
 
 			uniqueName := chItem.Name
 			if chItem.ID != 0 {
 				uniqueName = fmt.Sprintf("%s(%d)", chItem.Name, chItem.ID)
+			}
+			if !isOfficialPricingSource {
+				ch <- upstreamResult{Name: uniqueName, Err: "仅支持官方价格源：OpenAI、Claude、xAI、Gemini、GLM、DeepSeek"}
+				return
 			}
 
 			ctx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
@@ -277,28 +253,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 			if err != nil {
 				logger.LogWarn(c.Request.Context(), "build request failed: "+err.Error())
 				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-				return
-			}
-
-			// OpenRouter requires Bearer token auth
-			if isOpenRouter && chItem.ID != 0 {
-				dbCh, err := model.GetChannelById(chItem.ID, true)
-				if err != nil {
-					ch <- upstreamResult{Name: uniqueName, Err: "failed to get channel key: " + err.Error()}
-					return
-				}
-				key, _, apiErr := dbCh.GetNextEnabledKey()
-				if apiErr != nil {
-					ch <- upstreamResult{Name: uniqueName, Err: "failed to get enabled channel key: " + apiErr.Error()}
-					return
-				}
-				if strings.TrimSpace(key) == "" {
-					ch <- upstreamResult{Name: uniqueName, Err: "no API key configured for this channel"}
-					return
-				}
-				httpReq.Header.Set("Authorization", "Bearer "+strings.TrimSpace(key))
-			} else if isOpenRouter {
-				ch <- upstreamResult{Name: uniqueName, Err: "OpenRouter requires a valid channel with API key"}
 				return
 			}
 
@@ -324,11 +278,6 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
-			// Content-Type 和响应体大小校验。官方价格源可能是 markdown 或 HTML，非 JSON 属于预期。
-			isOfficialPricingSource := isOpenAIOfficial || isClaudeOfficial || isGeminiOfficial || isGLMOfficial
-			if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(strings.ToLower(ct), "application/json") && !isOfficialPricingSource {
-				logger.LogWarn(c.Request.Context(), "unexpected content-type from "+chItem.Name+": "+ct)
-			}
 			limited := io.LimitReader(resp.Body, maxRatioConfigBytes)
 			bodyBytes, err := io.ReadAll(limited)
 			if err != nil {
@@ -359,6 +308,17 @@ func FetchUpstreamRatios(c *gin.Context) {
 				return
 			}
 
+			if isXAIOfficial {
+				converted, err := service.ConvertXAIOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
+				if err != nil {
+					logger.LogWarn(c.Request.Context(), "xAI official pricing parse failed from "+chItem.Name+": "+err.Error())
+					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
+					return
+				}
+				ch <- upstreamResult{Name: uniqueName, Data: converted}
+				return
+			}
+
 			if isGeminiOfficial {
 				converted, err := service.ConvertGeminiOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
@@ -380,181 +340,18 @@ func FetchUpstreamRatios(c *gin.Context) {
 				ch <- upstreamResult{Name: uniqueName, Data: converted}
 				return
 			}
-			// type3: OpenRouter /v1/models -> convert per-token pricing to ratios
-			if isOpenRouter {
-				converted, err := convertOpenRouterToRatioData(bytes.NewReader(bodyBytes))
+
+			if isDeepSeekOfficial {
+				converted, err := service.ConvertDeepSeekOfficialPricingToRatioData(bytes.NewReader(bodyBytes))
 				if err != nil {
-					logger.LogWarn(c.Request.Context(), "OpenRouter parse failed from "+chItem.Name+": "+err.Error())
+					logger.LogWarn(c.Request.Context(), "DeepSeek official pricing parse failed from "+chItem.Name+": "+err.Error())
 					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
 					return
 				}
 				ch <- upstreamResult{Name: uniqueName, Data: converted}
 				return
 			}
-
-			// type4: models.dev /api.json -> convert provider model pricing to ratios
-			if isModelsDev {
-				converted, err := convertModelsDevToRatioData(bytes.NewReader(bodyBytes))
-				if err != nil {
-					logger.LogWarn(c.Request.Context(), "models.dev parse failed from "+chItem.Name+": "+err.Error())
-					ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-					return
-				}
-				ch <- upstreamResult{Name: uniqueName, Data: converted}
-				return
-			}
-
-			// 兼容两种上游接口格式：
-			//  type1: /api/ratio_config -> data 为 map[string]any，包含 model_ratio/completion_ratio/cache_ratio/model_price
-			//  type2: /api/pricing      -> data 为 []Pricing 列表，需要转换为与 type1 相同的 map 格式
-			var body struct {
-				Success bool            `json:"success"`
-				Data    json.RawMessage `json:"data"`
-				Message string          `json:"message"`
-			}
-
-			if err := common.DecodeJson(bytes.NewReader(bodyBytes), &body); err != nil {
-				logger.LogWarn(c.Request.Context(), "json decode failed from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: err.Error()}
-				return
-			}
-
-			if !body.Success {
-				ch <- upstreamResult{Name: uniqueName, Err: body.Message}
-				return
-			}
-
-			// 若 Data 为空，将继续按 type1 尝试解析（与多数静态 ratio_config 兼容）
-
-			// 尝试按 type1 解析
-			var type1Data map[string]any
-			if err := common.Unmarshal(body.Data, &type1Data); err == nil {
-				// 如果包含至少一个 ratioTypes 字段，则认为是 type1
-				isType1 := false
-				for _, rt := range pricingSyncFields {
-					if _, ok := type1Data[rt]; ok {
-						isType1 = true
-						break
-					}
-				}
-				if isType1 {
-					ch <- upstreamResult{Name: uniqueName, Data: type1Data}
-					return
-				}
-			}
-
-			// 如果不是 type1，则尝试按 type2 (/api/pricing) 解析
-			var pricingItems []struct {
-				ModelName            string   `json:"model_name"`
-				QuotaType            int      `json:"quota_type"`
-				ModelRatio           float64  `json:"model_ratio"`
-				ModelPrice           float64  `json:"model_price"`
-				CompletionRatio      float64  `json:"completion_ratio"`
-				CacheRatio           *float64 `json:"cache_ratio"`
-				CreateCacheRatio     *float64 `json:"create_cache_ratio"`
-				ImageRatio           *float64 `json:"image_ratio"`
-				AudioRatio           *float64 `json:"audio_ratio"`
-				AudioCompletionRatio *float64 `json:"audio_completion_ratio"`
-				BillingMode          string   `json:"billing_mode"`
-				BillingExpr          string   `json:"billing_expr"`
-			}
-			if err := common.Unmarshal(body.Data, &pricingItems); err != nil {
-				logger.LogWarn(c.Request.Context(), "unrecognized data format from "+chItem.Name+": "+err.Error())
-				ch <- upstreamResult{Name: uniqueName, Err: "无法解析上游返回数据"}
-				return
-			}
-
-			modelRatioMap := make(map[string]float64)
-			completionRatioMap := make(map[string]float64)
-			cacheRatioMap := make(map[string]float64)
-			createCacheRatioMap := make(map[string]float64)
-			imageRatioMap := make(map[string]float64)
-			audioRatioMap := make(map[string]float64)
-			audioCompletionRatioMap := make(map[string]float64)
-			modelPriceMap := make(map[string]float64)
-			billingModeMap := make(map[string]string)
-			billingExprMap := make(map[string]string)
-
-			for _, item := range pricingItems {
-				if item.ModelName == "" {
-					continue
-				}
-				if item.BillingMode == billing_setting.BillingModeTieredExpr && strings.TrimSpace(item.BillingExpr) != "" {
-					billingModeMap[item.ModelName] = billing_setting.BillingModeTieredExpr
-					billingExprMap[item.ModelName] = item.BillingExpr
-				}
-				if item.QuotaType == 1 {
-					modelPriceMap[item.ModelName] = item.ModelPrice
-				} else {
-					modelRatioMap[item.ModelName] = item.ModelRatio
-					// completionRatio 可能为 0，此时也直接赋值，保持与上游一致
-					completionRatioMap[item.ModelName] = item.CompletionRatio
-				}
-				if item.CacheRatio != nil {
-					cacheRatioMap[item.ModelName] = *item.CacheRatio
-				}
-				if item.CreateCacheRatio != nil {
-					createCacheRatioMap[item.ModelName] = *item.CreateCacheRatio
-				}
-				if item.ImageRatio != nil {
-					imageRatioMap[item.ModelName] = *item.ImageRatio
-				}
-				if item.AudioRatio != nil {
-					audioRatioMap[item.ModelName] = *item.AudioRatio
-				}
-				if item.AudioCompletionRatio != nil {
-					audioCompletionRatioMap[item.ModelName] = *item.AudioCompletionRatio
-				}
-			}
-
-			converted := make(map[string]any)
-
-			if len(modelRatioMap) > 0 {
-				ratioAny := make(map[string]any, len(modelRatioMap))
-				for k, v := range modelRatioMap {
-					ratioAny[k] = v
-				}
-				converted["model_ratio"] = ratioAny
-			}
-
-			if len(completionRatioMap) > 0 {
-				compAny := make(map[string]any, len(completionRatioMap))
-				for k, v := range completionRatioMap {
-					compAny[k] = v
-				}
-				converted["completion_ratio"] = compAny
-			}
-			if len(cacheRatioMap) > 0 {
-				converted["cache_ratio"] = valueMap(cacheRatioMap)
-			}
-			if len(createCacheRatioMap) > 0 {
-				converted["create_cache_ratio"] = valueMap(createCacheRatioMap)
-			}
-			if len(imageRatioMap) > 0 {
-				converted["image_ratio"] = valueMap(imageRatioMap)
-			}
-			if len(audioRatioMap) > 0 {
-				converted["audio_ratio"] = valueMap(audioRatioMap)
-			}
-			if len(audioCompletionRatioMap) > 0 {
-				converted["audio_completion_ratio"] = valueMap(audioCompletionRatioMap)
-			}
-
-			if len(modelPriceMap) > 0 {
-				priceAny := make(map[string]any, len(modelPriceMap))
-				for k, v := range modelPriceMap {
-					priceAny[k] = v
-				}
-				converted["model_price"] = priceAny
-			}
-			if len(billingModeMap) > 0 {
-				converted[billing_setting.BillingModeField] = valueMap(billingModeMap)
-			}
-			if len(billingExprMap) > 0 {
-				converted[billing_setting.BillingExprField] = valueMap(billingExprMap)
-			}
-
-			ch <- upstreamResult{Name: uniqueName, Data: converted}
+			ch <- upstreamResult{Name: uniqueName, Err: "官方价格源未匹配解析器"}
 		}(chn)
 	}
 
@@ -765,21 +562,6 @@ func roundRatioValue(value float64) float64 {
 	return math.Round(value*1e6) / 1e6
 }
 
-func isModelsDevAPIEndpoint(rawURL string) bool {
-	parsedURL, err := url.Parse(rawURL)
-	if err != nil {
-		return false
-	}
-	if strings.ToLower(parsedURL.Hostname()) != modelsDevHost {
-		return false
-	}
-	path := strings.TrimSuffix(parsedURL.Path, "/")
-	if path == "" {
-		path = "/"
-	}
-	return path == modelsDevPath
-}
-
 func isOpenAIOfficialPricingEndpoint(rawURL string) bool {
 	parsedURL, err := url.Parse(rawURL)
 	if err != nil {
@@ -802,6 +584,18 @@ func isClaudeOfficialPricingEndpoint(rawURL string) bool {
 	}
 	path := strings.TrimSuffix(parsedURL.Path, "/")
 	return path == "/docs/en/about-claude/pricing" || path == "/docs/en/about-claude/pricing.md"
+}
+
+func isXAIOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	if strings.ToLower(parsedURL.Hostname()) != "docs.x.ai" {
+		return false
+	}
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/developers/models" || path == "/developers/models.md" || path == "/developers/pricing" || path == "/developers/pricing.md"
 }
 
 func isGeminiOfficialPricingEndpoint(rawURL string) bool {
@@ -828,505 +622,35 @@ func isGLMOfficialPricingEndpoint(rawURL string) bool {
 	return path == "/cn/guide/models/text/glm-4.5" || path == "/cn/guide/models/text/glm-4.5.md"
 }
 
-type officialTokenPricing struct {
-	Model            string
-	InputUSDPerMTok  float64
-	OutputUSDPerMTok float64
-	CacheReadRatio   *float64
-	CacheWriteRatio  *float64
-}
-
-func convertOfficialTokenPricingToRatioData(entries []officialTokenPricing) (map[string]any, error) {
-	modelRatioMap := make(map[string]any)
-	completionRatioMap := make(map[string]any)
-	cacheRatioMap := make(map[string]any)
-	createCacheRatioMap := make(map[string]any)
-
-	for _, entry := range entries {
-		modelName := strings.TrimSpace(entry.Model)
-		if modelName == "" || !isValidNonNegativeCost(entry.InputUSDPerMTok) || !isValidNonNegativeCost(entry.OutputUSDPerMTok) {
-			continue
-		}
-		if entry.InputUSDPerMTok == 0 && entry.OutputUSDPerMTok > 0 {
-			continue
-		}
-		if entry.InputUSDPerMTok == 0 {
-			modelRatioMap[modelName] = 0.0
-			continue
-		}
-
-		modelRatio := entry.InputUSDPerMTok * float64(ratio_setting.USD) / 1000
-		modelRatioMap[modelName] = roundRatioValue(modelRatio)
-		completionRatioMap[modelName] = roundRatioValue(entry.OutputUSDPerMTok / entry.InputUSDPerMTok)
-		if entry.CacheReadRatio != nil {
-			cacheRatioMap[modelName] = roundRatioValue(*entry.CacheReadRatio)
-		}
-		if entry.CacheWriteRatio != nil {
-			createCacheRatioMap[modelName] = roundRatioValue(*entry.CacheWriteRatio)
-		}
+func isDeepSeekOfficialPricingEndpoint(rawURL string) bool {
+	parsedURL, err := url.Parse(rawURL)
+	if err != nil {
+		return false
 	}
-
-	if len(modelRatioMap) == 0 {
-		return nil, fmt.Errorf("no valid official pricing entries found")
+	if strings.ToLower(parsedURL.Hostname()) != "api-docs.deepseek.com" {
+		return false
 	}
-
-	converted := make(map[string]any)
-	converted["model_ratio"] = modelRatioMap
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-	if len(createCacheRatioMap) > 0 {
-		converted["create_cache_ratio"] = createCacheRatioMap
-	}
-	return converted, nil
-}
-
-var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^,\]]+),\s*([^,\]]+),\s*([^\]]+)\]`)
-
-func parseOptionalPriceToken(token string) (float64, bool) {
-	trimmed := strings.TrimSpace(token)
-	trimmed = strings.Trim(trimmed, `"`)
-	if trimmed == "" || trimmed == "-" || trimmed == "null" {
-		return 0, false
-	}
-	value, err := strconv.ParseFloat(trimmed, 64)
-	return value, err == nil && isValidNonNegativeCost(value)
-}
-
-func normalizeOpenAIModelName(raw string) string {
-	model := strings.TrimSpace(raw)
-	if idx := strings.Index(model, " ("); idx >= 0 {
-		model = model[:idx]
-	}
-	return strings.TrimSpace(model)
-}
-
-func openAIStandardPricingSection(content string) string {
-	start := strings.Index(content, `tier="standard"`)
-	if start < 0 {
-		return content
-	}
-	section := content[start:]
-	if end := strings.Index(section, `data-value="batch"`); end >= 0 {
-		return section[:end]
-	}
-	return section
+	path := strings.TrimSuffix(parsedURL.Path, "/")
+	return path == "/quick_start/pricing"
 }
 
 func convertOpenAIOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
 	return service.ConvertOpenAIOfficialPricingToRatioData(reader)
 }
 
-func parseUSDPerMTok(cell string) (float64, bool) {
-	cleaned := strings.TrimSpace(cell)
-	if cleaned == "" || cleaned == "-" {
-		return 0, false
-	}
-	idx := strings.Index(cleaned, "$ ")
-	if idx >= 0 {
-		cleaned = cleaned[idx+1:]
-	} else if idx = strings.Index(cleaned, "$"); idx >= 0 {
-		cleaned = cleaned[idx+1:]
-	}
-	cleaned = strings.TrimSpace(cleaned)
-	parts := strings.Fields(cleaned)
-	if len(parts) == 0 {
-		return 0, false
-	}
-	value, err := strconv.ParseFloat(strings.TrimPrefix(parts[0], "$"), 64)
-	return value, err == nil && isValidNonNegativeCost(value)
-}
-
-func cleanClaudeModelLabel(raw string) string {
-	model := strings.TrimSpace(raw)
-	if idx := strings.Index(model, "("); idx >= 0 {
-		model = strings.TrimSpace(model[:idx])
-	}
-	return strings.TrimSpace(model)
-}
-
-func claudeModelIDs(label string) []string {
-	switch strings.ToLower(cleanClaudeModelLabel(label)) {
-	case "claude fable 5":
-		return []string{"claude-fable-5"}
-	case "claude mythos 5":
-		return []string{"claude-mythos-5"}
-	case "claude opus 4.8":
-		return expandClaudeOpusVariantIDs("claude-opus-4-8")
-	case "claude opus 4.7":
-		return expandClaudeOpusVariantIDs("claude-opus-4-7")
-	case "claude opus 4.6":
-		return expandClaudeOpusVariantIDs("claude-opus-4-6")
-	case "claude opus 4.5":
-		return []string{"claude-opus-4-5", "claude-opus-4-5-20251101", "claude-opus-4-5-20251101-thinking"}
-	case "claude opus 4.1":
-		return []string{"claude-opus-4-1", "claude-opus-4-1-20250805", "claude-opus-4-1-20250805-thinking"}
-	case "claude opus 4":
-		return []string{"claude-opus-4", "claude-opus-4-20250514", "claude-opus-4-20250514-thinking"}
-	case "claude sonnet 4.6":
-		return []string{"claude-sonnet-4-6", "claude-sonnet-4-6-thinking"}
-	case "claude sonnet 4.5":
-		return []string{"claude-sonnet-4-5", "claude-sonnet-4-5-20250929", "claude-sonnet-4-5-20250929-thinking"}
-	case "claude sonnet 4":
-		return []string{"claude-sonnet-4", "claude-sonnet-4-20250514", "claude-sonnet-4-20250514-thinking"}
-	case "claude haiku 4.5":
-		return []string{"claude-haiku-4-5", "claude-haiku-4-5-20251001"}
-	case "claude haiku 3.5":
-		return []string{"claude-3-5-haiku", "claude-3-5-haiku-20241022"}
-	default:
-		return nil
-	}
-}
-
-func expandClaudeOpusVariantIDs(base string) []string {
-	variants := []string{base, base + "-thinking", base + "-max", base + "-high", base + "-medium", base + "-low"}
-	if strings.HasPrefix(base, "claude-opus-4-7") || strings.HasPrefix(base, "claude-opus-4-8") {
-		variants = append(variants, base+"-xhigh")
-	}
-	return variants
-}
-
 func convertClaudeOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
 	return service.ConvertClaudeOfficialPricingToRatioData(reader)
 }
 
-// convertOpenRouterToRatioData parses OpenRouter's /v1/models response and converts
-// per-token USD pricing into the local ratio format.
-// model_ratio = prompt_price_per_token * 1_000_000 * (USD / 1000)
-//
-//	since 1 ratio unit = $0.002/1K tokens and USD=500, the factor is 500_000
-//
-// completion_ratio = completion_price / prompt_price (output/input multiplier)
-func convertOpenRouterToRatioData(reader io.Reader) (map[string]any, error) {
-	var orResp struct {
-		Data []struct {
-			ID      string `json:"id"`
-			Pricing struct {
-				Prompt         string `json:"prompt"`
-				Completion     string `json:"completion"`
-				InputCacheRead string `json:"input_cache_read"`
-			} `json:"pricing"`
-		} `json:"data"`
-	}
-
-	if err := common.DecodeJson(reader, &orResp); err != nil {
-		return nil, fmt.Errorf("failed to decode OpenRouter response: %w", err)
-	}
-
-	modelRatioMap := make(map[string]any)
-	completionRatioMap := make(map[string]any)
-	cacheRatioMap := make(map[string]any)
-
-	for _, m := range orResp.Data {
-		promptPrice, promptErr := strconv.ParseFloat(m.Pricing.Prompt, 64)
-		completionPrice, compErr := strconv.ParseFloat(m.Pricing.Completion, 64)
-
-		if promptErr != nil && compErr != nil {
-			// Both unparseable — skip this model
-			continue
-		}
-
-		// Treat parse errors as 0
-		if promptErr != nil {
-			promptPrice = 0
-		}
-		if compErr != nil {
-			completionPrice = 0
-		}
-
-		// Negative values are sentinel values (e.g., -1 for dynamic/variable pricing) — skip
-		if promptPrice < 0 || completionPrice < 0 {
-			continue
-		}
-
-		if promptPrice == 0 && completionPrice == 0 {
-			// Free model
-			modelRatioMap[m.ID] = 0.0
-			continue
-		}
-		if promptPrice <= 0 {
-			// No meaningful prompt baseline, cannot derive ratios safely.
-			continue
-		}
-
-		// Normal case: promptPrice > 0
-		ratio := promptPrice * 1000 * ratio_setting.USD
-		ratio = roundRatioValue(ratio)
-		modelRatioMap[m.ID] = ratio
-
-		compRatio := completionPrice / promptPrice
-		compRatio = roundRatioValue(compRatio)
-		completionRatioMap[m.ID] = compRatio
-
-		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)
-		if m.Pricing.InputCacheRead != "" {
-			if cachePrice, err := strconv.ParseFloat(m.Pricing.InputCacheRead, 64); err == nil && cachePrice >= 0 {
-				cacheRatio := cachePrice / promptPrice
-				cacheRatio = roundRatioValue(cacheRatio)
-				cacheRatioMap[m.ID] = cacheRatio
-			}
-		}
-	}
-
-	converted := make(map[string]any)
-	if len(modelRatioMap) > 0 {
-		converted["model_ratio"] = modelRatioMap
-	}
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-
-	return converted, nil
-}
-
-type modelsDevProvider struct {
-	Models map[string]modelsDevModel `json:"models"`
-}
-
-type modelsDevModel struct {
-	Cost modelsDevCost `json:"cost"`
-}
-
-type modelsDevCost struct {
-	Input     *float64 `json:"input"`
-	Output    *float64 `json:"output"`
-	CacheRead *float64 `json:"cache_read"`
-}
-
-type modelsDevCandidate struct {
-	Provider  string
-	Input     float64
-	Output    *float64
-	CacheRead *float64
-}
-
-func cloneFloatPtr(v *float64) *float64 {
-	if v == nil {
-		return nil
-	}
-	out := *v
-	return &out
-}
-
-func isValidNonNegativeCost(v float64) bool {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return false
-	}
-	return v >= 0
-}
-
-func buildModelsDevCandidate(provider string, cost modelsDevCost) (modelsDevCandidate, bool) {
-	if cost.Input == nil {
-		return modelsDevCandidate{}, false
-	}
-
-	input := *cost.Input
-	if !isValidNonNegativeCost(input) {
-		return modelsDevCandidate{}, false
-	}
-
-	var output *float64
-	if cost.Output != nil {
-		if !isValidNonNegativeCost(*cost.Output) {
-			return modelsDevCandidate{}, false
-		}
-		output = cloneFloatPtr(cost.Output)
-	}
-
-	// input=0/output>0 cannot be transformed into local ratio.
-	if input == 0 && output != nil && *output > 0 {
-		return modelsDevCandidate{}, false
-	}
-
-	var cacheRead *float64
-	if cost.CacheRead != nil && isValidNonNegativeCost(*cost.CacheRead) {
-		cacheRead = cloneFloatPtr(cost.CacheRead)
-	}
-
-	return modelsDevCandidate{
-		Provider:  provider,
-		Input:     input,
-		Output:    output,
-		CacheRead: cacheRead,
-	}, true
-}
-
-func shouldReplaceModelsDevCandidate(current, next modelsDevCandidate) bool {
-	currentNonZero := current.Input > 0
-	nextNonZero := next.Input > 0
-	if currentNonZero != nextNonZero {
-		// Prefer non-zero pricing data; this matches "cheapest non-zero" conflict policy.
-		return nextNonZero
-	}
-	if nextNonZero && !nearlyEqual(next.Input, current.Input) {
-		return next.Input < current.Input
-	}
-	// Stable tie-breaker for deterministic result.
-	return next.Provider < current.Provider
-}
-
-// convertModelsDevToRatioData parses models.dev /api.json and converts
-// provider pricing metadata into local ratio format.
-// models.dev costs are USD per 1M tokens:
-//
-//	model_ratio = input_cost_per_1M / 2
-//	completion_ratio = output_cost / input_cost
-//	cache_ratio = cache_read_cost / input_cost
-//
-// Duplicate model keys across providers are resolved by selecting the
-// cheapest non-zero input cost. If only zero-priced candidates exist,
-// a zero ratio is kept.
-func convertModelsDevToRatioData(reader io.Reader) (map[string]any, error) {
-	var upstreamData map[string]modelsDevProvider
-	if err := common.DecodeJson(reader, &upstreamData); err != nil {
-		return nil, fmt.Errorf("failed to decode models.dev response: %w", err)
-	}
-	if len(upstreamData) == 0 {
-		return nil, fmt.Errorf("empty models.dev response")
-	}
-
-	providers := make([]string, 0, len(upstreamData))
-	for provider := range upstreamData {
-		providers = append(providers, provider)
-	}
-	sort.Strings(providers)
-
-	selectedCandidates := make(map[string]modelsDevCandidate)
-	for _, provider := range providers {
-		providerData := upstreamData[provider]
-		if len(providerData.Models) == 0 {
-			continue
-		}
-
-		modelNames := make([]string, 0, len(providerData.Models))
-		for modelName := range providerData.Models {
-			modelNames = append(modelNames, modelName)
-		}
-		sort.Strings(modelNames)
-
-		for _, modelName := range modelNames {
-			candidate, ok := buildModelsDevCandidate(provider, providerData.Models[modelName].Cost)
-			if !ok {
-				continue
-			}
-			current, exists := selectedCandidates[modelName]
-			if !exists || shouldReplaceModelsDevCandidate(current, candidate) {
-				selectedCandidates[modelName] = candidate
-			}
-		}
-	}
-
-	if len(selectedCandidates) == 0 {
-		return nil, fmt.Errorf("no valid models.dev pricing entries found")
-	}
-
-	modelRatioMap := make(map[string]any)
-	completionRatioMap := make(map[string]any)
-	cacheRatioMap := make(map[string]any)
-
-	for modelName, candidate := range selectedCandidates {
-		if candidate.Input == 0 {
-			modelRatioMap[modelName] = 0.0
-			continue
-		}
-
-		modelRatio := candidate.Input * float64(ratio_setting.USD) / modelsDevInputCostRatioBase
-		modelRatioMap[modelName] = roundRatioValue(modelRatio)
-
-		if candidate.Output != nil {
-			completionRatio := *candidate.Output / candidate.Input
-			completionRatioMap[modelName] = roundRatioValue(completionRatio)
-		}
-
-		if candidate.CacheRead != nil {
-			cacheRatio := *candidate.CacheRead / candidate.Input
-			cacheRatioMap[modelName] = roundRatioValue(cacheRatio)
-		}
-	}
-
-	converted := make(map[string]any)
-	if len(modelRatioMap) > 0 {
-		converted["model_ratio"] = modelRatioMap
-	}
-	if len(completionRatioMap) > 0 {
-		converted["completion_ratio"] = completionRatioMap
-	}
-	if len(cacheRatioMap) > 0 {
-		converted["cache_ratio"] = cacheRatioMap
-	}
-	return converted, nil
-}
-
 func GetSyncableChannels(c *gin.Context) {
-	channels, err := model.GetAllChannels(0, 0, true, false)
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{
-			"success": false,
-			"message": err.Error(),
-		})
-		return
+	syncableChannels := []dto.SyncableChannel{
+		{ID: openAIOfficialPresetID, Name: openAIOfficialPresetName, BaseURL: openAIOfficialPresetBaseURL, Status: 1},
+		{ID: claudeOfficialPresetID, Name: claudeOfficialPresetName, BaseURL: claudeOfficialPresetBaseURL, Status: 1},
+		{ID: xAIOfficialPresetID, Name: xAIOfficialPresetName, BaseURL: xAIOfficialPresetBaseURL, Status: 1},
+		{ID: geminiOfficialPresetID, Name: geminiOfficialPresetName, BaseURL: geminiOfficialPresetBaseURL, Status: 1},
+		{ID: glmOfficialPresetID, Name: glmOfficialPresetName, BaseURL: glmOfficialPresetBaseURL, Status: 1},
+		{ID: deepSeekOfficialPresetID, Name: deepSeekOfficialPresetName, BaseURL: deepSeekOfficialPresetBaseURL, Status: 1},
 	}
-
-	var syncableChannels []dto.SyncableChannel
-	for _, channel := range channels {
-		if channel.GetBaseURL() != "" {
-			syncableChannels = append(syncableChannels, dto.SyncableChannel{
-				ID:      channel.Id,
-				Name:    channel.Name,
-				BaseURL: channel.GetBaseURL(),
-				Status:  channel.Status,
-				Type:    channel.Type,
-			})
-		}
-	}
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      officialRatioPresetID,
-		Name:    officialRatioPresetName,
-		BaseURL: officialRatioPresetBaseURL,
-		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      modelsDevPresetID,
-		Name:    modelsDevPresetName,
-		BaseURL: modelsDevPresetBaseURL,
-		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      openAIOfficialPresetID,
-		Name:    openAIOfficialPresetName,
-		BaseURL: openAIOfficialPresetBaseURL,
-		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      claudeOfficialPresetID,
-		Name:    claudeOfficialPresetName,
-		BaseURL: claudeOfficialPresetBaseURL,
-		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      geminiOfficialPresetID,
-		Name:    geminiOfficialPresetName,
-		BaseURL: geminiOfficialPresetBaseURL,
-		Status:  1,
-	})
-
-	syncableChannels = append(syncableChannels, dto.SyncableChannel{
-		ID:      glmOfficialPresetID,
-		Name:    glmOfficialPresetName,
-		BaseURL: glmOfficialPresetBaseURL,
-		Status:  1,
-	})
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",

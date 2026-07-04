@@ -1,9 +1,13 @@
 package controller
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -69,4 +73,46 @@ func TestOfficialPricingEndpointDetection(t *testing.T) {
 	require.True(t, isClaudeOfficialPricingEndpoint("https://platform.claude.com/docs/en/about-claude/pricing.md"))
 	require.True(t, isClaudeOfficialPricingEndpoint("https://platform.claude.com/docs/en/about-claude/pricing"))
 	require.False(t, isClaudeOfficialPricingEndpoint("https://claude.com/pricing"))
+	require.True(t, isXAIOfficialPricingEndpoint("https://docs.x.ai/developers/models.md"))
+	require.True(t, isXAIOfficialPricingEndpoint("https://docs.x.ai/developers/pricing"))
+	require.False(t, isXAIOfficialPricingEndpoint("https://x.ai/api"))
+	require.True(t, isDeepSeekOfficialPricingEndpoint("https://api-docs.deepseek.com/quick_start/pricing"))
+	require.False(t, isDeepSeekOfficialPricingEndpoint("https://deepseek.com/pricing"))
+}
+
+func TestGetSyncableChannelsOnlyOfficialPricingSources(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+
+	GetSyncableChannels(c)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var body struct {
+		Success bool `json:"success"`
+		Data    []struct {
+			ID      int    `json:"id"`
+			Name    string `json:"name"`
+			BaseURL string `json:"base_url"`
+		} `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
+	require.True(t, body.Success)
+	require.Len(t, body.Data, 6)
+	names := make([]string, 0, len(body.Data))
+	for _, item := range body.Data {
+		names = append(names, item.Name)
+		require.Less(t, item.ID, 0)
+		require.NotEmpty(t, item.BaseURL)
+	}
+	require.ElementsMatch(t, []string{
+		"OpenAI 官方价格",
+		"Claude 官方价格",
+		"xAI 官方价格",
+		"Gemini 官方价格",
+		"GLM 官方价格",
+		"DeepSeek 官方价格",
+	}, names)
+	require.NotContains(t, names, "官方倍率预设")
+	require.NotContains(t, names, "models.dev 价格预设")
 }

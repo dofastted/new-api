@@ -36,6 +36,10 @@ const SECURITY_SECTIONS = [
             settings.ModelRequestRateLimitSuccessCount,
           ModelRequestRateLimitDurationMinutes:
             settings.ModelRequestRateLimitDurationMinutes,
+          ModelRequestRateLimitWaitEnabled:
+            settings.ModelRequestRateLimitWaitEnabled,
+          RateLimitWaitTimeoutSeconds: settings.RateLimitWaitTimeoutSeconds,
+          RateLimitMaxWaitingPerUser: settings.RateLimitMaxWaitingPerUser,
           ModelRequestRateLimitGroup: settings.ModelRequestRateLimitGroup,
         }}
       />

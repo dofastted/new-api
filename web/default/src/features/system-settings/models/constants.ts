@@ -19,28 +19,12 @@ For commercial licensing, please contact support@quantumnous.com
 export const DEFAULT_ENDPOINT = '/api/pricing'
 
 // ---------------------------------------------------------------------------
-// Built-in upstream ratio presets
+// Built-in official pricing presets
 //
-// The backend (`controller/ratio_sync.go`) synthesizes two virtual channels and
-// returns them in the syncable channels response. The constants below mirror
-// the backend literals one-to-one; do NOT translate the *_NAME values because
-// they are wire-protocol identifiers, not user-facing labels.
-//
-// Identification on the frontend should rely on the stable negative ID alone.
-// `*_NAME` and `*_BASE_URL` are kept for diagnostics, custom channel
-// detection, and backwards compatibility with the classic frontend.
+// The backend (`controller/ratio_sync.go`) only exposes official provider
+// pricing sources here. The *_NAME values mirror backend wire identifiers and
+// must not be translated.
 // ---------------------------------------------------------------------------
-
-export const OFFICIAL_CHANNEL_ID = -100
-export const OFFICIAL_CHANNEL_NAME = '官方倍率预设'
-export const OFFICIAL_CHANNEL_BASE_URL = 'https://basellm.github.io'
-export const OFFICIAL_CHANNEL_ENDPOINT =
-  '/llm-metadata/api/newapi/ratio_config-v1-base.json'
-
-export const MODELS_DEV_PRESET_ID = -101
-export const MODELS_DEV_PRESET_NAME = 'models.dev 价格预设'
-export const MODELS_DEV_PRESET_BASE_URL = 'https://models.dev'
-export const MODELS_DEV_PRESET_ENDPOINT = 'https://models.dev/api.json'
 
 export const OPENAI_OFFICIAL_CHANNEL_ID = -102
 export const OPENAI_OFFICIAL_CHANNEL_NAME = 'OpenAI 官方价格'
@@ -66,15 +50,22 @@ export const GLM_OFFICIAL_CHANNEL_BASE_URL = 'https://docs.bigmodel.cn'
 export const GLM_OFFICIAL_CHANNEL_ENDPOINT =
   'https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5'
 
-export const OPENROUTER_ENDPOINT = 'openrouter'
+export const XAI_OFFICIAL_CHANNEL_ID = -106
+export const XAI_OFFICIAL_CHANNEL_NAME = 'xAI 官方价格'
+export const XAI_OFFICIAL_CHANNEL_BASE_URL = 'https://docs.x.ai'
+export const XAI_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://docs.x.ai/developers/models.md'
 
-// Backend channel type for OpenRouter (see constant/channel.go: ChannelTypeOpenRouter = 20)
-export const OPENROUTER_CHANNEL_TYPE = 20
+export const DEEPSEEK_OFFICIAL_CHANNEL_ID = -107
+export const DEEPSEEK_OFFICIAL_CHANNEL_NAME = 'DeepSeek 官方价格'
+export const DEEPSEEK_OFFICIAL_CHANNEL_BASE_URL =
+  'https://api-docs.deepseek.com'
+export const DEEPSEEK_OFFICIAL_CHANNEL_ENDPOINT =
+  'https://api-docs.deepseek.com/quick_start/pricing'
 
 export const ENDPOINT_OPTIONS = [
-  { label: 'pricing', value: '/api/pricing' },
+  { label: 'pricing', value: DEFAULT_ENDPOINT },
   { label: 'ratio_config', value: '/api/ratio_config' },
-  { label: 'OpenRouter', value: OPENROUTER_ENDPOINT },
   { label: 'custom', value: 'custom' },
 ] as const
 

@@ -43,12 +43,14 @@ import {
 import type { UpstreamChannel } from '../types'
 import {
   CHANNEL_STATUS_CONFIG,
+  CLAUDE_OFFICIAL_CHANNEL_ID,
+  DEEPSEEK_OFFICIAL_CHANNEL_ID,
   DEFAULT_ENDPOINT,
   ENDPOINT_OPTIONS,
-  CLAUDE_OFFICIAL_CHANNEL_ID,
-  MODELS_DEV_PRESET_ID,
-  OFFICIAL_CHANNEL_ID,
+  GEMINI_OFFICIAL_CHANNEL_ID,
+  GLM_OFFICIAL_CHANNEL_ID,
   OPENAI_OFFICIAL_CHANNEL_ID,
+  XAI_OFFICIAL_CHANNEL_ID,
 } from './constants'
 
 type ChannelSelectorDialogProps = {
@@ -62,14 +64,16 @@ type ChannelSelectorDialogProps = {
   onConfirm: (selectedIds: number[]) => void
 }
 
-// Synthesized presets from `controller/ratio_sync.go` always carry stable
-// negative IDs, so matching by ID alone is reliable and self-documenting.
+// Synthesized official presets from `controller/ratio_sync.go` always carry
+// stable negative IDs, so matching by ID alone is reliable and self-documenting.
 function isOfficialChannel(channel: UpstreamChannel): boolean {
   return (
-    channel.id === OFFICIAL_CHANNEL_ID ||
-    channel.id === MODELS_DEV_PRESET_ID ||
     channel.id === OPENAI_OFFICIAL_CHANNEL_ID ||
-    channel.id === CLAUDE_OFFICIAL_CHANNEL_ID
+    channel.id === CLAUDE_OFFICIAL_CHANNEL_ID ||
+    channel.id === XAI_OFFICIAL_CHANNEL_ID ||
+    channel.id === GEMINI_OFFICIAL_CHANNEL_ID ||
+    channel.id === GLM_OFFICIAL_CHANNEL_ID ||
+    channel.id === DEEPSEEK_OFFICIAL_CHANNEL_ID
   )
 }
 

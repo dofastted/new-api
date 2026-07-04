@@ -41,21 +41,19 @@ import {
   type ConflictItem,
 } from './conflict-confirm-dialog'
 import {
-  DEFAULT_ENDPOINT,
   CLAUDE_OFFICIAL_CHANNEL_ENDPOINT,
   CLAUDE_OFFICIAL_CHANNEL_ID,
+  DEEPSEEK_OFFICIAL_CHANNEL_ENDPOINT,
+  DEEPSEEK_OFFICIAL_CHANNEL_ID,
+  DEFAULT_ENDPOINT,
   GEMINI_OFFICIAL_CHANNEL_ENDPOINT,
   GEMINI_OFFICIAL_CHANNEL_ID,
   GLM_OFFICIAL_CHANNEL_ENDPOINT,
   GLM_OFFICIAL_CHANNEL_ID,
-  MODELS_DEV_PRESET_ENDPOINT,
-  MODELS_DEV_PRESET_ID,
-  OFFICIAL_CHANNEL_ENDPOINT,
-  OFFICIAL_CHANNEL_ID,
-  OPENROUTER_CHANNEL_TYPE,
-  OPENROUTER_ENDPOINT,
   OPENAI_OFFICIAL_CHANNEL_ENDPOINT,
   OPENAI_OFFICIAL_CHANNEL_ID,
+  XAI_OFFICIAL_CHANNEL_ENDPOINT,
+  XAI_OFFICIAL_CHANNEL_ID,
 } from './constants'
 import {
   NUMERIC_SYNC_FIELDS,
@@ -88,21 +86,18 @@ type UpstreamRatioSyncProps = {
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Synthesized presets always carry stable negative IDs assigned by
+// Synthesized official presets always carry stable negative IDs assigned by
 // `controller/ratio_sync.go`; matching by ID alone is sufficient and avoids
 // fragile name/base_url comparisons.
 function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
-  if (channel.id === MODELS_DEV_PRESET_ID) {
-    return MODELS_DEV_PRESET_ENDPOINT
-  }
-  if (channel.id === OFFICIAL_CHANNEL_ID) {
-    return OFFICIAL_CHANNEL_ENDPOINT
-  }
   if (channel.id === OPENAI_OFFICIAL_CHANNEL_ID) {
     return OPENAI_OFFICIAL_CHANNEL_ENDPOINT
   }
   if (channel.id === CLAUDE_OFFICIAL_CHANNEL_ID) {
     return CLAUDE_OFFICIAL_CHANNEL_ENDPOINT
+  }
+  if (channel.id === XAI_OFFICIAL_CHANNEL_ID) {
+    return XAI_OFFICIAL_CHANNEL_ENDPOINT
   }
   if (channel.id === GEMINI_OFFICIAL_CHANNEL_ID) {
     return GEMINI_OFFICIAL_CHANNEL_ENDPOINT
@@ -110,8 +105,8 @@ function getDefaultEndpointForChannel(channel: UpstreamChannel): string {
   if (channel.id === GLM_OFFICIAL_CHANNEL_ID) {
     return GLM_OFFICIAL_CHANNEL_ENDPOINT
   }
-  if (channel.type === OPENROUTER_CHANNEL_TYPE) {
-    return OPENROUTER_ENDPOINT
+  if (channel.id === DEEPSEEK_OFFICIAL_CHANNEL_ID) {
+    return DEEPSEEK_OFFICIAL_CHANNEL_ENDPOINT
   }
   return DEFAULT_ENDPOINT
 }
