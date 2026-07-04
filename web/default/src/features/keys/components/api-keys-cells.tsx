@@ -166,7 +166,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
             <Button
               variant='ghost'
               size='icon'
-              className='text-primary size-7 shrink-0'
+              className='text-primary hidden size-7 shrink-0 sm:inline-flex'
               onClick={handleOpenCCSwitch}
               onFocus={() => {
                 if (!resolvedFullKey) void resolveRealKey(apiKey.id)

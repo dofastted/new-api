@@ -17,12 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import {
+  ChevronDown,
+  ChevronUp,
   Download,
   ExternalLink,
   KeyRound,
   MousePointerClick,
   Route,
 } from 'lucide-react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -40,10 +43,64 @@ import { useApiKeys } from './api-keys-provider'
 const CC_SWITCH_DOWNLOAD_URL = 'https://ccswitch.io'
 const CLI_GUIDE_URL = '/about#cli-guide'
 
+const CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY =
+  'api_keys_ccswitch_onboarding_expanded'
+
+function getSavedOnboardingExpanded(): boolean {
+  if (typeof window === 'undefined') return true
+  try {
+    return (
+      window.localStorage.getItem(
+        CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY
+      ) !== 'collapsed'
+    )
+  } catch {
+    return true
+  }
+}
+
+function saveOnboardingExpanded(expanded: boolean): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(
+      CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY,
+      expanded ? 'expanded' : 'collapsed'
+    )
+  } catch {
+    /* local storage may be unavailable */
+  }
+}
+
 export function CCSwitchOnboardingGuide() {
   const { t } = useTranslation()
   const { setOpen } = useApiKeys()
+  const [expanded, setExpanded] = useState(getSavedOnboardingExpanded)
 
+  const toggleExpanded = () => {
+    const nextExpanded = !expanded
+    setExpanded(nextExpanded)
+    saveOnboardingExpanded(nextExpanded)
+  }
+
+  if (!expanded) {
+    return (
+      <Card className='border-primary/10 bg-primary/[0.025]'>
+        <CardHeader className='gap-3 py-3'>
+          <div className='min-w-0'>
+            <CardTitle className='truncate text-sm'>
+              {t('Connect ccswitch quickly')}
+            </CardTitle>
+          </div>
+          <CardAction className='col-start-1 row-start-2 shrink-0 justify-self-start sm:col-start-2 sm:row-start-1 sm:justify-self-end'>
+            <Button size='sm' variant='outline' onClick={toggleExpanded}>
+              <ChevronDown className='size-4' aria-hidden='true' />
+              {t('Show setup guide')}
+            </Button>
+          </CardAction>
+        </CardHeader>
+      </Card>
+    )
+  }
   const steps = [
     {
       id: 'key',
@@ -70,7 +127,7 @@ export function CCSwitchOnboardingGuide() {
 
   return (
     <Card className='border-primary/10 bg-primary/[0.025]'>
-      <CardHeader className='gap-3 py-4 sm:flex-row sm:items-center sm:justify-between'>
+      <CardHeader className='gap-3 py-4'>
         <div className='space-y-1'>
           <CardTitle className='text-base'>
             {t('Connect ccswitch quickly')}
@@ -81,7 +138,11 @@ export function CCSwitchOnboardingGuide() {
             )}
           </CardDescription>
         </div>
-        <CardAction className='flex shrink-0 flex-wrap gap-2'>
+        <CardAction className='col-start-1 row-start-2 flex w-full shrink-0 flex-wrap justify-start gap-2 sm:col-start-2 sm:row-start-1 sm:w-auto sm:justify-end'>
+          <Button size='sm' variant='outline' onClick={toggleExpanded}>
+            <ChevronUp className='size-4' aria-hidden='true' />
+            {t('Hide setup guide')}
+          </Button>
           <Button
             size='sm'
             variant='outline'
