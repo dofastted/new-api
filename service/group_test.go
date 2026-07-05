@@ -241,6 +241,28 @@ func TestGetRequestAutoGroupKeepsCodexProForCodexBodyMarker(t *testing.T) {
 	assert.Equal(t, []string{"codex", "codex-pro"}, groups)
 }
 
+func TestProviderGroupAccessErrorUsesStoredClientFamilyPolicy(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	clearProviderGroupTables(t)
+	require.NoError(t, model.DB.Create(&model.ProviderGroup{
+		Name:                 "custom-codex-only",
+		DisplayName:          "custom-codex-only",
+		Status:               model.ProviderGroupStatusEnabled,
+		UsageRatio:           1,
+		RequiredClientFamily: model.ProviderClientFamilyCodex,
+	}).Error)
+
+	ctx := newAutoGroupContext("/v1/responses", `{"model":"gpt-5","input":"hi"}`)
+	accessErr := ProviderGroupAccessError(ctx, "custom-codex-only")
+	require.NotNil(t, accessErr)
+	assert.Equal(t, http.StatusForbidden, accessErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeAccessDenied, accessErr.GetErrorCode())
+	assert.True(t, types.IsSkipRetryError(accessErr))
+
+	ctx.Request.Header.Set("User-Agent", "codex-cli/0.1")
+	assert.Nil(t, ProviderGroupAccessError(ctx, "custom-codex-only"))
+}
+
 // clearProviderGroupTables wipes the provider-group tables for the DB-backed
 // route-rule tests so they do not depend on whatever state earlier tests left
 // behind. The service TestMain (in task_billing_test.go) migrates these

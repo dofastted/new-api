@@ -121,6 +121,29 @@ func TestProviderGroupOnlineStatusAndDelete(t *testing.T) {
 	assert.False(t, online)
 }
 
+func TestProviderGroupRequiredClientFamilyUsesStoredPolicyBeforeNameFallback(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Name:                 "custom-codex-family",
+		DisplayName:          "custom-codex-family",
+		Status:               ProviderGroupStatusEnabled,
+		UsageRatio:           1,
+		RequiredClientFamily: ProviderClientFamilyCodex,
+	}).Error)
+
+	family, ok := ProviderGroupRequiredClientFamily("custom-codex-family")
+	require.True(t, ok)
+	assert.Equal(t, ProviderClientFamilyCodex, family)
+
+	family, ok = ProviderGroupRequiredClientFamily("claude-max-legacy")
+	require.True(t, ok)
+	assert.Equal(t, ProviderClientFamilyClaudeCode, family)
+
+	_, ok = ProviderGroupRequiredClientFamily("plain-provider")
+	assert.False(t, ok)
+}
+
 func TestRebuildAbilitiesSkipsDisabledProviderGroups(t *testing.T) {
 	clearProviderGroupTestTables(t)
 
