@@ -16,6 +16,14 @@ const (
 	NameRuleSuffix
 )
 
+type AuthorityLevel string
+
+const (
+	AuthorityLevelManual   AuthorityLevel = "manual"
+	AuthorityLevelOfficial AuthorityLevel = "official"
+	AuthorityLevelFallback AuthorityLevel = "fallback"
+)
+
 type BoundChannel struct {
 	Name string `json:"name"`
 	Type int    `json:"type"`
@@ -36,13 +44,27 @@ type Model struct {
 	UpdatedTime   int64          `json:"updated_time" gorm:"bigint"`
 	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
-	BoundChannels []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
-	EnableGroups  []string       `json:"enable_groups,omitempty" gorm:"-"`
-	QuotaTypes    []int          `json:"quota_types,omitempty" gorm:"-"`
-	NameRule      int            `json:"name_rule" gorm:"default:0"`
+	AuthorityLevel AuthorityLevel `json:"authority_level,omitempty" gorm:"-"`
+	BoundChannels  []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
+	EnableGroups   []string       `json:"enable_groups,omitempty" gorm:"-"`
+	QuotaTypes     []int          `json:"quota_types,omitempty" gorm:"-"`
+	NameRule       int            `json:"name_rule" gorm:"default:0"`
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
+}
+
+func (mi *Model) ResolveAuthorityLevel() AuthorityLevel {
+	if mi == nil {
+		return AuthorityLevelFallback
+	}
+	if mi.AuthorityLevel != "" {
+		return mi.AuthorityLevel
+	}
+	if mi.SyncOfficial == 0 {
+		return AuthorityLevelManual
+	}
+	return AuthorityLevelOfficial
 }
 
 func (mi *Model) Insert() error {

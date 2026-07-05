@@ -179,6 +179,11 @@ func enrichModels(models []*model.Model) {
 	if len(models) == 0 {
 		return
 	}
+	for _, m := range models {
+		if m != nil {
+			m.AuthorityLevel = m.ResolveAuthorityLevel()
+		}
+	}
 
 	// 1) 拆分精确与规则匹配
 	exactNames := make([]string, 0)

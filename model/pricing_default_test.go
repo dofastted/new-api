@@ -34,6 +34,7 @@ func TestInitDefaultVendorMappingDoesNotPersistInferredVendors(t *testing.T) {
 
 	metadata := metaMap["gpt-authority-default-vendor"]
 	require.NotNil(t, metadata)
+	require.Equal(t, AuthorityLevelFallback, metadata.ResolveAuthorityLevel())
 	require.Less(t, metadata.VendorID, 0)
 	require.Equal(t, "OpenAI", vendorMap[metadata.VendorID].Name)
 }
