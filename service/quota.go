@@ -105,19 +105,18 @@ func PreWssConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usag
 	textOutTokens := usage.OutputTokenDetails.TextTokens
 	audioInputTokens := usage.InputTokenDetails.AudioTokens
 	audioOutTokens := usage.OutputTokenDetails.AudioTokens
-	groupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
 	modelRatio, _, _ := ratio_setting.GetModelRatio(modelName)
 
 	autoGroup, exists := common.GetContextKey(ctx, constant.ContextKeyAutoGroup)
 	if exists {
-		groupRatio = ratio_setting.GetGroupRatio(autoGroup.(string))
-		logger.LogDebug(ctx, "final group ratio: %f", groupRatio)
+		logger.LogDebug(ctx, "final group: %s", autoGroup)
 		relayInfo.UsingGroup = autoGroup.(string)
 	}
 
-	actualGroupRatio := groupRatio
-	userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup)
-	if ok {
+	actualGroupRatio := ratio_setting.GetGroupRatio(relayInfo.UsingGroup)
+	if providerGroupRatio, ok := model.ProviderGroupUsageRatio(relayInfo.UsingGroup); ok {
+		actualGroupRatio = providerGroupRatio
+	} else if userGroupRatio, ok := ratio_setting.GetGroupGroupRatio(relayInfo.UserGroup, relayInfo.UsingGroup); ok {
 		actualGroupRatio = userGroupRatio
 	}
 
