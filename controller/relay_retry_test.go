@@ -132,6 +132,22 @@ func TestShouldRetryAllowsNonTooManyRequestsRetryableStatus(t *testing.T) {
 	assert.True(t, shouldRetry(ctx, err, 1))
 }
 
+func TestShouldRetrySkipsClaudeCliAccessDenied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	orig := operation_setting.AutomaticRetryStatusCodeRanges
+	t.Cleanup(func() { operation_setting.AutomaticRetryStatusCodeRanges = orig })
+	require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString("403,500"))
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	err := types.NewOpenAIError(
+		errors.New("This API endpoint is only accessible via the official Claude CLI"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+
+	assert.False(t, shouldRetry(ctx, err, 3))
+	assert.False(t, isRetryableChannelFailure(err))
+}
+
 func TestPrepareTooManyRequestsRetrySelectsAlternateEnabledKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())

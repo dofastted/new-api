@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useEffect } from 'react'
-import { useForm } from 'react-hook-form'
+import { useEffect, useRef } from 'react'
+import { useForm, type Path } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 
 import {
   Form,
@@ -73,28 +74,31 @@ type AbuseGuardSectionProps = {
   defaultValues: AbuseGuardValues
 }
 
-const LIST_KEYS = new Set<keyof AbuseGuardValues>([
-  'abuse_guard.model_scope_patterns',
-  'abuse_guard.exempt_groups',
-  'abuse_guard.block_words',
-  'abuse_guard.disabled_builtin_ids',
-  'abuse_guard.instant_ban_categories',
-])
-
-// 表单里列表字段以多行文本编辑,保存时转换为 JSON 数组字符串。
-type FormShape = Omit<
-  AbuseGuardValues,
-  | 'abuse_guard.model_scope_patterns'
-  | 'abuse_guard.exempt_groups'
-  | 'abuse_guard.block_words'
-  | 'abuse_guard.disabled_builtin_ids'
-  | 'abuse_guard.instant_ban_categories'
-> & {
-  'abuse_guard.model_scope_patterns': string
-  'abuse_guard.exempt_groups': string
-  'abuse_guard.block_words': string
-  'abuse_guard.disabled_builtin_ids': string
-  'abuse_guard.instant_ban_categories': string
+type AbuseGuardFormValues = {
+  abuse_guard: {
+    enabled: boolean
+    monitor_only: boolean
+    model_scope_patterns: string
+    exempt_groups: string
+    block_words: string
+    disabled_builtin_ids: string
+    custom_patterns: string
+    pattern_block_score: number
+    scan_window_kb: number
+    moderation_api_key: string
+    moderation_base_url: string
+    moderation_model: string
+    sample_rate_percent: number
+    review_snippet_kb: number
+    queue_size: number
+    worker_count: number
+    category_scores: string
+    instant_ban_categories: string
+    score_window_hours: number
+    ban_threshold: number
+    temp_ban_hours: number
+    perm_ban_after_temp_bans: number
+  }
 }
 
 function linesToArray(text: string): string[] {
@@ -104,58 +108,143 @@ function linesToArray(text: string): string[] {
     .filter((l) => l.length > 0)
 }
 
-function toFormShape(v: AbuseGuardValues): FormShape {
+function normalizeJsonText(value: string, emptyValue: '[]' | '{}'): string {
+  const trimmed = value.trim()
+  return trimmed === '' ? emptyValue : trimmed
+}
+
+function buildFormDefaults(v: AbuseGuardValues): AbuseGuardFormValues {
   return {
-    ...v,
-    'abuse_guard.model_scope_patterns': (
-      v['abuse_guard.model_scope_patterns'] ?? []
-    ).join('\n'),
-    'abuse_guard.exempt_groups': (v['abuse_guard.exempt_groups'] ?? []).join(
-      '\n'
-    ),
-    'abuse_guard.block_words': (v['abuse_guard.block_words'] ?? []).join('\n'),
-    'abuse_guard.disabled_builtin_ids': (
-      v['abuse_guard.disabled_builtin_ids'] ?? []
-    ).join('\n'),
-    'abuse_guard.instant_ban_categories': (
-      v['abuse_guard.instant_ban_categories'] ?? []
-    ).join('\n'),
+    abuse_guard: {
+      enabled: v['abuse_guard.enabled'],
+      monitor_only: v['abuse_guard.monitor_only'],
+      model_scope_patterns: (
+        v['abuse_guard.model_scope_patterns'] ?? []
+      ).join('\n'),
+      exempt_groups: (v['abuse_guard.exempt_groups'] ?? []).join('\n'),
+      block_words: (v['abuse_guard.block_words'] ?? []).join('\n'),
+      disabled_builtin_ids: (
+        v['abuse_guard.disabled_builtin_ids'] ?? []
+      ).join('\n'),
+      custom_patterns: normalizeJsonText(
+        v['abuse_guard.custom_patterns'] ?? '',
+        '[]'
+      ),
+      pattern_block_score: v['abuse_guard.pattern_block_score'],
+      scan_window_kb: v['abuse_guard.scan_window_kb'],
+      moderation_api_key: v['abuse_guard.moderation_api_key'],
+      moderation_base_url: v['abuse_guard.moderation_base_url'],
+      moderation_model: v['abuse_guard.moderation_model'],
+      sample_rate_percent: v['abuse_guard.sample_rate_percent'],
+      review_snippet_kb: v['abuse_guard.review_snippet_kb'],
+      queue_size: v['abuse_guard.queue_size'],
+      worker_count: v['abuse_guard.worker_count'],
+      category_scores: normalizeJsonText(
+        v['abuse_guard.category_scores'] ?? '',
+        '{}'
+      ),
+      instant_ban_categories: (
+        v['abuse_guard.instant_ban_categories'] ?? []
+      ).join('\n'),
+      score_window_hours: v['abuse_guard.score_window_hours'],
+      ban_threshold: v['abuse_guard.ban_threshold'],
+      temp_ban_hours: v['abuse_guard.temp_ban_hours'],
+      perm_ban_after_temp_bans: v['abuse_guard.perm_ban_after_temp_bans'],
+    },
   }
+}
+
+function normalizeFormValues(values: AbuseGuardFormValues): AbuseGuardValues {
+  return {
+    'abuse_guard.enabled': values.abuse_guard.enabled,
+    'abuse_guard.monitor_only': values.abuse_guard.monitor_only,
+    'abuse_guard.model_scope_patterns': linesToArray(
+      values.abuse_guard.model_scope_patterns
+    ),
+    'abuse_guard.exempt_groups': linesToArray(values.abuse_guard.exempt_groups),
+    'abuse_guard.block_words': linesToArray(values.abuse_guard.block_words),
+    'abuse_guard.disabled_builtin_ids': linesToArray(
+      values.abuse_guard.disabled_builtin_ids
+    ),
+    'abuse_guard.custom_patterns': normalizeJsonText(
+      values.abuse_guard.custom_patterns,
+      '[]'
+    ),
+    'abuse_guard.pattern_block_score':
+      values.abuse_guard.pattern_block_score,
+    'abuse_guard.scan_window_kb': values.abuse_guard.scan_window_kb,
+    'abuse_guard.moderation_api_key':
+      values.abuse_guard.moderation_api_key,
+    'abuse_guard.moderation_base_url':
+      values.abuse_guard.moderation_base_url,
+    'abuse_guard.moderation_model': values.abuse_guard.moderation_model,
+    'abuse_guard.sample_rate_percent':
+      values.abuse_guard.sample_rate_percent,
+    'abuse_guard.review_snippet_kb': values.abuse_guard.review_snippet_kb,
+    'abuse_guard.queue_size': values.abuse_guard.queue_size,
+    'abuse_guard.worker_count': values.abuse_guard.worker_count,
+    'abuse_guard.category_scores': normalizeJsonText(
+      values.abuse_guard.category_scores,
+      '{}'
+    ),
+    'abuse_guard.instant_ban_categories': linesToArray(
+      values.abuse_guard.instant_ban_categories
+    ),
+    'abuse_guard.score_window_hours': values.abuse_guard.score_window_hours,
+    'abuse_guard.ban_threshold': values.abuse_guard.ban_threshold,
+    'abuse_guard.temp_ban_hours': values.abuse_guard.temp_ban_hours,
+    'abuse_guard.perm_ban_after_temp_bans':
+      values.abuse_guard.perm_ban_after_temp_bans,
+  }
+}
+
+function isEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return JSON.stringify(a) === JSON.stringify(b)
+  }
+  return a === b
 }
 
 export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
   const { t } = useTranslation()
   const updateOption = useUpdateOption()
-  const initial = toFormShape(defaultValues)
-  const form = useForm<FormShape>({ defaultValues: initial })
+  const baselineRef = useRef<AbuseGuardValues>(defaultValues)
+  const form = useForm<AbuseGuardFormValues>({
+    defaultValues: buildFormDefaults(defaultValues),
+  })
 
   useEffect(() => {
-    form.reset(toFormShape(defaultValues))
+    baselineRef.current = defaultValues
+    form.reset(buildFormDefaults(defaultValues))
   }, [defaultValues, form])
 
-  const onSubmit = async (values: FormShape) => {
-    const entries = Object.entries(values) as Array<
-      [keyof AbuseGuardValues, unknown]
-    >
-    for (const [key, value] of entries) {
-      let payload: string | number | boolean
-      if (LIST_KEYS.has(key)) {
-        payload = JSON.stringify(linesToArray(String(value ?? '')))
-      } else if (typeof value === 'boolean') {
-        payload = value
-      } else if (typeof value === 'number') {
-        payload = value
-      } else {
-        payload = String(value ?? '')
-      }
-      await updateOption.mutateAsync({ key, value: payload })
+  const onSubmit = async (values: AbuseGuardFormValues) => {
+    const normalized = normalizeFormValues(values)
+    const updates = (
+      Object.keys(normalized) as Array<keyof AbuseGuardValues>
+    ).filter((key) => !isEqual(normalized[key], baselineRef.current[key]))
+
+    if (updates.length === 0) {
+      toast.info(t('No changes to save'))
+      return
     }
+
+    for (const key of updates) {
+      const value = normalized[key]
+      await updateOption.mutateAsync({
+        key,
+        value: Array.isArray(value) ? JSON.stringify(value) : value,
+      })
+    }
+
+    baselineRef.current = normalized
+    form.reset(buildFormDefaults(normalized))
   }
 
   const numberField = (
-    name: keyof FormShape,
-    label: string,
-    description?: string
+    name: Path<AbuseGuardFormValues>,
+    labelText: string,
+    descriptionText?: string
   ) => (
     <FormField
       control={form.control}
@@ -163,7 +252,7 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
       render={({ field }) => (
         <SettingsFormGridItem>
           <FormItem>
-            <FormLabel>{t(label)}</FormLabel>
+            <FormLabel>{labelText}</FormLabel>
             <FormControl>
               <Input
                 type='number'
@@ -171,8 +260,8 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
                 onChange={(e) => field.onChange(Number(e.target.value))}
               />
             </FormControl>
-            {description ? (
-              <FormDescription>{t(description)}</FormDescription>
+            {descriptionText ? (
+              <FormDescription>{descriptionText}</FormDescription>
             ) : null}
             <FormMessage />
           </FormItem>
@@ -182,9 +271,9 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
   )
 
   const textField = (
-    name: keyof FormShape,
-    label: string,
-    description?: string
+    name: Path<AbuseGuardFormValues>,
+    labelText: string,
+    descriptionText?: string
   ) => (
     <FormField
       control={form.control}
@@ -192,12 +281,12 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
       render={({ field }) => (
         <SettingsFormGridItem>
           <FormItem>
-            <FormLabel>{t(label)}</FormLabel>
+            <FormLabel>{labelText}</FormLabel>
             <FormControl>
               <Input {...field} value={field.value as string} />
             </FormControl>
-            {description ? (
-              <FormDescription>{t(description)}</FormDescription>
+            {descriptionText ? (
+              <FormDescription>{descriptionText}</FormDescription>
             ) : null}
             <FormMessage />
           </FormItem>
@@ -206,27 +295,27 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
     />
   )
 
-  const listField = (
-    name: keyof FormShape,
-    label: string,
-    description: string,
-    placeholder: string
+  const textareaField = (
+    name: Path<AbuseGuardFormValues>,
+    labelText: string,
+    descriptionText: string,
+    placeholderText: string
   ) => (
     <FormField
       control={form.control}
       name={name}
       render={({ field }) => (
         <FormItem>
-          <FormLabel>{t(label)}</FormLabel>
+          <FormLabel>{labelText}</FormLabel>
           <FormControl>
             <Textarea
               rows={6}
-              placeholder={t(placeholder)}
+              placeholder={placeholderText}
               {...field}
               value={field.value as string}
             />
           </FormControl>
-          <FormDescription>{t(description)}</FormDescription>
+          <FormDescription>{descriptionText}</FormDescription>
           <FormMessage />
         </FormItem>
       )}
@@ -290,105 +379,125 @@ export function AbuseGuardSection({ defaultValues }: AbuseGuardSectionProps) {
             />
           </div>
 
-          {listField(
+          {textareaField(
             'abuse_guard.model_scope_patterns',
-            'Inspected model patterns',
-            'Only requests whose model name matches one of these prefixes are inspected. Use a trailing * for prefix match. One per line.',
+            t('Inspected model patterns'),
+            t(
+              'Only requests whose model name matches one of these prefixes are inspected. Use a trailing * for prefix match. One per line.'
+            ),
             'claude*\ngpt*\no1*'
           )}
-          {listField(
+          {textareaField(
             'abuse_guard.exempt_groups',
-            'Exempt groups',
-            'Users in these groups skip all detection and review. One group per line. Admin roles are always exempt.',
+            t('Exempt groups'),
+            t(
+              'Users in these groups skip all detection and review. One group per line. Admin roles are always exempt.'
+            ),
             'vip'
           )}
-          {listField(
+          {textareaField(
             'abuse_guard.block_words',
-            'Hard block words',
-            'Requests containing any of these words are blocked immediately. One per line.',
-            'one keyword per line'
+            t('Hard block words'),
+            t(
+              'Requests containing any of these words are blocked immediately. One per line.'
+            ),
+            t('one keyword per line')
           )}
 
           <SettingsFormGrid>
             {numberField(
               'abuse_guard.pattern_block_score',
-              'Pattern block score',
-              'Combined jailbreak-pattern weight at which a request is blocked.'
+              t('Pattern block score'),
+              t(
+                'Combined jailbreak-pattern weight at which a request is blocked.'
+              )
             )}
             {numberField(
               'abuse_guard.scan_window_kb',
-              'Scan window (KB)',
-              'Head/tail window per side used to bound scan time on long prompts.'
+              t('Scan window (KB)'),
+              t(
+                'Head/tail window per side used to bound scan time on long prompts.'
+              )
             )}
           </SettingsFormGrid>
 
-          {listField(
+          {textareaField(
             'abuse_guard.disabled_builtin_ids',
-            'Disabled builtin pattern IDs',
-            'Builtin jailbreak pattern IDs to disable. One per line.',
+            t('Disabled builtin pattern IDs'),
+            t('Builtin jailbreak pattern IDs to disable. One per line.'),
             'per_jailbreak'
           )}
-          {listField(
+          {textareaField(
             'abuse_guard.custom_patterns',
-            'Custom patterns (JSON)',
-            'Advanced. JSON array of {id, kind: keyword|regex, pattern, weight}.',
+            t('Custom patterns (JSON)'),
+            t(
+              'Advanced. JSON array of {id, kind: keyword|regex, pattern, weight}.'
+            ),
             '[{"id":"c1","kind":"regex","pattern":"...","weight":4}]'
           )}
 
           <SettingsFormGrid>
             {textField(
               'abuse_guard.moderation_api_key',
-              'Moderation API key',
-              'OpenAI-compatible key used for async semantic review. Leave blank to disable review.'
+              t('Moderation API key'),
+              t(
+                'OpenAI-compatible key used for async semantic review. Leave blank to disable review.'
+              )
             )}
             {textField(
               'abuse_guard.moderation_base_url',
-              'Moderation base URL'
+              t('Moderation base URL')
             )}
-            {textField('abuse_guard.moderation_model', 'Moderation model')}
+            {textField('abuse_guard.moderation_model', t('Moderation model'))}
             {numberField(
               'abuse_guard.sample_rate_percent',
-              'Sample rate (%)',
-              'Percentage of non-first requests sent for async review.'
+              t('Sample rate (%)'),
+              t('Percentage of non-first requests sent for async review.')
             )}
             {numberField(
               'abuse_guard.review_snippet_kb',
-              'Review snippet (KB)'
+              t('Review snippet (KB)')
             )}
-            {numberField('abuse_guard.queue_size', 'Review queue size')}
-            {numberField('abuse_guard.worker_count', 'Review worker count')}
+            {numberField('abuse_guard.queue_size', t('Review queue size'))}
+            {numberField('abuse_guard.worker_count', t('Review worker count'))}
           </SettingsFormGrid>
 
-          {listField(
+          {textareaField(
             'abuse_guard.instant_ban_categories',
-            'Instant-ban categories',
-            'Moderation categories that trigger a temporary ban on a single hit. One per line.',
+            t('Instant-ban categories'),
+            t(
+              'Moderation categories that trigger a temporary ban on a single hit. One per line.'
+            ),
             'sexual/minors'
           )}
-          {listField(
+          {textareaField(
             'abuse_guard.category_scores',
-            'Category scores (JSON)',
-            'Advanced. JSON object mapping moderation category to score, e.g. {"violence":2}.',
+            t('Category scores (JSON)'),
+            t(
+              'Advanced. JSON object mapping moderation category to score, e.g. {"violence":2}.'
+            ),
             '{"violence":2}'
           )}
 
           <SettingsFormGrid>
             {numberField(
               'abuse_guard.score_window_hours',
-              'Score window (hours)'
+              t('Score window (hours)')
             )}
             {numberField(
               'abuse_guard.ban_threshold',
-              'Ban threshold',
-              'Accumulated score within the window that triggers a temporary ban.'
+              t('Ban threshold'),
+              t(
+                'Accumulated score within the window that triggers a temporary ban.'
+              )
             )}
             {numberField(
               'abuse_guard.temp_ban_hours',
-              'Temporary ban duration (hours)'
+              t('Temporary ban duration (hours)')
             )}
             {numberField(
               'abuse_guard.perm_ban_after_temp_bans',
-              'Permanent ban after N temp bans'
+              t('Permanent ban after N temp bans')
             )}
           </SettingsFormGrid>
         </SettingsForm>

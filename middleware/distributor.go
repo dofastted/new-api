@@ -160,6 +160,10 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				usingGroup = routeAutoGroupForRequestPath(c, usingGroup)
+				if accessErr := service.ProviderGroupAccessError(c, usingGroup); accessErr != nil {
+					abortWithNewAPIError(c, accessErr)
+					return
+				}
 
 				if preferredChannelID, found := service.GetPreferredChannelByAffinity(c, modelRequest.Model, usingGroup); found {
 					affinityUsable := false
@@ -202,6 +206,11 @@ func Distribute() func(c *gin.Context) {
 						Retry:       common.GetPointer(0),
 					})
 					if err != nil {
+						var newAPIError *types.NewAPIError
+						if errors.As(err, &newAPIError) {
+							abortWithNewAPIError(c, newAPIError)
+							return
+						}
 						showGroup := usingGroup
 						if usingGroup == "auto" {
 							showGroup = fmt.Sprintf("auto(%s)", selectGroup)

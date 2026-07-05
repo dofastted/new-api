@@ -44,6 +44,14 @@ func TestAbuseGuardSettingOptionRoundTrip(t *testing.T) {
 	assert.Equal(t, src, dst)
 }
 
+func TestDefaultAbuseGuardSettingIncludesHardBlockWords(t *testing.T) {
+	defaults := GetAbuseGuardSetting()
+
+	require.NotEmpty(t, defaults.BlockWords)
+	assert.Contains(t, defaults.BlockWords, "steal api key")
+	assert.Contains(t, defaults.BlockWords, "生成勒索软件")
+}
+
 func TestModelInScope(t *testing.T) {
 	s := AbuseGuardSetting{ModelScopePatterns: []string{"claude*", "gpt*", "o1*", "chatgpt*", "text-moderation-exact"}}
 
