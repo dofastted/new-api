@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -100,6 +101,51 @@ func TestGetRequestAutoGroupFiltersClaudeMaxForNonClaudeCodeRequest(t *testing.T
 
 	assert.Equal(t, []string{"claude-kiro", "anthropic"}, groups)
 	assert.NotContains(t, groups, "claude-max")
+}
+
+func TestCacheGetRandomSatisfiedChannelRejectsDirectClaudeMaxForNonClaudeCodeRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx := newAutoGroupContext("/v1/messages", `{"model":"claude-3-5-sonnet","messages":[{"role":"user","content":"hi"}]}`)
+
+	channel, group, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "claude-max",
+		ModelName:  "claude-3-5-sonnet",
+		Retry:      common.GetPointer(0),
+	})
+
+	require.Nil(t, channel)
+	assert.Equal(t, "claude-max", group)
+	var apiErr *types.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	assert.Equal(t, types.ErrorCodeAccessDenied, apiErr.GetErrorCode())
+	assert.True(t, types.IsSkipRetryError(apiErr))
+	assert.Contains(t, apiErr.Error(), "Claude Code CLI")
+}
+
+func TestCacheGetRandomSatisfiedChannelRejectsAutoWhenOnlyClaudeMaxIsAllowed(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	withAutoGroups(t,
+		`["claude-max"]`,
+		`{"claude-max":"Claude Max"}`,
+	)
+	ctx := newAutoGroupContext("/v1/messages", `{"model":"claude-3-5-sonnet","messages":[{"role":"user","content":"hi"}]}`)
+
+	channel, group, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "auto",
+		ModelName:  "claude-3-5-sonnet",
+		Retry:      common.GetPointer(0),
+	})
+
+	require.Nil(t, channel)
+	assert.Equal(t, "auto", group)
+	var apiErr *types.NewAPIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusForbidden, apiErr.StatusCode)
+	assert.True(t, types.IsSkipRetryError(apiErr))
+	assert.Contains(t, apiErr.Error(), "Claude Code CLI")
 }
 
 // TestGetRequestAutoGroupKeepsClaudeMaxForClaudeCodeFamilyRequest asserts that

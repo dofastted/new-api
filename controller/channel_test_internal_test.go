@@ -3,7 +3,6 @@ package controller
 import (
 	"net/http"
 	"net/http/httptest"
-	"sync"
 	"testing"
 
 	"github.com/QuantumNous/new-api/common"
@@ -12,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/pkg/billingexpr"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
@@ -135,12 +135,10 @@ func resetChannelTestResultCacheForTest(t *testing.T) {
 	t.Helper()
 	oldRedisEnabled := common.RedisEnabled
 	common.RedisEnabled = false
-	channelTestResultCacheOnce = sync.Once{}
-	channelTestResultCache = nil
+	service.PurgeChannelTestResultCache()
 	t.Cleanup(func() {
+		service.PurgeChannelTestResultCache()
 		common.RedisEnabled = oldRedisEnabled
-		channelTestResultCacheOnce = sync.Once{}
-		channelTestResultCache = nil
 	})
 }
 

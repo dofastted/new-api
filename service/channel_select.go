@@ -90,6 +90,9 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 	if param.TokenGroup == "auto" {
 		autoGroups := GetRequestAutoGroup(param.Ctx, userGroup)
 		if len(autoGroups) == 0 {
+			if accessErr := RestrictedAutoGroupAccessError(param.Ctx, userGroup); accessErr != nil {
+				return nil, selectGroup, accessErr
+			}
 			return nil, selectGroup, errors.New("auto groups is not enabled")
 		}
 
@@ -116,7 +119,7 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			}
 			logger.LogDebug(param.Ctx, "Auto selecting group: %s, priorityRetry: %d", autoGroup, priorityRetry)
 
-			channel, _ = model.GetRandomSatisfiedChannel(autoGroup, param.ModelName, priorityRetry, param.RequestPath, param.ExcludedChannelIds)
+			channel, _ = selectCachedHealthyChannel(param, autoGroup, priorityRetry)
 			if channel == nil {
 				// Current group has no available channel for this model, try next group
 				// 当前分组没有该模型的可用渠道，尝试下一个分组
@@ -154,10 +157,37 @@ func CacheGetRandomSatisfiedChannel(param *RetryParam) (*model.Channel, string, 
 			break
 		}
 	} else {
-		channel, err = model.GetRandomSatisfiedChannel(param.TokenGroup, param.ModelName, param.GetRetry(), param.RequestPath, param.ExcludedChannelIds)
+		if accessErr := ProviderGroupAccessError(param.Ctx, param.TokenGroup); accessErr != nil {
+			return nil, param.TokenGroup, accessErr
+		}
+		channel, err = selectCachedHealthyChannel(param, param.TokenGroup, param.GetRetry())
 		if err != nil {
 			return nil, param.TokenGroup, err
 		}
 	}
 	return channel, selectGroup, nil
+}
+
+func selectCachedHealthyChannel(param *RetryParam, group string, retry int) (*model.Channel, error) {
+	for {
+		channel, err := model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.RequestPath, param.ExcludedChannelIds)
+		if err != nil || channel == nil {
+			return channel, err
+		}
+		if !excludeCachedUnhealthyChannel(param, channel) {
+			return channel, nil
+		}
+	}
+}
+
+func excludeCachedUnhealthyChannel(param *RetryParam, channel *model.Channel) bool {
+	if !ShouldExcludeChannelByCachedHealth(channel) {
+		return false
+	}
+	if param.ExcludedChannelIds == nil {
+		param.ExcludedChannelIds = make(map[int]struct{})
+	}
+	param.ExcludedChannelIds[channel.Id] = struct{}{}
+	logger.LogDebug(param.Ctx, "channel #%d skipped because cached health probe failed", channel.Id)
+	return true
 }

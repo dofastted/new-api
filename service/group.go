@@ -1,7 +1,9 @@
 package service
 
 import (
+	"errors"
 	"io"
+	"net/http"
 	"strings"
 
 	"github.com/QuantumNous/new-api/common"
@@ -9,8 +11,14 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+)
+
+const (
+	ClaudeCodeFamilyRequiredMessage = "This model requires the official Claude Code CLI. Please use Claude Code and retry."
+	CodexFamilyRequiredMessage      = "This model requires the official Codex CLI. Please use Codex CLI and retry."
 )
 
 func GetUserUsableGroups(userGroup string) map[string]string {
@@ -59,6 +67,12 @@ func GetUserAutoGroup(userGroup string) []string {
 }
 
 func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
+	autoGroups := requestAutoGroupCandidates(c, userGroup)
+	autoGroups = filterAutoGroupsByRequestFamily(c, autoGroups)
+	return filterRouteAutoGroups(c, autoGroups)
+}
+
+func requestAutoGroupCandidates(c *gin.Context, userGroup string) []string {
 	autoGroups := GetUserAutoGroup(userGroup)
 	if c != nil && c.Request != nil && c.Request.URL != nil {
 		groups, err := model.GetProviderAutoGroups(model.ProviderRouteTypeForPath(c.Request.URL.Path))
@@ -66,7 +80,10 @@ func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
 			autoGroups = filterOnlineProviderGroups(groups)
 		}
 	}
-	autoGroups = filterAutoGroupsByRequestFamily(c, autoGroups)
+	return autoGroups
+}
+
+func filterRouteAutoGroups(c *gin.Context, autoGroups []string) []string {
 	routeGroups := common.GetContextKeyStringSlice(c, constant.ContextKeyRouteAutoGroups)
 	if len(routeGroups) == 0 {
 		return autoGroups
@@ -79,6 +96,24 @@ func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
 		}
 	}
 	return filteredGroups
+}
+
+func RestrictedAutoGroupAccessError(c *gin.Context, userGroup string) *types.NewAPIError {
+	autoGroups := filterRouteAutoGroups(c, requestAutoGroupCandidates(c, userGroup))
+	if len(autoGroups) == 0 {
+		return nil
+	}
+	var firstErr *types.NewAPIError
+	for _, group := range autoGroups {
+		accessErr := ProviderGroupAccessError(c, group)
+		if accessErr == nil {
+			return nil
+		}
+		if firstErr == nil {
+			firstErr = accessErr
+		}
+	}
+	return firstErr
 }
 
 func filterAutoGroupsByRequestFamily(c *gin.Context, groups []string) []string {
@@ -113,6 +148,47 @@ func filterAutoGroupsByRequestFamily(c *gin.Context, groups []string) []string {
 		filtered = append(filtered, group)
 	}
 	return filtered
+}
+
+func ProviderGroupAccessError(c *gin.Context, group string) *types.NewAPIError {
+	normalized := strings.ToLower(strings.TrimSpace(group))
+	switch {
+	case strings.HasPrefix(normalized, "claude-max"):
+		if isClaudeCodeFamilyRequest(c) {
+			return nil
+		}
+		return providerFamilyAccessError(ClaudeCodeFamilyRequiredMessage)
+	case normalized == "codex-pro" || strings.HasPrefix(normalized, "codex-pro-"):
+		if isCodexFamilyRequest(c) {
+			return nil
+		}
+		return providerFamilyAccessError(CodexFamilyRequiredMessage)
+	default:
+		return nil
+	}
+}
+
+func providerFamilyAccessError(message string) *types.NewAPIError {
+	return types.NewErrorWithStatusCode(
+		errors.New(message),
+		types.ErrorCodeAccessDenied,
+		http.StatusForbidden,
+		types.ErrOptionWithSkipRetry(),
+		types.ErrOptionWithNoRecordErrorLog(),
+	)
+}
+
+func IsProviderFamilyAccessDeniedError(err *types.NewAPIError) bool {
+	if err == nil {
+		return false
+	}
+	if types.IsSkipRetryError(err) && err.GetErrorCode() == types.ErrorCodeAccessDenied {
+		return true
+	}
+	message := strings.ToLower(err.ErrorWithStatusCode())
+	return strings.Contains(message, "official claude cli") ||
+		strings.Contains(message, "official claude code cli") ||
+		strings.Contains(message, "official codex cli")
 }
 
 func isClaudeCodeFamilyRequest(c *gin.Context) bool {
