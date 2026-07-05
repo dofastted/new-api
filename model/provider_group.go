@@ -28,6 +28,11 @@ const (
 	ProviderRouteTypeOther       = "other"
 )
 
+const (
+	ProviderClientFamilyClaudeCode = "claude_code"
+	ProviderClientFamilyCodex      = "codex"
+)
+
 var reservedUserProviderGroupNames = map[string]struct{}{
 	"default": {},
 	"premium": {},
@@ -44,17 +49,18 @@ func IsReservedUserProviderGroupName(name string) bool {
 }
 
 type ProviderGroup struct {
-	Id          int            `json:"id"`
-	Name        string         `json:"name" gorm:"type:varchar(64);uniqueIndex;not null"`
-	DisplayName string         `json:"display_name" gorm:"type:varchar(128);not null"`
-	Description string         `json:"description" gorm:"type:text"`
-	Status      int            `json:"status" gorm:"default:1;index"`
-	UsageRatio  float64        `json:"usage_ratio" gorm:"default:1"`
-	IsAuto      bool           `json:"is_auto" gorm:"index"`
-	SortOrder   int            `json:"sort_order" gorm:"default:0;index"`
-	CreatedTime int64          `json:"created_time" gorm:"bigint"`
-	UpdatedTime int64          `json:"updated_time" gorm:"bigint"`
-	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
+	Id                   int            `json:"id"`
+	Name                 string         `json:"name" gorm:"type:varchar(64);uniqueIndex;not null"`
+	DisplayName          string         `json:"display_name" gorm:"type:varchar(128);not null"`
+	Description          string         `json:"description" gorm:"type:text"`
+	Status               int            `json:"status" gorm:"default:1;index"`
+	UsageRatio           float64        `json:"usage_ratio" gorm:"default:1"`
+	RequiredClientFamily string         `json:"required_client_family,omitempty" gorm:"type:varchar(32)"`
+	IsAuto               bool           `json:"is_auto" gorm:"index"`
+	SortOrder            int            `json:"sort_order" gorm:"default:0;index"`
+	CreatedTime          int64          `json:"created_time" gorm:"bigint"`
+	UpdatedTime          int64          `json:"updated_time" gorm:"bigint"`
+	DeletedAt            gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 type ProviderGroupChannel struct {
@@ -82,11 +88,12 @@ type ProviderGroupAutoRule struct {
 }
 
 type ProviderGroupOption struct {
-	Name        string  `json:"name"`
-	DisplayName string  `json:"display_name"`
-	Description string  `json:"description"`
-	UsageRatio  float64 `json:"usage_ratio"`
-	IsAuto      bool    `json:"is_auto"`
+	Name                 string  `json:"name"`
+	DisplayName          string  `json:"display_name"`
+	Description          string  `json:"description"`
+	UsageRatio           float64 `json:"usage_ratio"`
+	RequiredClientFamily string  `json:"required_client_family,omitempty"`
+	IsAuto               bool    `json:"is_auto"`
 }
 
 func EnsureProviderGroupsSeededFromLegacy() error {
@@ -296,11 +303,12 @@ func ListOnlineProviderGroupOptions() ([]ProviderGroupOption, error) {
 	options := make([]ProviderGroupOption, 0, len(groups))
 	for _, group := range groups {
 		options = append(options, ProviderGroupOption{
-			Name:        group.Name,
-			DisplayName: group.DisplayName,
-			Description: group.Description,
-			UsageRatio:  group.UsageRatio,
-			IsAuto:      group.IsAuto,
+			Name:                 group.Name,
+			DisplayName:          group.DisplayName,
+			Description:          group.Description,
+			UsageRatio:           group.UsageRatio,
+			RequiredClientFamily: group.RequiredClientFamily,
+			IsAuto:               group.IsAuto,
 		})
 	}
 	return options, nil
@@ -366,6 +374,35 @@ func ProviderGroupUsageRatio(name string) (float64, bool) {
 		return 1, true
 	}
 	return group.UsageRatio, true
+}
+
+func ProviderGroupRequiredClientFamily(name string) (string, bool) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false
+	}
+	if providerGroupTableReady(&ProviderGroup{}) {
+		var group ProviderGroup
+		if err := DB.Select("required_client_family").Where("name = ? AND status = ?", name, ProviderGroupStatusEnabled).First(&group).Error; err == nil {
+			family := strings.TrimSpace(group.RequiredClientFamily)
+			if family != "" {
+				return family, true
+			}
+		}
+	}
+	return inferProviderGroupRequiredClientFamily(name)
+}
+
+func inferProviderGroupRequiredClientFamily(name string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch {
+	case strings.HasPrefix(normalized, "claude-max"):
+		return ProviderClientFamilyClaudeCode, true
+	case normalized == "codex-pro" || strings.HasPrefix(normalized, "codex-pro-"):
+		return ProviderClientFamilyCodex, true
+	default:
+		return "", false
+	}
 }
 
 func RebuildAbilitiesFromProviderGroups() error {

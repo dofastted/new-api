@@ -78,13 +78,14 @@ func UpdateProviderGroup(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{
-		"display_name": input.DisplayName,
-		"description":  input.Description,
-		"status":       input.Status,
-		"usage_ratio":  input.UsageRatio,
-		"is_auto":      input.IsAuto,
-		"sort_order":   input.SortOrder,
-		"updated_time": common.GetTimestamp(),
+		"display_name":           input.DisplayName,
+		"description":            input.Description,
+		"status":                 input.Status,
+		"usage_ratio":            input.UsageRatio,
+		"required_client_family": input.RequiredClientFamily,
+		"is_auto":                input.IsAuto,
+		"sort_order":             input.SortOrder,
+		"updated_time":           common.GetTimestamp(),
 	}
 	if input.UsageRatio == 0 {
 		updates["usage_ratio"] = 1

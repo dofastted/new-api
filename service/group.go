@@ -126,8 +126,13 @@ func filterAutoGroupsByRequestFamily(c *gin.Context, groups []string) []string {
 	codexFamily := false
 	codexFamilyChecked := false
 	for _, group := range groups {
-		normalized := strings.ToLower(strings.TrimSpace(group))
-		if strings.HasPrefix(normalized, "claude-max") {
+		family, ok := model.ProviderGroupRequiredClientFamily(group)
+		if !ok {
+			filtered = append(filtered, group)
+			continue
+		}
+		switch family {
+		case model.ProviderClientFamilyClaudeCode:
 			if !claudeCodeFamilyChecked {
 				claudeCodeFamily = isClaudeCodeFamilyRequest(c)
 				claudeCodeFamilyChecked = true
@@ -135,8 +140,7 @@ func filterAutoGroupsByRequestFamily(c *gin.Context, groups []string) []string {
 			if !claudeCodeFamily {
 				continue
 			}
-		}
-		if normalized == "codex-pro" || strings.HasPrefix(normalized, "codex-pro-") {
+		case model.ProviderClientFamilyCodex:
 			if !codexFamilyChecked {
 				codexFamily = isCodexFamilyRequest(c)
 				codexFamilyChecked = true
@@ -151,14 +155,17 @@ func filterAutoGroupsByRequestFamily(c *gin.Context, groups []string) []string {
 }
 
 func ProviderGroupAccessError(c *gin.Context, group string) *types.NewAPIError {
-	normalized := strings.ToLower(strings.TrimSpace(group))
-	switch {
-	case strings.HasPrefix(normalized, "claude-max"):
+	family, ok := model.ProviderGroupRequiredClientFamily(group)
+	if !ok {
+		return nil
+	}
+	switch family {
+	case model.ProviderClientFamilyClaudeCode:
 		if isClaudeCodeFamilyRequest(c) {
 			return nil
 		}
 		return providerFamilyAccessError(ClaudeCodeFamilyRequiredMessage)
-	case normalized == "codex-pro" || strings.HasPrefix(normalized, "codex-pro-"):
+	case model.ProviderClientFamilyCodex:
 		if isCodexFamilyRequest(c) {
 			return nil
 		}
