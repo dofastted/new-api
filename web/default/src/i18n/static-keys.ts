@@ -39,6 +39,8 @@ export const STATIC_I18N_KEYS = [
   'General',
   'Authentication',
   'Request Limits',
+  'Abuse Guard',
+  'Save abuse guard settings',
   'Content',
   'Integrations',
   'Models',

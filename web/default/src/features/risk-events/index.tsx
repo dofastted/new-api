@@ -53,6 +53,21 @@ const ACTION_VARIANT: Record<
   forced_review: 'outline',
 }
 
+const SOURCE_LABEL_KEY: Record<string, string> = {
+  sync_word: 'Sync word',
+  sync_pattern: 'Sync pattern',
+  moderation: 'Moderation review',
+  penalty: 'Penalty',
+}
+
+const ACTION_LABEL_KEY: Record<string, string> = {
+  blocked: 'Blocked',
+  flagged: 'Flagged',
+  forced_review: 'Forced review',
+  temp_ban: 'Temporary ban',
+  perm_ban: 'Permanent ban',
+}
+
 const PAGE_SIZE = 20
 
 export function RiskEvents() {
@@ -122,15 +137,17 @@ export function RiskEvents() {
             >
               <NativeSelectOption value=''>{t('All')}</NativeSelectOption>
               <NativeSelectOption value='sync_word'>
-                sync_word
+                {t('Sync word')}
               </NativeSelectOption>
               <NativeSelectOption value='sync_pattern'>
-                sync_pattern
+                {t('Sync pattern')}
               </NativeSelectOption>
               <NativeSelectOption value='moderation'>
-                moderation
+                {t('Moderation review')}
               </NativeSelectOption>
-              <NativeSelectOption value='penalty'>penalty</NativeSelectOption>
+              <NativeSelectOption value='penalty'>
+                {t('Penalty')}
+              </NativeSelectOption>
             </NativeSelect>
           </div>
           <div className='w-44'>
@@ -145,13 +162,21 @@ export function RiskEvents() {
               }}
             >
               <NativeSelectOption value=''>{t('All')}</NativeSelectOption>
-              <NativeSelectOption value='blocked'>blocked</NativeSelectOption>
-              <NativeSelectOption value='flagged'>flagged</NativeSelectOption>
-              <NativeSelectOption value='forced_review'>
-                forced_review
+              <NativeSelectOption value='blocked'>
+                {t('Blocked')}
               </NativeSelectOption>
-              <NativeSelectOption value='temp_ban'>temp_ban</NativeSelectOption>
-              <NativeSelectOption value='perm_ban'>perm_ban</NativeSelectOption>
+              <NativeSelectOption value='flagged'>
+                {t('Flagged')}
+              </NativeSelectOption>
+              <NativeSelectOption value='forced_review'>
+                {t('Forced review')}
+              </NativeSelectOption>
+              <NativeSelectOption value='temp_ban'>
+                {t('Temporary ban')}
+              </NativeSelectOption>
+              <NativeSelectOption value='perm_ban'>
+                {t('Permanent ban')}
+              </NativeSelectOption>
             </NativeSelect>
           </div>
         </div>
@@ -187,10 +212,12 @@ export function RiskEvents() {
                       {new Date(ev.created_at * 1000).toLocaleString()}
                     </TableCell>
                     <TableCell>{ev.user_id}</TableCell>
-                    <TableCell>{ev.source}</TableCell>
+                    <TableCell>
+                      {t(SOURCE_LABEL_KEY[ev.source] ?? ev.source)}
+                    </TableCell>
                     <TableCell>
                       <Badge variant={ACTION_VARIANT[ev.action] ?? 'outline'}>
-                        {ev.action}
+                        {t(ACTION_LABEL_KEY[ev.action] ?? ev.action)}
                       </Badge>
                     </TableCell>
                     <TableCell>{ev.score}</TableCell>
