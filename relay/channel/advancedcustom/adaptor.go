@@ -53,6 +53,9 @@ func (a *Adaptor) ConvertOpenAIRequest(c *gin.Context, info *relaycommon.RelayIn
 	}
 
 	switch converter {
+	case dto.AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions,
+		dto.AdvancedCustomConverterGeminiGenerateContentToOpenAIChatCompletions:
+		return a.convertOpenAICompatibleRequest(c, info, request)
 	case dto.AdvancedCustomConverterOpenAIChatCompletionsToAnthropicMessages:
 		return a.claudeAdaptor.ConvertOpenAIRequest(c, info, request)
 	case dto.AdvancedCustomConverterOpenAIChatCompletionsToOpenAIResponses:

@@ -219,6 +219,23 @@ func TestProviderRouteTypesForAdvancedCustomChannel(t *testing.T) {
 	assert.Equal(t, []string{ProviderRouteTypeResponses, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
 }
 
+func TestProviderRouteTypesForAdvancedCustomOpenAIChatUpstream(t *testing.T) {
+	channel := Channel{Type: constant.ChannelTypeAdvancedCustom}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{
+				{
+					IncomingPath: "/v1/messages",
+					UpstreamPath: "/v1/chat/completions",
+					Converter:    dto.AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions,
+				},
+			},
+		},
+	})
+
+	assert.Equal(t, []string{ProviderRouteTypeCompletions, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
+}
+
 func TestProviderRouteTypeForPath(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -800,4 +817,39 @@ func TestApplyProviderGroupConfigurationRollsBackWhenAbilityRebuildFails(t *test
 	require.NoError(t, DB.Where(commonGroupCol+" = ?", "rollback-group").Find(&abilities).Error)
 	require.Len(t, abilities, 1)
 	assert.Equal(t, 9802, abilities[0].ChannelId)
+}
+
+func TestProviderGroupChannelSupportsPathAllowsLegacyOpenAIChatConverterRoute(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Id: 9601, Name: "kiro-g", DisplayName: "kiro-g",
+		Status: ProviderGroupStatusEnabled, UsageRatio: 1,
+	}).Error)
+	channel := Channel{
+		Id: 9602, Type: constant.ChannelTypeAdvancedCustom, Key: "sk-kiro",
+		Status: common.ChannelStatusEnabled, Name: "kiro-channel", Models: "claude-haiku-4-5-20251001",
+	}
+	channel.SetOtherSettings(dto.ChannelOtherSettings{
+		AdvancedCustom: &dto.AdvancedCustomConfig{
+			Routes: []dto.AdvancedCustomRoute{
+				{
+					IncomingPath: "/v1/messages",
+					UpstreamPath: "/v1/chat/completions",
+					Converter:    dto.AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions,
+				},
+			},
+		},
+	})
+	require.NoError(t, DB.Create(&channel).Error)
+	routeTypes, err := common.Marshal([]string{ProviderRouteTypeMessages})
+	require.NoError(t, err)
+	require.NoError(t, DB.Create(&ProviderGroupChannel{
+		ProviderGroupId: 9601, GroupName: "kiro-g", ChannelId: 9602,
+		RouteTypes: string(routeTypes), Enabled: true,
+	}).Error)
+
+	assert.True(t, ProviderGroupChannelSupportsPath("kiro-g", 9602, "/v1/chat/completions"),
+		"legacy route_types=[messages] must not block OpenAI chat requests that the advanced route can convert")
+	assert.False(t, ProviderGroupChannelSupportsPath("kiro-g", 9602, "/v1/responses"))
 }
