@@ -41,7 +41,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.ProviderGroup{}, &model.ProviderGroupAutoRule{}))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -118,6 +118,15 @@ func withSelfUseModeDisabled(t *testing.T) {
 
 	original := operation_setting.SelfUseModeEnabled
 	operation_setting.SelfUseModeEnabled = false
+	t.Cleanup(func() {
+		operation_setting.SelfUseModeEnabled = original
+	})
+}
+
+func withSelfUseModeEnabled(t *testing.T) {
+	t.Helper()
+	original := operation_setting.SelfUseModeEnabled
+	operation_setting.SelfUseModeEnabled = true
 	t.Cleanup(func() {
 		operation_setting.SelfUseModeEnabled = original
 	})
@@ -234,4 +243,33 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-tiered-empty-expr-model")
 	require.NotContains(t, ids, "zz-token-tiered-missing-expr-model")
 	require.NotContains(t, ids, "zz-token-unpriced-model")
+}
+
+func TestListModelsAutoIncludesAllProviderAutoRuleGroups(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.ProviderGroup{
+		{Name: "codex-completions", DisplayName: "Codex Completions", Status: model.ProviderGroupStatusEnabled},
+		{Name: "grok", DisplayName: "Grok", Status: model.ProviderGroupStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.ProviderGroupAutoRule{
+		{RouteType: model.ProviderRouteTypeCompletions, CandidateGroup: "codex-completions", Enabled: true, SortOrder: 0},
+		{RouteType: model.ProviderRouteTypeOther, CandidateGroup: "grok", Enabled: true, SortOrder: 1},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "codex-completions", Model: "gpt-5.5", ChannelId: 25, Enabled: true},
+		{Group: "grok", Model: "grok-4.3", ChannelId: 37, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "gpt-5.5")
+	require.Contains(t, ids, "grok-4.3")
 }

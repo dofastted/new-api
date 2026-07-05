@@ -66,6 +66,17 @@ func GetUserAutoGroup(userGroup string) []string {
 	return filterOnlineProviderGroups(setting.GetAutoGroups())
 }
 
+// GetUserAutoModelGroups returns the provider groups whose models should be
+// visible to an auto token. Model listing is route-neutral, so provider auto
+// candidates from every route type are authoritative here.
+func GetUserAutoModelGroups(userGroup string) []string {
+	groups, err := model.GetProviderAutoModelGroups()
+	if err == nil && len(groups) > 0 {
+		return filterOnlineProviderGroups(groups)
+	}
+	return GetUserAutoGroup(userGroup)
+}
+
 func GetRequestAutoGroup(c *gin.Context, userGroup string) []string {
 	autoGroups := requestAutoGroupCandidates(c, userGroup)
 	autoGroups = filterAutoGroupsByRequestFamily(c, autoGroups)

@@ -577,6 +577,36 @@ func GetProviderAutoGroups(routeType string) ([]string, error) {
 	return groups, nil
 }
 
+// GetProviderAutoModelGroups returns every enabled provider auto candidate that
+// can make a model visible through auto. /v1/models is a capability listing, not
+// a relay route, so it must not be limited to the "other" route candidates.
+func GetProviderAutoModelGroups() ([]string, error) {
+	if !providerGroupTableReady(&ProviderGroupAutoRule{}) {
+		return nil, nil
+	}
+	var rules []ProviderGroupAutoRule
+	err := DB.Where("enabled = ?", true).
+		Order("sort_order ASC, id ASC").
+		Find(&rules).Error
+	if err != nil {
+		return nil, err
+	}
+	groups := make([]string, 0, len(rules))
+	seen := make(map[string]struct{}, len(rules))
+	for _, rule := range rules {
+		group := strings.TrimSpace(rule.CandidateGroup)
+		if group == "" {
+			continue
+		}
+		if _, ok := seen[group]; ok {
+			continue
+		}
+		seen[group] = struct{}{}
+		groups = append(groups, group)
+	}
+	return groups, nil
+}
+
 func ProviderRouteTypeForPath(requestPath string) string {
 	path := strings.Split(requestPath, "?")[0]
 	switch {
