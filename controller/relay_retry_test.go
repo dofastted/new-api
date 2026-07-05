@@ -148,6 +148,102 @@ func TestShouldRetrySkipsClaudeCliAccessDenied(t *testing.T) {
 	assert.False(t, isRetryableChannelFailure(err))
 }
 
+func TestProcessChannelErrorRecordsHighLoadChannelCircuitTrace(t *testing.T) {
+	restoreRelayCircuitTestState(t, 42001)
+	ctx := newRelayCircuitTestContext(42001, highLoadCircuitSettings(http.StatusInternalServerError, http.StatusBadGateway, http.StatusServiceUnavailable))
+	err := types.NewOpenAIError(
+		errors.New("upstream overloaded"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusServiceUnavailable,
+	)
+
+	processChannelError(ctx, *types.NewChannelError(42001, constant.ChannelTypeAnthropic, "claude-sub", false, "", false), err)
+
+	status := service.GetChannelCircuitStatus(42001)
+	require.Equal(t, model.ChannelCircuitOpen, status.State)
+	assert.Equal(t, service.ChannelCircuitClassHighLoadTemporarilyUnavailable, status.LastCategory)
+	assert.Equal(t, 1, status.FailureCount)
+	assert.Greater(t, status.NextAttemptUnix, time.Now().Unix())
+
+	chain := service.GetChannelChain(ctx)
+	require.Len(t, chain, 1)
+	entry := chain[0]
+	assert.Equal(t, 42001, entry.ChannelId)
+	assert.Equal(t, constant.ChannelTypeAnthropic, entry.ChannelType)
+	assert.Equal(t, service.ChannelChainReasonFailure, entry.Reason)
+	assert.Equal(t, string(model.ChannelCircuitOpen), entry.CircuitState)
+	assert.Equal(t, service.ChannelCircuitClassHighLoadTemporarilyUnavailable, entry.CircuitClass)
+	assert.Equal(t, status.NextAttemptUnix, entry.CircuitOpenUntil)
+	assert.Equal(t, "same_group_retry", entry.FallbackCandidate)
+}
+
+func TestProcessChannelErrorDoesNotOpenCircuitForOfficialClaudeCli403(t *testing.T) {
+	restoreRelayCircuitTestState(t, 42002)
+	ctx := newRelayCircuitTestContext(42002, highLoadCircuitSettings(http.StatusForbidden))
+	err := types.NewOpenAIError(
+		errors.New("This API endpoint is only accessible via the official Claude CLI"),
+		types.ErrorCodeBadResponseStatusCode,
+		http.StatusForbidden,
+	)
+
+	processChannelError(ctx, *types.NewChannelError(42002, constant.ChannelTypeAnthropic, "claude-sub", false, "", false), err)
+
+	status := service.GetChannelCircuitStatus(42002)
+	assert.Equal(t, model.ChannelCircuitClosed, status.State)
+	assert.Equal(t, 0, status.FailureCount)
+
+	chain := service.GetChannelChain(ctx)
+	require.Len(t, chain, 1)
+	assert.Equal(t, service.ChannelChainCircuitStateClosed, chain[0].CircuitState)
+	assert.Empty(t, chain[0].CircuitClass)
+	assert.Zero(t, chain[0].CircuitOpenUntil)
+}
+
+func TestProcessChannelErrorDoesNotOpenCircuitForClientCancellation(t *testing.T) {
+	restoreRelayCircuitTestState(t, 42003)
+	ctx := newRelayCircuitTestContext(42003, highLoadCircuitSettings(http.StatusServiceUnavailable))
+	err := types.NewErrorWithStatusCode(
+		fmt.Errorf("request context done: %w", context.Canceled),
+		types.ErrorCodeBadResponse,
+		http.StatusServiceUnavailable,
+	)
+
+	processChannelError(ctx, *types.NewChannelError(42003, constant.ChannelTypeAnthropic, "claude-sub", false, "", false), err)
+
+	status := service.GetChannelCircuitStatus(42003)
+	assert.Equal(t, model.ChannelCircuitClosed, status.State)
+	assert.Equal(t, 0, status.FailureCount)
+
+	chain := service.GetChannelChain(ctx)
+	require.Len(t, chain, 1)
+	assert.Equal(t, service.ChannelChainCircuitStateClosed, chain[0].CircuitState)
+	assert.Empty(t, chain[0].CircuitClass)
+	assert.Zero(t, chain[0].CircuitOpenUntil)
+}
+
+func TestProcessChannelErrorDoesNotOpenCircuitForSkipRetry(t *testing.T) {
+	restoreRelayCircuitTestState(t, 42004)
+	ctx := newRelayCircuitTestContext(42004, highLoadCircuitSettings(http.StatusServiceUnavailable))
+	err := types.NewErrorWithStatusCode(
+		errors.New("local access policy denied request"),
+		types.ErrorCodeAccessDenied,
+		http.StatusServiceUnavailable,
+		types.ErrOptionWithSkipRetry(),
+	)
+
+	processChannelError(ctx, *types.NewChannelError(42004, constant.ChannelTypeAnthropic, "claude-sub", false, "", false), err)
+
+	status := service.GetChannelCircuitStatus(42004)
+	assert.Equal(t, model.ChannelCircuitClosed, status.State)
+	assert.Equal(t, 0, status.FailureCount)
+
+	chain := service.GetChannelChain(ctx)
+	require.Len(t, chain, 1)
+	assert.Equal(t, service.ChannelChainCircuitStateClosed, chain[0].CircuitState)
+	assert.Empty(t, chain[0].CircuitClass)
+	assert.Zero(t, chain[0].CircuitOpenUntil)
+}
+
 func TestPrepareTooManyRequestsRetrySelectsAlternateEnabledKey(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
@@ -401,6 +497,58 @@ func newRelayRateLimitTestChannel(id int, rpm int) *model.Channel {
 		channel.SetSetting(dto.ChannelSettings{RateLimitRPM: rpm})
 	}
 	return channel
+}
+
+func newRelayCircuitTestContext(channelID int, channelSetting dto.ChannelSettings) *gin.Context {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	common.SetContextKey(ctx, constant.ContextKeyChannelId, channelID)
+	common.SetContextKey(ctx, constant.ContextKeyChannelName, "claude-sub")
+	common.SetContextKey(ctx, constant.ContextKeyChannelType, constant.ChannelTypeAnthropic)
+	common.SetContextKey(ctx, constant.ContextKeyUsingGroup, "claude-sub")
+	common.SetContextKey(ctx, constant.ContextKeyChannelSetting, channelSetting)
+	return ctx
+}
+
+func highLoadCircuitSettings(statusCodes ...int) dto.ChannelSettings {
+	return dto.ChannelSettings{
+		CircuitBreaker: &dto.ChannelCircuitBreakerSettings{
+			Enabled:          true,
+			FailureThreshold: 1,
+			OpenSeconds:      300,
+			Rules: []dto.ChannelCircuitBreakerRule{
+				{
+					Name:        "claude_high_load",
+					Class:       service.ChannelCircuitClassHighLoadTemporarilyUnavailable,
+					StatusCodes: statusCodes,
+				},
+			},
+		},
+	}
+}
+
+func restoreRelayCircuitTestState(t *testing.T, channelIDs ...int) {
+	t.Helper()
+
+	oldRedisEnabled := common.RedisEnabled
+	oldRDB := common.RDB
+	oldErrorLogEnabled := constant.ErrorLogEnabled
+	common.RedisEnabled = false
+	common.RDB = nil
+	constant.ErrorLogEnabled = false
+	for _, channelID := range channelIDs {
+		service.ResetChannelCircuit(channelID)
+	}
+
+	t.Cleanup(func() {
+		for _, channelID := range channelIDs {
+			service.ResetChannelCircuit(channelID)
+		}
+		common.RedisEnabled = oldRedisEnabled
+		common.RDB = oldRDB
+		constant.ErrorLogEnabled = oldErrorLogEnabled
+	})
 }
 
 func restoreRelayChannelRateLimitTestState(t *testing.T) {

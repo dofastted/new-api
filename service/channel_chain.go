@@ -21,6 +21,13 @@ const (
 	ChannelChainCircuitStateClosed  = "closed"
 )
 
+type ChannelCircuitTrace struct {
+	Class             string
+	State             string
+	OpenUntil         int64
+	FallbackCandidate string
+}
+
 func AppendChannelChainEntry(c *gin.Context, entry types.ChannelChainEntry) {
 	if c == nil {
 		return
@@ -29,6 +36,8 @@ func AppendChannelChainEntry(c *gin.Context, entry types.ChannelChainEntry) {
 	entry.Endpoint = sanitizeChannelChainEndpoint(entry.Endpoint)
 	entry.ErrorCode = sanitizeChannelChainText(entry.ErrorCode)
 	entry.ErrorCategory = sanitizeChannelChainText(entry.ErrorCategory)
+	entry.CircuitClass = sanitizeChannelChainText(entry.CircuitClass)
+	entry.FallbackCandidate = sanitizeChannelChainText(entry.FallbackCandidate)
 	chain := GetChannelChain(c)
 	chain = append(chain, entry)
 	common.SetContextKey(c, constant.ContextKeyChannelChain, chain)
@@ -66,15 +75,26 @@ func AppendChannelSelectionTrace(c *gin.Context, channel *model.Channel, group s
 }
 
 func AppendChannelFailureTrace(c *gin.Context, channelId int, channelType int, channelName string, err *types.NewAPIError) {
+	AppendChannelFailureTraceWithCircuit(c, channelId, channelType, channelName, err, ChannelCircuitTrace{})
+}
+
+func AppendChannelFailureTraceWithCircuit(c *gin.Context, channelId int, channelType int, channelName string, err *types.NewAPIError, trace ChannelCircuitTrace) {
+	circuitState := trace.State
+	if circuitState == "" {
+		circuitState = ChannelChainCircuitStateClosed
+	}
 	entry := types.ChannelChainEntry{
-		ChannelId:    channelId,
-		ChannelName:  channelName,
-		ChannelType:  channelType,
-		Reason:       ChannelChainReasonFailure,
-		Selection:    "relay_failure",
-		Group:        common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
-		RetryIndex:   c.GetInt("retry_index"),
-		CircuitState: ChannelChainCircuitStateClosed,
+		ChannelId:         channelId,
+		ChannelName:       channelName,
+		ChannelType:       channelType,
+		Reason:            ChannelChainReasonFailure,
+		Selection:         "relay_failure",
+		Group:             common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+		RetryIndex:        c.GetInt("retry_index"),
+		CircuitState:      circuitState,
+		CircuitClass:      trace.Class,
+		CircuitOpenUntil:  trace.OpenUntil,
+		FallbackCandidate: trace.FallbackCandidate,
 	}
 	if err != nil {
 		entry.ErrorCode = string(err.GetErrorCode())

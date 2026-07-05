@@ -79,6 +79,22 @@ export type Channel = z.infer<typeof channelSchema>
 // Channel Settings Types
 // ============================================================================
 
+export interface ChannelCircuitBreakerRule {
+  name?: string
+  class?: string
+  status_codes?: number[]
+  error_codes?: string[]
+  message_contains?: string[]
+}
+
+export interface ChannelCircuitBreakerSettings {
+  enabled?: boolean
+  failure_threshold?: number
+  open_seconds?: number
+  half_open_success_threshold?: number
+  rules?: ChannelCircuitBreakerRule[]
+}
+
 export interface ChannelSettings {
   force_format?: boolean
   thinking_to_content?: boolean
@@ -87,6 +103,7 @@ export interface ChannelSettings {
   pass_through_body_enabled?: boolean
   system_prompt?: string
   system_prompt_override?: boolean
+  circuit_breaker?: ChannelCircuitBreakerSettings
 }
 
 export interface ChannelOtherSettings {

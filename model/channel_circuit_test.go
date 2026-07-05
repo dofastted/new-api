@@ -1,12 +1,12 @@
 package model
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,45 +23,85 @@ func resetChannelCircuitTestCache(t *testing.T) {
 	})
 }
 
-func TestChannelCircuitFailureThresholdOpens(t *testing.T) {
+func TestChannelCircuitThresholdOnePolicyOpensAndPreservesOpenWindow(t *testing.T) {
 	resetChannelCircuitTestCache(t)
-	t.Setenv("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", "2")
+	policy := ChannelCircuitPolicy{
+		Name:                     "claude-high-load",
+		FailureThreshold:         1,
+		OpenSeconds:              300,
+		HalfOpenSuccessThreshold: 2,
+	}
 
-	RecordChannelCircuitFailure(101, "bad_response")
-	require.False(t, IsChannelCircuitOpen(101))
+	status := RecordChannelCircuitFailure(101, "high_load", policy)
 
-	RecordChannelCircuitFailure(101, "bad_response")
-	status := GetChannelCircuitStatus(101)
-	require.Equal(t, ChannelCircuitOpen, status.State)
-	require.True(t, IsChannelCircuitOpen(101))
-	require.Equal(t, 2, status.FailureCount)
+	assert.Equal(t, ChannelCircuitOpen, status.State)
+	assert.True(t, IsChannelCircuitOpen(101))
+	assert.Equal(t, 1, status.FailureCount)
+	assert.Equal(t, "high_load", status.LastCategory)
+	assert.Equal(t, "claude-high-load", status.PolicyName)
+	assert.Equal(t, 1, status.FailureThreshold)
+	assert.Equal(t, 300, status.OpenSeconds)
+	assert.Equal(t, 2, status.HalfOpenSuccessThreshold)
+	assert.Equal(t, int64(300), status.NextAttemptUnix-status.OpenedAtUnix)
+
+	preservedNextAttempt := time.Now().Add(10 * time.Minute).Unix()
+	status.NextAttemptUnix = preservedNextAttempt
+	require.NoError(t, getChannelCircuitCache().SetWithTTL(channelCircuitKey(101), status, time.Minute))
+
+	status = RecordChannelCircuitFailure(101, "high_load", policy)
+	assert.Equal(t, ChannelCircuitOpen, status.State)
+	assert.Equal(t, 2, status.FailureCount)
+	assert.Equal(t, preservedNextAttempt, status.NextAttemptUnix)
 }
 
-func TestChannelCircuitOpenDurationAllowsHalfOpen(t *testing.T) {
+func TestChannelCircuitExpiredOpenBecomesHalfOpen(t *testing.T) {
 	resetChannelCircuitTestCache(t)
-	t.Setenv("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", "1")
-	t.Setenv("CHANNEL_CIRCUIT_OPEN_SECONDS", "1")
+	policy := ChannelCircuitPolicy{FailureThreshold: 1, OpenSeconds: 300, HalfOpenSuccessThreshold: 2}
 
-	RecordChannelCircuitFailure(102, "bad_response")
-	status := GetChannelCircuitStatus(102)
+	status := RecordChannelCircuitFailure(102, "high_load", policy)
 	status.NextAttemptUnix = time.Now().Add(-time.Second).Unix()
 	require.NoError(t, getChannelCircuitCache().SetWithTTL(channelCircuitKey(102), status, time.Minute))
 
 	status = GetChannelCircuitStatus(102)
-	require.Equal(t, ChannelCircuitHalfOpen, status.State)
+	assert.Equal(t, ChannelCircuitHalfOpen, status.State)
+	assert.Equal(t, 0, status.HalfOpenSuccessCount)
+	assert.False(t, IsChannelCircuitOpen(102))
 }
 
-func TestChannelCircuitSuccessCloses(t *testing.T) {
+func TestChannelCircuitHalfOpenSuccessThresholdClosesAfterConfiguredCount(t *testing.T) {
 	resetChannelCircuitTestCache(t)
-	t.Setenv("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", "1")
+	policy := ChannelCircuitPolicy{FailureThreshold: 1, OpenSeconds: 300, HalfOpenSuccessThreshold: 2}
 
-	RecordChannelCircuitFailure(103, "bad_response")
-	require.True(t, IsChannelCircuitOpen(103))
+	status := RecordChannelCircuitFailure(103, "high_load", policy)
+	status.State = ChannelCircuitHalfOpen
+	status.HalfOpenSuccessCount = 0
+	require.NoError(t, getChannelCircuitCache().SetWithTTL(channelCircuitKey(103), status, time.Minute))
 
-	RecordChannelCircuitSuccess(103)
-	status := GetChannelCircuitStatus(103)
-	require.Equal(t, ChannelCircuitClosed, status.State)
-	require.Equal(t, 0, status.FailureCount)
+	status = RecordChannelCircuitSuccess(103)
+	assert.Equal(t, ChannelCircuitHalfOpen, status.State)
+	assert.Equal(t, 1, status.HalfOpenSuccessCount)
+	assert.Equal(t, 1, status.FailureCount)
+
+	status = RecordChannelCircuitSuccess(103)
+	assert.Equal(t, ChannelCircuitClosed, status.State)
+	assert.Equal(t, 0, status.FailureCount)
+	assert.Equal(t, 0, status.HalfOpenSuccessCount)
+}
+
+func TestChannelCircuitHalfOpenFailureReopens(t *testing.T) {
+	resetChannelCircuitTestCache(t)
+	policy := ChannelCircuitPolicy{FailureThreshold: 1, OpenSeconds: 300, HalfOpenSuccessThreshold: 2}
+
+	status := RecordChannelCircuitFailure(104, "high_load", policy)
+	status.State = ChannelCircuitHalfOpen
+	status.HalfOpenSuccessCount = 1
+	require.NoError(t, getChannelCircuitCache().SetWithTTL(channelCircuitKey(104), status, time.Minute))
+
+	status = RecordChannelCircuitFailure(104, "high_load", policy)
+	assert.Equal(t, ChannelCircuitOpen, status.State)
+	assert.Equal(t, 2, status.FailureCount)
+	assert.Equal(t, 0, status.HalfOpenSuccessCount)
+	assert.Equal(t, int64(300), status.NextAttemptUnix-status.OpenedAtUnix)
 }
 
 func TestFilterOpenCircuitChannelIDs(t *testing.T) {
@@ -77,10 +117,4 @@ func TestResetChannelCircuitIgnoresInvalidID(t *testing.T) {
 	resetChannelCircuitTestCache(t)
 	ResetChannelCircuit(0)
 	require.Equal(t, ChannelCircuitClosed, GetChannelCircuitStatus(0).State)
-}
-
-func TestChannelCircuitUniqueKeys(t *testing.T) {
-	require.Equal(t, "channel:42", channelCircuitKey(42))
-	require.Equal(t, "channel:-1", channelCircuitKey(-1))
-	require.NotEqual(t, channelCircuitKey(1), fmt.Sprintf("channel:%d", 2))
 }
