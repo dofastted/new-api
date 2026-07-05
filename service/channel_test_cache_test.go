@@ -43,6 +43,38 @@ func TestCacheGetRandomSatisfiedChannelSkipsCachedFailedAnthropic(t *testing.T) 
 	assert.Contains(t, param.ExcludedChannelIds, failed.Id)
 }
 
+func TestCacheGetRandomSatisfiedChannelSkipsOpenCircuitClaudeMaxFallback(t *testing.T) {
+	db := setupChannelHealthRoutingTestDB(t)
+	primary := seedHealthRoutingChannelForGroup(t, db, 34, constant.ChannelTypeAnthropic, "claude-max", "claude-sonnet-4-6", 100)
+	fallback := seedHealthRoutingChannelForGroup(t, db, 24, constant.ChannelTypeAnthropic, "claude-max", "claude-sonnet-4-6", 0)
+	model.InitChannelCache()
+	RecordChannelFailure(primary.Id, ChannelCircuitClassHighLoadTemporarilyUnavailable, model.ChannelCircuitPolicy{
+		FailureThreshold: 1,
+		OpenSeconds:      300,
+	})
+	t.Cleanup(func() {
+		ResetChannelCircuit(primary.Id)
+		ResetChannelCircuit(fallback.Id)
+	})
+	require.Equal(t, model.ChannelCircuitOpen, GetChannelCircuitStatus(primary.Id).State)
+
+	ctx := newHealthRoutingContext()
+	ctx.Request = httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	ctx.Request.Header.Set("User-Agent", "claude-code/1.0")
+	channel, group, err := CacheGetRandomSatisfiedChannel(&RetryParam{
+		Ctx:        ctx,
+		TokenGroup: "claude-max",
+		ModelName:  "claude-sonnet-4-6",
+		Retry:      common.GetPointer(0),
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	assert.Equal(t, fallback.Id, channel.Id)
+	assert.NotEqual(t, primary.Id, channel.Id)
+	assert.Equal(t, "claude-max", group)
+}
+
 func TestCacheGetRandomSatisfiedChannelKeepsCachedHealthyAnthropic(t *testing.T) {
 	db := setupChannelHealthRoutingTestDB(t)
 	healthy := seedHealthRoutingChannel(t, db, 41003, constant.ChannelTypeAnthropic, 100)
@@ -165,21 +197,26 @@ func setupChannelHealthRoutingTestDB(t *testing.T) *gorm.DB {
 
 func seedHealthRoutingChannel(t *testing.T, db *gorm.DB, id int, channelType int, priorityValue int64) *model.Channel {
 	t.Helper()
+	return seedHealthRoutingChannelForGroup(t, db, id, channelType, "claude-sub", "claude-sonnet-4-6", priorityValue)
+}
+
+func seedHealthRoutingChannelForGroup(t *testing.T, db *gorm.DB, id int, channelType int, group string, modelName string, priorityValue int64) *model.Channel {
+	t.Helper()
 	weight := uint(1)
 	channel := &model.Channel{
 		Id:       id,
 		Type:     channelType,
 		Key:      "sk-test",
 		Name:     fmt.Sprintf("health-routing-%d", id),
-		Models:   "claude-sonnet-4-6",
+		Models:   modelName,
 		Status:   common.ChannelStatusEnabled,
 		Priority: &priorityValue,
 		Weight:   &weight,
 	}
 	require.NoError(t, db.Create(channel).Error)
 	require.NoError(t, db.Create(&model.Ability{
-		Group:     "claude-sub",
-		Model:     "claude-sonnet-4-6",
+		Group:     group,
+		Model:     modelName,
 		ChannelId: id,
 		Enabled:   true,
 		Priority:  &priorityValue,

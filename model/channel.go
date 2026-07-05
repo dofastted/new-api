@@ -1015,6 +1015,24 @@ func (channel *Channel) ValidateSettings() error {
 	if channelParams.RateLimitRPM < 0 {
 		return fmt.Errorf("rate_limit_rpm must be non-negative")
 	}
+	if channelParams.CircuitBreaker != nil {
+		if channelParams.CircuitBreaker.FailureThreshold < 0 {
+			return fmt.Errorf("circuit_breaker.failure_threshold must be non-negative")
+		}
+		if channelParams.CircuitBreaker.OpenSeconds < 0 {
+			return fmt.Errorf("circuit_breaker.open_seconds must be non-negative")
+		}
+		if channelParams.CircuitBreaker.HalfOpenSuccessThreshold < 0 {
+			return fmt.Errorf("circuit_breaker.half_open_success_threshold must be non-negative")
+		}
+		for i, rule := range channelParams.CircuitBreaker.Rules {
+			for _, statusCode := range rule.StatusCodes {
+				if statusCode < 100 || statusCode > 599 {
+					return fmt.Errorf("circuit_breaker.rules[%d].status_codes must be valid HTTP status codes", i)
+				}
+			}
+		}
+	}
 	channelOtherSettings := &dto.ChannelOtherSettings{}
 	if channel.OtherSettings != "" {
 		err := common.UnmarshalJsonStr(channel.OtherSettings, channelOtherSettings)

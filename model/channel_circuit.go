@@ -19,19 +19,32 @@ const (
 )
 
 type ChannelCircuitStatus struct {
-	ChannelID       int                 `json:"channel_id"`
-	State           ChannelCircuitState `json:"state"`
-	FailureCount    int                 `json:"failure_count"`
-	OpenedAtUnix    int64               `json:"opened_at_unix,omitempty"`
-	UpdatedAtUnix   int64               `json:"updated_at_unix"`
-	NextAttemptUnix int64               `json:"next_attempt_unix,omitempty"`
-	LastCategory    string              `json:"last_category,omitempty"`
+	ChannelID                int                 `json:"channel_id"`
+	State                    ChannelCircuitState `json:"state"`
+	FailureCount             int                 `json:"failure_count"`
+	HalfOpenSuccessCount     int                 `json:"half_open_success_count,omitempty"`
+	OpenedAtUnix             int64               `json:"opened_at_unix,omitempty"`
+	UpdatedAtUnix            int64               `json:"updated_at_unix"`
+	NextAttemptUnix          int64               `json:"next_attempt_unix,omitempty"`
+	LastCategory             string              `json:"last_category,omitempty"`
+	PolicyName               string              `json:"policy_name,omitempty"`
+	FailureThreshold         int                 `json:"failure_threshold,omitempty"`
+	OpenSeconds              int                 `json:"open_seconds,omitempty"`
+	HalfOpenSuccessThreshold int                 `json:"half_open_success_threshold,omitempty"`
+}
+
+type ChannelCircuitPolicy struct {
+	Name                     string
+	FailureThreshold         int
+	OpenSeconds              int
+	HalfOpenSuccessThreshold int
 }
 
 type channelCircuitConfig struct {
-	FailureThreshold int
-	OpenSeconds      int
-	CacheTTL         time.Duration
+	FailureThreshold         int
+	OpenSeconds              int
+	HalfOpenSuccessThreshold int
+	CacheTTL                 time.Duration
 }
 
 const channelCircuitCacheNamespace = "new-api:channel_circuit:v1"
@@ -42,18 +55,33 @@ var (
 )
 
 func getChannelCircuitConfig() channelCircuitConfig {
-	threshold := common.GetEnvOrDefault("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", 3)
+	return channelCircuitConfigFromPolicy(ChannelCircuitPolicy{})
+}
+
+func channelCircuitConfigFromPolicy(policy ChannelCircuitPolicy) channelCircuitConfig {
+	threshold := policy.FailureThreshold
+	if threshold <= 0 {
+		threshold = common.GetEnvOrDefault("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", 3)
+	}
 	if threshold <= 0 {
 		threshold = 3
 	}
-	openSeconds := common.GetEnvOrDefault("CHANNEL_CIRCUIT_OPEN_SECONDS", 60)
+	openSeconds := policy.OpenSeconds
+	if openSeconds <= 0 {
+		openSeconds = common.GetEnvOrDefault("CHANNEL_CIRCUIT_OPEN_SECONDS", 60)
+	}
 	if openSeconds <= 0 {
 		openSeconds = 60
 	}
+	halfOpenSuccessThreshold := policy.HalfOpenSuccessThreshold
+	if halfOpenSuccessThreshold <= 0 {
+		halfOpenSuccessThreshold = 1
+	}
 	return channelCircuitConfig{
-		FailureThreshold: threshold,
-		OpenSeconds:      openSeconds,
-		CacheTTL:         time.Duration(openSeconds*4) * time.Second,
+		FailureThreshold:         threshold,
+		OpenSeconds:              openSeconds,
+		HalfOpenSuccessThreshold: halfOpenSuccessThreshold,
+		CacheTTL:                 time.Duration(openSeconds*4) * time.Second,
 	}
 }
 
@@ -97,35 +125,67 @@ func IsChannelCircuitOpen(channelID int) bool {
 	return status.State == ChannelCircuitOpen
 }
 
-func RecordChannelCircuitSuccess(channelID int) {
+func RecordChannelCircuitSuccess(channelID int) ChannelCircuitStatus {
 	if channelID <= 0 {
-		return
+		return ChannelCircuitStatus{ChannelID: channelID, State: ChannelCircuitClosed}
 	}
-	ResetChannelCircuit(channelID)
-}
-
-func RecordChannelCircuitFailure(channelID int, category string) {
-	if channelID <= 0 {
-		return
+	status := GetChannelCircuitStatus(channelID)
+	if status.State != ChannelCircuitHalfOpen {
+		return ResetChannelCircuit(channelID)
+	}
+	threshold := status.HalfOpenSuccessThreshold
+	if threshold <= 0 {
+		threshold = 1
 	}
 	now := time.Now()
-	config := getChannelCircuitConfig()
+	status.HalfOpenSuccessCount++
+	status.UpdatedAtUnix = now.Unix()
+	if status.HalfOpenSuccessCount >= threshold {
+		return ResetChannelCircuit(channelID)
+	}
+	_ = getChannelCircuitCache().SetWithTTL(channelCircuitKey(channelID), status, statusCacheTTL(status))
+	return status
+}
+
+func RecordChannelCircuitFailure(channelID int, category string, policies ...ChannelCircuitPolicy) ChannelCircuitStatus {
+	if channelID <= 0 {
+		return ChannelCircuitStatus{ChannelID: channelID, State: ChannelCircuitClosed}
+	}
+	policy := ChannelCircuitPolicy{}
+	if len(policies) > 0 {
+		policy = policies[0]
+	}
+	config := channelCircuitConfigFromPolicy(policy)
+	now := time.Now()
 	status := GetChannelCircuitStatus(channelID)
 	status.ChannelID = channelID
 	status.FailureCount++
+	status.HalfOpenSuccessCount = 0
 	status.LastCategory = category
+	status.PolicyName = policy.Name
+	status.FailureThreshold = config.FailureThreshold
+	status.OpenSeconds = config.OpenSeconds
+	status.HalfOpenSuccessThreshold = config.HalfOpenSuccessThreshold
 	status.UpdatedAtUnix = now.Unix()
-	if status.State == ChannelCircuitHalfOpen || status.FailureCount >= config.FailureThreshold {
+	if status.State == ChannelCircuitOpen {
+		if status.OpenedAtUnix == 0 {
+			status.OpenedAtUnix = now.Unix()
+		}
+		if status.NextAttemptUnix == 0 {
+			status.NextAttemptUnix = now.Add(time.Duration(config.OpenSeconds) * time.Second).Unix()
+		}
+	} else if status.State == ChannelCircuitHalfOpen || status.FailureCount >= config.FailureThreshold {
 		status.State = ChannelCircuitOpen
 		status.OpenedAtUnix = now.Unix()
 		status.NextAttemptUnix = now.Add(time.Duration(config.OpenSeconds) * time.Second).Unix()
 	}
 	_ = getChannelCircuitCache().SetWithTTL(channelCircuitKey(channelID), status, config.CacheTTL)
+	return status
 }
 
-func ResetChannelCircuit(channelID int) {
+func ResetChannelCircuit(channelID int) ChannelCircuitStatus {
 	if channelID <= 0 {
-		return
+		return ChannelCircuitStatus{ChannelID: channelID, State: ChannelCircuitClosed}
 	}
 	now := time.Now()
 	status := ChannelCircuitStatus{
@@ -134,6 +194,7 @@ func ResetChannelCircuit(channelID int) {
 		UpdatedAtUnix: now.Unix(),
 	}
 	_ = getChannelCircuitCache().SetWithTTL(channelCircuitKey(channelID), status, getChannelCircuitConfig().CacheTTL)
+	return status
 }
 
 func normalizeChannelCircuitStatus(status ChannelCircuitStatus, now time.Time) ChannelCircuitStatus {
@@ -141,7 +202,16 @@ func normalizeChannelCircuitStatus(status ChannelCircuitStatus, now time.Time) C
 		return status
 	}
 	status.State = ChannelCircuitHalfOpen
+	status.HalfOpenSuccessCount = 0
 	status.UpdatedAtUnix = now.Unix()
-	_ = getChannelCircuitCache().SetWithTTL(channelCircuitKey(status.ChannelID), status, getChannelCircuitConfig().CacheTTL)
+	_ = getChannelCircuitCache().SetWithTTL(channelCircuitKey(status.ChannelID), status, statusCacheTTL(status))
 	return status
+}
+
+func statusCacheTTL(status ChannelCircuitStatus) time.Duration {
+	openSeconds := status.OpenSeconds
+	if openSeconds <= 0 {
+		openSeconds = getChannelCircuitConfig().OpenSeconds
+	}
+	return time.Duration(openSeconds*4) * time.Second
 }

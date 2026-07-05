@@ -12,17 +12,20 @@ type ChannelDecisionContext struct {
 
 // ChannelChainEntry records one channel routing decision without raw prompts or secrets.
 type ChannelChainEntry struct {
-	ChannelId     int                    `json:"channel_id,omitempty"`
-	ChannelName   string                 `json:"channel_name,omitempty"`
-	ChannelType   int                    `json:"channel_type,omitempty"`
-	Group         string                 `json:"group,omitempty"`
-	Reason        string                 `json:"reason,omitempty"`
-	Selection     string                 `json:"selection,omitempty"`
-	Attempt       int                    `json:"attempt,omitempty"`
-	RetryIndex    int                    `json:"retry_index,omitempty"`
-	CircuitState  string                 `json:"circuit_state,omitempty"`
-	Endpoint      string                 `json:"endpoint,omitempty"`
-	ErrorCode     string                 `json:"error_code,omitempty"`
-	ErrorCategory string                 `json:"error_category,omitempty"`
-	Decision      ChannelDecisionContext `json:"decision,omitempty"`
+	ChannelId         int                    `json:"channel_id,omitempty"`
+	ChannelName       string                 `json:"channel_name,omitempty"`
+	ChannelType       int                    `json:"channel_type,omitempty"`
+	Group             string                 `json:"group,omitempty"`
+	Reason            string                 `json:"reason,omitempty"`
+	Selection         string                 `json:"selection,omitempty"`
+	Attempt           int                    `json:"attempt,omitempty"`
+	RetryIndex        int                    `json:"retry_index,omitempty"`
+	CircuitState      string                 `json:"circuit_state,omitempty"`
+	CircuitClass      string                 `json:"circuit_class,omitempty"`
+	CircuitOpenUntil  int64                  `json:"circuit_open_until,omitempty"`
+	FallbackCandidate string                 `json:"fallback_candidate,omitempty"`
+	Endpoint          string                 `json:"endpoint,omitempty"`
+	ErrorCode         string                 `json:"error_code,omitempty"`
+	ErrorCategory     string                 `json:"error_category,omitempty"`
+	Decision          ChannelDecisionContext `json:"decision,omitempty"`
 }

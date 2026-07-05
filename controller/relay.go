@@ -540,6 +540,14 @@ func selectedChannelRateLimitRPM(c *gin.Context, channel *model.Channel) int {
 	return 0
 }
 
+func channelCircuitSettingForError(c *gin.Context, channelID int) dto.ChannelSettings {
+	if common.GetContextKeyInt(c, constant.ContextKeyChannelId) != channelID {
+		return dto.ChannelSettings{}
+	}
+	setting, _ := common.GetContextKeyType[dto.ChannelSettings](c, constant.ContextKeyChannelSetting)
+	return setting
+}
+
 func channelRateLimitAPIError() *types.NewAPIError {
 	return types.NewErrorWithStatusCode(
 		errors.New(service.ChannelRateLimitBusyMessage()),
@@ -658,10 +666,18 @@ func isRetryableChannelFailure(openaiErr *types.NewAPIError) bool {
 
 func processChannelError(c *gin.Context, channelError types.ChannelError, err *types.NewAPIError) {
 	logger.LogError(c, fmt.Sprintf("channel error (channel #%d, status code: %d): %s", channelError.ChannelId, err.StatusCode, common.LocalLogPreview(err.Error())))
-	service.AppendChannelFailureTrace(c, channelError.ChannelId, channelError.ChannelType, channelError.ChannelName, err)
-	if !isTooManyRequestsError(err) && service.ShouldRecordChannelCircuitFailure(err) {
-		service.RecordChannelFailure(channelError.ChannelId, string(err.GetErrorCode()))
+	circuitDecision := service.ClassifyChannelCircuitFailure(channelCircuitSettingForError(c, channelError.ChannelId), err)
+	circuitTrace := service.ChannelCircuitTrace{}
+	if circuitDecision.ShouldRecord {
+		status := service.RecordChannelFailure(channelError.ChannelId, circuitDecision.Category, circuitDecision.Policy)
+		circuitTrace = service.ChannelCircuitTrace{
+			Class:             circuitDecision.Category,
+			State:             string(status.State),
+			OpenUntil:         status.NextAttemptUnix,
+			FallbackCandidate: "same_group_retry",
+		}
 	}
+	service.AppendChannelFailureTraceWithCircuit(c, channelError.ChannelId, channelError.ChannelType, channelError.ChannelName, err, circuitTrace)
 	// 不要使用context获取渠道信息，异步处理时可能会出现渠道信息不一致的情况
 	// do not use context to get channel info, there may be inconsistent channel info when processing asynchronously
 	// 429 仍需走 ShouldDisableChannel：默认状态码规则不含 429，纯限流不会禁用，

@@ -7,13 +7,30 @@ import (
 )
 
 type ChannelSettings struct {
-	ForceFormat            bool   `json:"force_format,omitempty"`
-	ThinkingToContent      bool   `json:"thinking_to_content,omitempty"`
-	Proxy                  string `json:"proxy"`
-	RateLimitRPM           int    `json:"rate_limit_rpm,omitempty"`
-	PassThroughBodyEnabled bool   `json:"pass_through_body_enabled,omitempty"`
-	SystemPrompt           string `json:"system_prompt,omitempty"`
-	SystemPromptOverride   bool   `json:"system_prompt_override,omitempty"`
+	ForceFormat            bool                           `json:"force_format,omitempty"`
+	ThinkingToContent      bool                           `json:"thinking_to_content,omitempty"`
+	Proxy                  string                         `json:"proxy"`
+	RateLimitRPM           int                            `json:"rate_limit_rpm,omitempty"`
+	PassThroughBodyEnabled bool                           `json:"pass_through_body_enabled,omitempty"`
+	SystemPrompt           string                         `json:"system_prompt,omitempty"`
+	SystemPromptOverride   bool                           `json:"system_prompt_override,omitempty"`
+	CircuitBreaker         *ChannelCircuitBreakerSettings `json:"circuit_breaker,omitempty"`
+}
+
+type ChannelCircuitBreakerSettings struct {
+	Enabled                  bool                        `json:"enabled,omitempty"`
+	FailureThreshold         int                         `json:"failure_threshold,omitempty"`
+	OpenSeconds              int                         `json:"open_seconds,omitempty"`
+	HalfOpenSuccessThreshold int                         `json:"half_open_success_threshold,omitempty"`
+	Rules                    []ChannelCircuitBreakerRule `json:"rules,omitempty"`
+}
+
+type ChannelCircuitBreakerRule struct {
+	Name            string   `json:"name,omitempty"`
+	Class           string   `json:"class,omitempty"`
+	StatusCodes     []int    `json:"status_codes,omitempty"`
+	ErrorCodes      []string `json:"error_codes,omitempty"`
+	MessageContains []string `json:"message_contains,omitempty"`
 }
 
 type VertexKeyType string
