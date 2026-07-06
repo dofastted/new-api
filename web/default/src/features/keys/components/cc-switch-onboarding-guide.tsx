@@ -48,15 +48,20 @@ const CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY =
 
 function getSavedOnboardingExpanded(): boolean {
   if (typeof window === 'undefined') return true
+
+  let saved: string | null = null
   try {
-    return (
-      window.localStorage.getItem(
-        CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY
-      ) !== 'collapsed'
+    saved = window.localStorage.getItem(
+      CC_SWITCH_ONBOARDING_VISIBILITY_STORAGE_KEY
     )
   } catch {
-    return true
+    /* local storage may be unavailable */
   }
+
+  if (saved === 'expanded') return true
+  if (saved === 'collapsed') return false
+
+  return !window.matchMedia('(max-width: 640px)').matches
 }
 
 function saveOnboardingExpanded(expanded: boolean): void {
@@ -84,17 +89,22 @@ export function CCSwitchOnboardingGuide() {
 
   if (!expanded) {
     return (
-      <Card className='border-primary/10 bg-primary/[0.025]'>
-        <CardHeader className='gap-3 py-3'>
+      <Card size='sm' className='border-primary/10 bg-primary/[0.025] shrink-0'>
+        <CardHeader className='grid-cols-[1fr_auto] items-center gap-2 py-2 sm:py-3'>
           <div className='min-w-0'>
             <CardTitle className='truncate text-sm'>
               {t('Connect ccswitch quickly')}
             </CardTitle>
           </div>
-          <CardAction className='col-start-1 row-start-2 shrink-0 justify-self-start sm:col-start-2 sm:row-start-1 sm:justify-self-end'>
-            <Button size='sm' variant='outline' onClick={toggleExpanded}>
+          <CardAction className='col-start-2 row-start-1 shrink-0 justify-self-end'>
+            <Button
+              size='sm'
+              variant='outline'
+              onClick={toggleExpanded}
+              aria-label={t('Show setup guide')}
+            >
               <ChevronDown className='size-4' aria-hidden='true' />
-              {t('Show setup guide')}
+              <span className='max-sm:sr-only'>{t('Show setup guide')}</span>
             </Button>
           </CardAction>
         </CardHeader>
@@ -126,26 +136,35 @@ export function CCSwitchOnboardingGuide() {
   ]
 
   return (
-    <Card className='border-primary/10 bg-primary/[0.025]'>
-      <CardHeader className='gap-3 py-4'>
-        <div className='space-y-1'>
-          <CardTitle className='text-base'>
-            {t('Connect ccswitch quickly')}
-          </CardTitle>
-          <CardDescription className='max-w-3xl text-xs sm:text-sm'>
-            {t(
-              'Create an API key, choose a provider group, then click the ccswitch button beside the API key to import it.'
-            )}
-          </CardDescription>
-        </div>
-        <CardAction className='col-start-1 row-start-2 flex w-full shrink-0 flex-wrap justify-start gap-2 sm:col-start-2 sm:row-start-1 sm:w-auto sm:justify-end'>
-          <Button size='sm' variant='outline' onClick={toggleExpanded}>
-            <ChevronUp className='size-4' aria-hidden='true' />
-            {t('Hide setup guide')}
-          </Button>
+    <Card size='sm' className='border-primary/10 bg-primary/[0.025] shrink-0'>
+      <CardHeader className='gap-2 py-3 sm:gap-3 sm:py-4'>
+        <div className='min-w-0 space-y-2'>
           <Button
             size='sm'
             variant='outline'
+            onClick={toggleExpanded}
+            className='w-fit'
+          >
+            <ChevronUp className='size-4' aria-hidden='true' />
+            {t('Hide setup guide')}
+          </Button>
+          <div className='space-y-1'>
+            <CardTitle className='text-sm sm:text-base'>
+              {t('Connect ccswitch quickly')}
+            </CardTitle>
+            <CardDescription className='line-clamp-2 max-w-3xl text-xs sm:line-clamp-none sm:text-sm'>
+              {t(
+                'Create an API key, choose a provider group, then click the ccswitch button beside the API key to import it.'
+              )}
+            </CardDescription>
+          </div>
+        </div>
+        <CardAction className='col-start-1 row-start-2 grid w-full grid-cols-3 gap-2 sm:col-start-2 sm:row-start-1 sm:flex sm:w-auto sm:flex-wrap sm:justify-end'>
+          <Button
+            size='sm'
+            variant='outline'
+            aria-label={t('Download ccswitch')}
+            className='max-sm:w-full'
             render={
               <a
                 href={CC_SWITCH_DOWNLOAD_URL}
@@ -154,24 +173,31 @@ export function CCSwitchOnboardingGuide() {
               />
             }
           >
-            <Download className='size-4' />
-            {t('Download ccswitch')}
+            <Download className='size-4' aria-hidden='true' />
+            <span className='max-sm:sr-only'>{t('Download ccswitch')}</span>
           </Button>
           <Button
             size='sm'
             variant='outline'
+            aria-label={t('View CLI guide')}
+            className='max-sm:w-full'
             render={<a href={CLI_GUIDE_URL} />}
           >
-            <ExternalLink className='size-4' />
-            {t('View CLI guide')}
+            <ExternalLink className='size-4' aria-hidden='true' />
+            <span className='max-sm:sr-only'>{t('View CLI guide')}</span>
           </Button>
-          <Button size='sm' onClick={() => setOpen('create')}>
-            <MousePointerClick className='size-4' />
-            {t('Create API Key')}
+          <Button
+            size='sm'
+            onClick={() => setOpen('create')}
+            aria-label={t('Create API Key')}
+            className='max-sm:w-full'
+          >
+            <MousePointerClick className='size-4' aria-hidden='true' />
+            <span className='max-sm:sr-only'>{t('Create API Key')}</span>
           </Button>
         </CardAction>
       </CardHeader>
-      <CardContent className='pt-0'>
+      <CardContent className='hidden pt-0 sm:block'>
         <div className='text-muted-foreground grid gap-2 text-xs md:grid-cols-3'>
           {steps.map((step) => (
             <div
