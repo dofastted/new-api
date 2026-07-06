@@ -5272,6 +5272,10 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Subscription Provider Groups": "サブスクリプションのプロバイダーグループ",
+    "All Provider Groups": "すべてのプロバイダーグループ",
+    "No provider groups available": "利用可能なプロバイダーグループがありません",
+    "Limit subscription quota usage to these provider routing groups. Leave empty to allow all provider groups.": "サブスクリプション枠の利用をこれらのプロバイダールーティンググループに制限します。空のままにすると、すべてのプロバイダーグループを許可します。"
   }
 }

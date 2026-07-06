@@ -31,6 +31,7 @@ import {
   sideDrawerHeaderClassName,
   sideDrawerSwitchItemClassName,
 } from '@/components/drawer-layout'
+import { MultiSelect } from '@/components/multi-select'
 import { Button } from '@/components/ui/button'
 import {
   Form,
@@ -61,6 +62,10 @@ import {
 } from '@/components/ui/sheet'
 import { Switch } from '@/components/ui/switch'
 import { getCurrencyDisplay, getCurrencyLabel } from '@/lib/currency'
+import {
+  getProviderGroups,
+  PROVIDER_GROUP_STATUS,
+} from '@/features/channels/provider-group-api'
 
 import {
   createPlan,
@@ -99,6 +104,9 @@ export function SubscriptionsMutateDrawer({
   const currencyLabel = getCurrencyLabel()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
+  const [providerGroupOptions, setProviderGroupOptions] = useState<
+    { label: string; value: string }[]
+  >([])
   const [creatingPancakeProduct, setCreatingPancakeProduct] = useState(false)
   const [pancakeProducts, setPancakeProducts] = useState<
     { id: string; name: string; status: string }[]
@@ -122,6 +130,32 @@ export function SubscriptionsMutateDrawer({
           if (res.success) setGroupOptions(res.data || [])
         })
         .catch(() => {})
+      getProviderGroups()
+        .then((res) => {
+          if (!res.success) return
+          const reserved: Record<string, true> = {
+            default: true,
+            premium: true,
+            vip: true,
+            auto: true,
+          }
+          setProviderGroupOptions(
+            (res.data || [])
+              .filter(
+                (group) =>
+                  group.status === PROVIDER_GROUP_STATUS.enabled &&
+                  !group.is_auto &&
+                  !reserved[group.name]
+              )
+              .map((group) => ({
+                value: group.name,
+                label: group.display_name
+                  ? `${group.display_name} (${group.name})`
+                  : group.name,
+              }))
+          )
+        })
+        .catch(() => setProviderGroupOptions([]))
       // Best-effort — empty list still lets the operator use "+ Create".
       listWaffoPancakeSubscriptionProductOptions()
         .then((res) => {
@@ -492,6 +526,32 @@ export function SubscriptionsMutateDrawer({
                   )}
                 />
               </div>
+
+              <FormField
+                control={form.control}
+                name='provider_groups'
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t('Subscription Provider Groups')}</FormLabel>
+                    <FormControl>
+                      <MultiSelect
+                        options={providerGroupOptions}
+                        selected={field.value || []}
+                        onChange={field.onChange}
+                        placeholder={t('All Provider Groups')}
+                        emptyText={t('No provider groups available')}
+                        maxVisibleChips={4}
+                      />
+                    </FormControl>
+                    <FormDescription>
+                      {t(
+                        'Limit subscription quota usage to these provider routing groups. Leave empty to allow all provider groups.'
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
               <FormField
                 control={form.control}

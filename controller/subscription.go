@@ -138,6 +138,36 @@ type AdminUpsertSubscriptionPlanRequest struct {
 	Plan model.SubscriptionPlan `json:"plan"`
 }
 
+func normalizeSubscriptionPlanProviderGroups(c *gin.Context, plan *model.SubscriptionPlan) bool {
+	plan.ProviderGroups = plan.ProviderGroups.Normalized()
+	if len(plan.ProviderGroups) == 0 {
+		return true
+	}
+	onlineGroups, err := model.ListOnlineProviderGroups()
+	if err != nil {
+		common.ApiError(c, err)
+		return false
+	}
+	available := make(map[string]struct{}, len(onlineGroups))
+	for _, group := range onlineGroups {
+		if group.IsAuto {
+			continue
+		}
+		available[group.Name] = struct{}{}
+	}
+	for _, group := range plan.ProviderGroups {
+		if model.IsReservedUserProviderGroupName(group) || group == "auto" {
+			common.ApiErrorMsg(c, "订阅可用分组不能使用用户等级分组或auto")
+			return false
+		}
+		if _, ok := available[group]; !ok {
+			common.ApiErrorMsg(c, "订阅可用分组不存在或已下线")
+			return false
+		}
+	}
+	return true
+}
+
 func AdminCreateSubscriptionPlan(c *gin.Context) {
 	if !requirePaymentCompliance(c) {
 		return
@@ -198,6 +228,9 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 			common.ApiErrorMsg(c, "降级分组不存在")
 			return
 		}
+	}
+	if !normalizeSubscriptionPlanProviderGroups(c, &req.Plan) {
+		return
 	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
@@ -273,6 +306,9 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			return
 		}
 	}
+	if !normalizeSubscriptionPlanProviderGroups(c, &req.Plan) {
+		return
+	}
 	req.Plan.QuotaResetPeriod = model.NormalizeResetPeriod(req.Plan.QuotaResetPeriod)
 	if req.Plan.QuotaResetPeriod == model.SubscriptionResetCustom && req.Plan.QuotaResetCustomSeconds <= 0 {
 		common.ApiErrorMsg(c, "自定义重置周期需大于0秒")
@@ -298,6 +334,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,
 			"downgrade_group":            req.Plan.DowngradeGroup,
+			"provider_groups":            req.Plan.ProviderGroups,
 			"quota_reset_period":         req.Plan.QuotaResetPeriod,
 			"quota_reset_custom_seconds": req.Plan.QuotaResetCustomSeconds,
 			"updated_at":                 common.GetTimestamp(),

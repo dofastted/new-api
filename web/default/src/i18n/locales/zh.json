@@ -5272,6 +5272,10 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Subscription Provider Groups": "订阅可用 Provider 分组",
+    "All Provider Groups": "全部 Provider 分组",
+    "No provider groups available": "没有可用的 Provider 分组",
+    "Limit subscription quota usage to these provider routing groups. Leave empty to allow all provider groups.": "将订阅额度限制为仅可用于这些 Provider 路由分组。留空表示允许全部 Provider 分组。"
   }
 }

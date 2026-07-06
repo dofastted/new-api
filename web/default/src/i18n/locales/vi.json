@@ -5272,6 +5272,10 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Subscription Provider Groups": "Nhóm provider của gói đăng ký",
+    "All Provider Groups": "Tất cả nhóm provider",
+    "No provider groups available": "Không có nhóm provider khả dụng",
+    "Limit subscription quota usage to these provider routing groups. Leave empty to allow all provider groups.": "Giới hạn việc dùng quota đăng ký trong các nhóm định tuyến provider này. Để trống để cho phép tất cả nhóm provider."
   }
 }

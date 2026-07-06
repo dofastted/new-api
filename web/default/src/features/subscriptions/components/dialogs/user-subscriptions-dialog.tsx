@@ -28,6 +28,7 @@ import {
   sideDrawerFormClassName,
   sideDrawerHeaderClassName,
 } from '@/components/drawer-layout'
+import { GroupBadge } from '@/components/group-badge'
 import { StatusBadge } from '@/components/status-badge'
 import { TableId } from '@/components/table-id'
 import { Button } from '@/components/ui/button'
@@ -305,6 +306,27 @@ export function UserSubscriptionsDialog(props: Props) {
                     return total > 0
                       ? `${formatQuota(used)}/${formatQuota(total)}`
                       : t('Unlimited')
+                  },
+                },
+                {
+                  id: 'provider_groups',
+                  header: t('Subscription Provider Groups'),
+                  cell: (record) => {
+                    const groups = record.subscription.provider_groups || []
+                    if (groups.length === 0) {
+                      return (
+                        <span className='text-muted-foreground text-sm'>
+                          {t('All Provider Groups')}
+                        </span>
+                      )
+                    }
+                    return (
+                      <div className='flex flex-wrap gap-1'>
+                        {groups.map((group) => (
+                          <GroupBadge key={group} group={group} />
+                        ))}
+                      </div>
+                    )
                   },
                 },
                 {

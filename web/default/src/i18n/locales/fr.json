@@ -5272,6 +5272,10 @@
     "Zero retention": "Aucune rétention",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Subscription Provider Groups": "Groupes de fournisseurs de l'abonnement",
+    "All Provider Groups": "Tous les groupes de fournisseurs",
+    "No provider groups available": "Aucun groupe de fournisseurs disponible",
+    "Limit subscription quota usage to these provider routing groups. Leave empty to allow all provider groups.": "Limite l'utilisation du quota d'abonnement à ces groupes de routage fournisseur. Laissez vide pour autoriser tous les groupes de fournisseurs."
   }
 }
