@@ -1,6 +1,7 @@
 package model
 
 import (
+	"sort"
 	"strconv"
 	"strings"
 
@@ -497,6 +498,66 @@ func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) err
 		}
 		if len(toDelete) > 0 {
 			if err := tx.Where("id IN ?", toDelete).Delete(&ProviderGroupChannel{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// SyncChannelGroupsFromProviderGroupChannels mirrors provider-group memberships
+// back to channels.group for legacy display and APIs. Routing remains derived
+// from provider_group_channels via RebuildAbilitiesFromProviderGroups.
+func SyncChannelGroupsFromProviderGroupChannels(channelIDs []int) error {
+	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) || len(channelIDs) == 0 {
+		return nil
+	}
+	seenIDs := make(map[int]struct{}, len(channelIDs))
+	uniqueIDs := make([]int, 0, len(channelIDs))
+	for _, id := range channelIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, ok := seenIDs[id]; ok {
+			continue
+		}
+		seenIDs[id] = struct{}{}
+		uniqueIDs = append(uniqueIDs, id)
+	}
+	if len(uniqueIDs) == 0 {
+		return nil
+	}
+
+	var members []ProviderGroupChannel
+	if err := DB.Table("provider_group_channels").
+		Select("provider_group_channels.*").
+		Joins("JOIN provider_groups ON provider_groups.id = provider_group_channels.provider_group_id").
+		Where("provider_group_channels.channel_id IN ? AND provider_groups.deleted_at IS NULL", uniqueIDs).
+		Find(&members).Error; err != nil {
+		return err
+	}
+	groupsByChannel := make(map[int][]string, len(uniqueIDs))
+	seenGroupByChannel := make(map[int]map[string]struct{}, len(uniqueIDs))
+	for _, member := range members {
+		groupName := strings.TrimSpace(member.GroupName)
+		if groupName == "" {
+			continue
+		}
+		if seenGroupByChannel[member.ChannelId] == nil {
+			seenGroupByChannel[member.ChannelId] = make(map[string]struct{})
+		}
+		if _, ok := seenGroupByChannel[member.ChannelId][groupName]; ok {
+			continue
+		}
+		seenGroupByChannel[member.ChannelId][groupName] = struct{}{}
+		groupsByChannel[member.ChannelId] = append(groupsByChannel[member.ChannelId], groupName)
+	}
+
+	return DB.Transaction(func(tx *gorm.DB) error {
+		for _, channelID := range uniqueIDs {
+			groups := groupsByChannel[channelID]
+			sort.Strings(groups)
+			if err := tx.Model(&Channel{}).Where("id = ?", channelID).Update("group", strings.Join(groups, ",")).Error; err != nil {
 				return err
 			}
 		}

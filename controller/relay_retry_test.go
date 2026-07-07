@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -125,6 +126,27 @@ func TestShouldRetryAllowsNonTooManyRequestsRetryableStatus(t *testing.T) {
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
 	err := types.NewErrorWithStatusCode(
 		fmt.Errorf("upstream failed"),
+		types.ErrorCodeBadResponse,
+		http.StatusInternalServerError,
+	)
+
+	assert.True(t, shouldRetry(ctx, err, 1))
+}
+
+func TestShouldRetryAllowsRetryWhenAffinityRuleOnlyMatched(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	orig := operation_setting.AutomaticRetryStatusCodeRanges
+	t.Cleanup(func() { operation_setting.AutomaticRetryStatusCodeRanges = orig })
+	require.NoError(t, operation_setting.AutomaticRetryStatusCodesFromString("500"))
+
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"metadata":{"user_id":"u1"}}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	_, found := service.GetPreferredChannelByAffinity(ctx, "claude-sonnet-4-6", "auto")
+	require.False(t, found)
+
+	err := types.NewErrorWithStatusCode(
+		errors.New("upstream failed"),
 		types.ErrorCodeBadResponse,
 		http.StatusInternalServerError,
 	)
@@ -453,6 +475,40 @@ func TestSelectRelayChannelWithRateLimitWaitsAndSucceeds(t *testing.T) {
 	require.NotNil(t, channel)
 	assert.Equal(t, availableAfterWait.Id, channel.Id)
 	assert.True(t, released)
+}
+
+func TestSelectRelayChannelWithRateLimitWaitKeepsFailedChannelExcluded(t *testing.T) {
+	restoreRelayChannelRateLimitTestState(t)
+	ctx := newRelayRateLimitTestContext()
+	retryParam := &service.RetryParam{}
+	failed := newRelayRateLimitTestChannel(31009, 0)
+	limited := newRelayRateLimitTestChannel(31010, 0)
+	availableAfterWait := newRelayRateLimitTestChannel(31011, 0)
+	retryParam.ExcludeFailedChannel(failed.Id)
+	service.MarkChannelRateLimited(limited.Id, time.Hour)
+
+	released := false
+	relayRateWaitForSlot = func(ctx context.Context, tryAcquire func() bool, budget time.Duration) error {
+		released = true
+		require.True(t, tryAcquire())
+		return nil
+	}
+
+	channel, err := selectRelayChannelWithRateLimit(ctx, retryParam, func() (*model.Channel, *types.NewAPIError) {
+		if _, ok := retryParam.ExcludedChannelIds[failed.Id]; !ok {
+			return failed, nil
+		}
+		if released {
+			return availableAfterWait, nil
+		}
+		return limited, nil
+	})
+
+	require.Nil(t, err)
+	require.NotNil(t, channel)
+	assert.Equal(t, availableAfterWait.Id, channel.Id)
+	assert.Contains(t, retryParam.ExcludedChannelIds, failed.Id)
+	assert.NotContains(t, retryParam.ExcludedChannelIds, limited.Id)
 }
 
 func TestSelectRelayChannelWithRateLimitTimeout(t *testing.T) {

@@ -11,15 +11,20 @@ import (
 )
 
 type RetryParam struct {
-	Ctx                 *gin.Context
-	TokenGroup          string
-	ModelName           string
-	RequestPath         string
-	Retry               *int
-	ExcludedChannelIds  map[int]struct{}
-	AllowedGroups       []string
-	FallbackToAllGroups bool
-	resetNextTry        bool
+	Ctx         *gin.Context
+	TokenGroup  string
+	ModelName   string
+	RequestPath string
+	Retry       *int
+	// ExcludedChannelIds is a compatibility snapshot of request-local exclusions.
+	// New retry code should update it through the methods below so durable
+	// provider failures are not lost when transient rate-limit exclusions reset.
+	ExcludedChannelIds    map[int]struct{}
+	FailedChannelIds      map[int]struct{}
+	RateLimitedChannelIds map[int]struct{}
+	AllowedGroups         []string
+	FallbackToAllGroups   bool
+	resetNextTry          bool
 }
 
 func (p *RetryParam) GetRetry() int {
@@ -46,6 +51,86 @@ func (p *RetryParam) IncreaseRetry() {
 
 func (p *RetryParam) ResetRetryNextTry() {
 	p.resetNextTry = true
+}
+
+func (p *RetryParam) ExcludeChannel(channelID int) {
+	p.ExcludeFailedChannel(channelID)
+}
+
+func (p *RetryParam) ExcludeFailedChannel(channelID int) {
+	if p == nil || channelID <= 0 {
+		return
+	}
+	if p.FailedChannelIds == nil {
+		p.FailedChannelIds = make(map[int]struct{})
+	}
+	p.FailedChannelIds[channelID] = struct{}{}
+	p.syncExcludedChannelIds()
+}
+
+func (p *RetryParam) ExcludeRateLimitedChannel(channelID int) bool {
+	if p == nil || channelID <= 0 || p.IsChannelExcluded(channelID) {
+		return false
+	}
+	if p.RateLimitedChannelIds == nil {
+		p.RateLimitedChannelIds = make(map[int]struct{})
+	}
+	p.RateLimitedChannelIds[channelID] = struct{}{}
+	p.syncExcludedChannelIds()
+	return true
+}
+
+func (p *RetryParam) ResetRateLimitedChannelExclusions() {
+	if p == nil {
+		return
+	}
+	p.RateLimitedChannelIds = nil
+	p.syncExcludedChannelIds()
+}
+
+func (p *RetryParam) IsChannelExcluded(channelID int) bool {
+	if p == nil || channelID <= 0 {
+		return false
+	}
+	if _, ok := p.FailedChannelIds[channelID]; ok {
+		return true
+	}
+	if _, ok := p.RateLimitedChannelIds[channelID]; ok {
+		return true
+	}
+	_, ok := p.ExcludedChannelIds[channelID]
+	return ok
+}
+
+func (p *RetryParam) SelectionExcludedChannelIds() map[int]struct{} {
+	if p == nil {
+		return nil
+	}
+	return mergeChannelExclusionMaps(p.ExcludedChannelIds, p.FailedChannelIds, p.RateLimitedChannelIds)
+}
+
+func (p *RetryParam) syncExcludedChannelIds() {
+	if p == nil {
+		return
+	}
+	p.ExcludedChannelIds = mergeChannelExclusionMaps(p.FailedChannelIds, p.RateLimitedChannelIds)
+}
+
+func mergeChannelExclusionMaps(maps ...map[int]struct{}) map[int]struct{} {
+	size := 0
+	for _, m := range maps {
+		size += len(m)
+	}
+	if size == 0 {
+		return nil
+	}
+	merged := make(map[int]struct{}, size)
+	for _, m := range maps {
+		for id := range m {
+			merged[id] = struct{}{}
+		}
+	}
+	return merged
 }
 
 // CacheGetRandomSatisfiedChannel tries to get a random channel that satisfies the requirements.
@@ -209,9 +294,46 @@ func resetAutoGroupRetryState(param *RetryParam) {
 	common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupRetryIndex, 0)
 }
 
+func PrepareRetryAfterChannelFailure(param *RetryParam, channel *model.Channel) {
+	if param == nil || channel == nil {
+		return
+	}
+	param.ExcludeChannel(channel.Id)
+	if param.TokenGroup != "auto" || !common.GetContextKeyBool(param.Ctx, constant.ContextKeyTokenCrossGroupRetry) {
+		return
+	}
+	selectedGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyAutoGroup)
+	if selectedGroup == "" {
+		return
+	}
+	autoGroups := retryAutoGroups(param)
+	for i, group := range autoGroups {
+		if group != selectedGroup {
+			continue
+		}
+		common.SetContextKey(param.Ctx, constant.ContextKeyAutoGroupIndex, i+1)
+		param.SetRetry(0)
+		param.ResetRetryNextTry()
+		return
+	}
+}
+
+func retryAutoGroups(param *RetryParam) []string {
+	userGroup := common.GetContextKeyString(param.Ctx, constant.ContextKeyUserGroup)
+	autoGroups := GetRequestAutoGroup(param.Ctx, userGroup)
+	if len(param.AllowedGroups) == 0 {
+		return autoGroups
+	}
+	allowedGroups := filterAllowedProviderGroups(autoGroups, param.AllowedGroups)
+	if len(allowedGroups) > 0 || !param.FallbackToAllGroups {
+		return allowedGroups
+	}
+	return autoGroups
+}
+
 func selectCachedHealthyChannel(param *RetryParam, group string, retry int) (*model.Channel, error) {
 	for {
-		channel, err := model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.RequestPath, param.ExcludedChannelIds)
+		channel, err := model.GetRandomSatisfiedChannel(group, param.ModelName, retry, param.RequestPath, param.SelectionExcludedChannelIds())
 		if err != nil || channel == nil {
 			return channel, err
 		}
@@ -225,10 +347,7 @@ func excludeCachedUnhealthyChannel(param *RetryParam, channel *model.Channel) bo
 	if !ShouldExcludeChannelByCachedHealth(channel) {
 		return false
 	}
-	if param.ExcludedChannelIds == nil {
-		param.ExcludedChannelIds = make(map[int]struct{})
-	}
-	param.ExcludedChannelIds[channel.Id] = struct{}{}
+	param.ExcludeFailedChannel(channel.Id)
 	logger.LogDebug(param.Ctx, "channel #%d skipped because cached health probe failed", channel.Id)
 	return true
 }

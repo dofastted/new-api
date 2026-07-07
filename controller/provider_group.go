@@ -112,11 +112,22 @@ func DeleteProviderGroup(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效分组 ID")
 		return
 	}
+	var affectedChannelIDs []int
+	if err := model.DB.Model(&model.ProviderGroupChannel{}).
+		Where("provider_group_id = ?", id).
+		Pluck("channel_id", &affectedChannelIDs).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DB.Delete(&model.ProviderGroup{}, id).Error; err != nil {
 		common.ApiError(c, err)
 		return
 	}
 	if err := model.RebuildAbilitiesFromProviderGroups(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.SyncChannelGroupsFromProviderGroupChannels(affectedChannelIDs); err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -154,11 +165,19 @@ func UpdateProviderGroupChannels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	var affectedChannelIDs []int
+	if err := model.DB.Model(&model.ProviderGroupChannel{}).
+		Where("provider_group_id = ?", id).
+		Pluck("channel_id", &affectedChannelIDs).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	now := common.GetTimestamp()
 	channelIDs := make([]int, 0, len(req.Items))
 	for _, item := range req.Items {
 		channelIDs = append(channelIDs, item.ChannelId)
 	}
+	affectedChannelIDs = append(affectedChannelIDs, channelIDs...)
 	channelsByID := make(map[int]model.Channel, len(channelIDs))
 	if len(channelIDs) > 0 {
 		var channels []model.Channel
@@ -188,6 +207,10 @@ func UpdateProviderGroupChannels(c *gin.Context) {
 		return
 	}
 	if err := model.RebuildAbilitiesFromProviderGroups(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := model.SyncChannelGroupsFromProviderGroupChannels(affectedChannelIDs); err != nil {
 		common.ApiError(c, err)
 		return
 	}

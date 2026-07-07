@@ -303,6 +303,33 @@ func TestSyncProviderGroupChannelsForChannel(t *testing.T) {
 	assert.Equal(t, int64(0), otherCount, "stale membership should be deleted")
 }
 
+func TestSyncChannelGroupsFromProviderGroupChannelsMirrorsProviderGroupAuthority(t *testing.T) {
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&[]ProviderGroup{
+		{Id: 9601, Name: "mirror-b", DisplayName: "mirror-b", Status: ProviderGroupStatusEnabled, UsageRatio: 1},
+		{Id: 9602, Name: "mirror-a", DisplayName: "mirror-a", Status: ProviderGroupStatusEnabled, UsageRatio: 1},
+	}).Error)
+	require.NoError(t, DB.Create(&Channel{
+		Id: 9603, Type: 1, Key: "sk-mirror", Status: common.ChannelStatusEnabled,
+		Name: "mirror-channel", Models: "gpt-4o", Group: "stale-channel-group",
+	}).Error)
+	require.NoError(t, DB.Create(&[]ProviderGroupChannel{
+		{ProviderGroupId: 9601, GroupName: "mirror-b", ChannelId: 9603, RouteTypes: defaultProviderRouteTypesJSON(), Enabled: true},
+		{ProviderGroupId: 9602, GroupName: "mirror-a", ChannelId: 9603, RouteTypes: defaultProviderRouteTypesJSON(), Enabled: false},
+	}).Error)
+
+	require.NoError(t, SyncChannelGroupsFromProviderGroupChannels([]int{9603}))
+	var channel Channel
+	require.NoError(t, DB.First(&channel, 9603).Error)
+	assert.Equal(t, "mirror-a,mirror-b", channel.Group)
+
+	require.NoError(t, DB.Delete(&ProviderGroup{}, 9602).Error)
+	require.NoError(t, SyncChannelGroupsFromProviderGroupChannels([]int{9603}))
+	require.NoError(t, DB.First(&channel, 9603).Error)
+	assert.Equal(t, "mirror-b", channel.Group)
+}
+
 func TestSyncProviderGroupChannelsRefreshesRouteTypes(t *testing.T) {
 	clearProviderGroupTestTables(t)
 	require.NoError(t, DB.Create(&ProviderGroup{
