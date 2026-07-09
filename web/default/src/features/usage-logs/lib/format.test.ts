@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { formatModelName } from './format'
+import { formatModelName, getLogBillingUnitPrices } from './format'
 
 import type { UsageLog } from '../data/schema'
 
@@ -109,5 +109,42 @@ describe('formatModelName', () => {
 
     assert.equal(result.isMapped, true)
     assert.equal(result.actualModel, 'gpt-4o')
+  })
+})
+
+describe('getLogBillingUnitPrices', () => {
+  test('builds token and cache unit price lines from ratio metadata', () => {
+    const prices = getLogBillingUnitPrices({
+      model_ratio: 1,
+      completion_ratio: 3,
+      cache_ratio: 0.25,
+      cache_creation_ratio: 1.25,
+    })
+
+    assert.ok(prices.input)
+    assert.ok(prices.output)
+    assert.ok(prices.cacheRead)
+    assert.ok(prices.cacheWrite)
+    assert.equal(prices.tokensLine, `${prices.input} / ${prices.output}/M`)
+    assert.equal(prices.cacheLine, `${prices.cacheRead} / ${prices.cacheWrite}/M`)
+  })
+
+  test('returns empty prices for per-call billing', () => {
+    const prices = getLogBillingUnitPrices({
+      model_price: 0.05,
+      model_ratio: 1,
+      completion_ratio: 3,
+    })
+
+    assert.deepEqual(prices, {})
+  })
+
+  test('returns empty prices when model ratio is missing', () => {
+    const prices = getLogBillingUnitPrices({
+      completion_ratio: 3,
+      cache_ratio: 0.25,
+    })
+
+    assert.deepEqual(prices, {})
   })
 })

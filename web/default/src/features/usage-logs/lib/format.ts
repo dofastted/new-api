@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { StatusBadgeProps } from '@/components/status-badge'
+import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   BILLING_PRICING_VARS,
   normalizeTierLabel,
@@ -249,6 +250,110 @@ export function hasAnyCacheTokens(
     (other.cache_creation_tokens_5m || 0) > 0 ||
     (other.cache_creation_tokens_1h || 0) > 0
   )
+}
+
+const LOG_UNIT_PRICE_OPTS = {
+  digitsLarge: 4,
+  digitsSmall: 6,
+  abbreviate: false,
+} as const
+
+export interface LogBillingUnitPrices {
+  /** Formatted input unit price, e.g. "$2.00". */
+  input?: string
+  /** Formatted output unit price, e.g. "$6.00". */
+  output?: string
+  /** Formatted cache-read unit price. */
+  cacheRead?: string
+  /** Formatted cache-write unit price (5m/default). */
+  cacheWrite?: string
+  /** Compact token column label: "$2.00 / $6.00/M". */
+  tokensLine?: string
+  /** Compact cache column label: "$0.50/M" or "$0.50 / $2.50/M". */
+  cacheLine?: string
+}
+
+function formatUnitPriceUSD(priceUSD: number | null | undefined): string | undefined {
+  if (priceUSD == null || !Number.isFinite(priceUSD) || priceUSD < 0) {
+    return undefined
+  }
+  return formatBillingCurrencyFromUSD(priceUSD, LOG_UNIT_PRICE_OPTS)
+}
+
+function joinUnitPriceLine(parts: Array<string | undefined>): string | undefined {
+  const values = parts.filter((part): part is string => Boolean(part))
+  if (values.length === 0) return undefined
+  return `${values.join(' / ')}/M`
+}
+
+/**
+ * Resolve per-1M-token unit prices for a usage log from `other` billing metadata.
+ * Used under Tokens / Cache columns so operators can see the applied rate.
+ */
+export function getLogBillingUnitPrices(
+  other: LogOtherData | null | undefined
+): LogBillingUnitPrices {
+  if (!other) return {}
+
+  if ((other.model_price ?? 0) > 0) {
+    // Per-call billing has no per-token unit price for these columns.
+    return {}
+  }
+
+  if (other.billing_mode === 'tiered_expr') {
+    const summary = getTieredBillingSummary(other)
+    if (!summary) return {}
+    const byField = new Map(
+      summary.priceEntries.map((entry) => [entry.field, entry.price])
+    )
+    const input = formatUnitPriceUSD(byField.get('inputPrice'))
+    const output = formatUnitPriceUSD(byField.get('outputPrice'))
+    const cacheRead = formatUnitPriceUSD(byField.get('cacheReadPrice'))
+    const cacheWrite =
+      formatUnitPriceUSD(byField.get('cacheCreatePrice')) ??
+      formatUnitPriceUSD(byField.get('cacheCreate1hPrice'))
+    return {
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      tokensLine: joinUnitPriceLine([input, output]),
+      cacheLine: joinUnitPriceLine([cacheRead, cacheWrite]),
+    }
+  }
+
+  if (other.model_ratio == null || !Number.isFinite(other.model_ratio)) {
+    return {}
+  }
+
+  const inputUSD = other.model_ratio * 2
+  const outputUSD =
+    other.completion_ratio != null && Number.isFinite(other.completion_ratio)
+      ? inputUSD * other.completion_ratio
+      : undefined
+  const cacheReadUSD =
+    other.cache_ratio != null && Number.isFinite(other.cache_ratio)
+      ? inputUSD * other.cache_ratio
+      : undefined
+  const cacheWriteUSD =
+    other.cache_creation_ratio != null &&
+    Number.isFinite(other.cache_creation_ratio)
+      ? inputUSD * other.cache_creation_ratio
+      : undefined
+
+  const input = formatUnitPriceUSD(inputUSD)
+  const output = formatUnitPriceUSD(outputUSD)
+  const cacheRead = formatUnitPriceUSD(cacheReadUSD)
+  const cacheWrite = formatUnitPriceUSD(cacheWriteUSD)
+
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    tokensLine: joinUnitPriceLine([input, output]),
+    cacheLine: joinUnitPriceLine([cacheRead, cacheWrite]),
+  }
 }
 
 export function getTieredBillingSummary(

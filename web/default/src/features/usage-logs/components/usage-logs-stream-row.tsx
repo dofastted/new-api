@@ -42,6 +42,7 @@ import {
 import type { UsageLog } from '../data/schema'
 import {
   formatModelName,
+  getLogBillingUnitPrices,
   getResponseTimeColor,
   parseLogOther,
 } from '../lib/format'
@@ -289,19 +290,37 @@ function CostChip(props: { quota: number; subscription?: boolean }) {
   )
 }
 
-function TokensCell(props: { prompt: number; completion: number }) {
+function TokensCell(props: {
+  prompt: number
+  completion: number
+  billingLine?: string
+  showBilling?: boolean
+}) {
   return (
     <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
       <span>{props.prompt.toLocaleString()}</span>
       <span className='text-muted-foreground'>
         {props.completion.toLocaleString()}
       </span>
+      {props.showBilling && props.billingLine && (
+        <span
+          className='text-muted-foreground/70 max-w-full truncate text-[10px]'
+          title={props.billingLine}
+        >
+          {props.billingLine}
+        </span>
+      )}
     </div>
   )
 }
 
-function CacheCell(props: { read: number; write: number }) {
-  if (props.read === 0 && props.write === 0) {
+function CacheCell(props: {
+  read: number
+  write: number
+  billingLine?: string
+  showBilling?: boolean
+}) {
+  if (props.read === 0 && props.write === 0 && !props.billingLine) {
     return (
       <span className='text-muted-foreground/40 font-mono text-[11px]'>-</span>
     )
@@ -314,6 +333,14 @@ function CacheCell(props: { read: number; write: number }) {
       <span className='text-sky-600/80 dark:text-sky-400/80'>
         {props.read > 0 ? `↓${props.read.toLocaleString()}` : '-'}
       </span>
+      {props.showBilling && props.billingLine && (
+        <span
+          className='text-muted-foreground/70 max-w-full truncate text-[10px]'
+          title={props.billingLine}
+        >
+          {props.billingLine}
+        </span>
+      )}
     </div>
   )
 }
@@ -403,11 +430,13 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     ? cacheWrite5m + cacheWrite1h
     : other?.cache_creation_tokens || 0
   const isSubscription = other?.billing_source === 'subscription'
+  const unitPrices = getLogBillingUnitPrices(other)
+  const showBillingPrices = !props.compact
   const modelInfo = formatModelName(log)
 
   if (props.simplifiedUserView) {
     const className = cn(
-      'border-border/40 hover:bg-accent/40 flex h-[44px] w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
+      'border-border/40 hover:bg-accent/40 flex min-h-[44px] w-full items-center border-b border-l-2 border-l-transparent px-2 py-1 text-[13px] transition-colors',
       rowTint,
       isError && 'border-l-rose-500/70 dark:border-l-rose-400/60',
       props.isNew && 'usage-log-row-new'
@@ -468,23 +497,55 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
             )}
           </div>
           <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.input)}>
-            <span className='font-mono text-[11px] tabular-nums'>
-              {log.prompt_tokens > 0 ? log.prompt_tokens.toLocaleString() : '-'}
-            </span>
+            <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+              <span>
+                {log.prompt_tokens > 0
+                  ? log.prompt_tokens.toLocaleString()
+                  : '-'}
+              </span>
+              {unitPrices.input && (
+                <span
+                  className='text-muted-foreground/70 max-w-full truncate text-[10px]'
+                  title={`${unitPrices.input}/M`}
+                >
+                  {unitPrices.input}/M
+                </span>
+              )}
+            </div>
           </div>
           <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.output)}>
-            <span className='font-mono text-[11px] tabular-nums'>
-              {log.completion_tokens > 0
-                ? log.completion_tokens.toLocaleString()
-                : '-'}
-            </span>
+            <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+              <span>
+                {log.completion_tokens > 0
+                  ? log.completion_tokens.toLocaleString()
+                  : '-'}
+              </span>
+              {unitPrices.output && (
+                <span
+                  className='text-muted-foreground/70 max-w-full truncate text-[10px]'
+                  title={`${unitPrices.output}/M`}
+                >
+                  {unitPrices.output}/M
+                </span>
+              )}
+            </div>
           </div>
           <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cache)}>
-            <span className='font-mono text-[11px] tabular-nums'>
-              {cacheReadTokens + cacheWriteTokens > 0
-                ? (cacheReadTokens + cacheWriteTokens).toLocaleString()
-                : '-'}
-            </span>
+            <div className='flex flex-col items-end font-mono text-[11px] leading-tight tabular-nums'>
+              <span>
+                {cacheReadTokens + cacheWriteTokens > 0
+                  ? (cacheReadTokens + cacheWriteTokens).toLocaleString()
+                  : '-'}
+              </span>
+              {unitPrices.cacheLine && (
+                <span
+                  className='text-muted-foreground/70 max-w-full truncate text-[10px]'
+                  title={unitPrices.cacheLine}
+                >
+                  {unitPrices.cacheLine}
+                </span>
+              )}
+            </div>
           </div>
           <div className={cn('text-right', SIMPLE_USER_STREAM_COLUMNS.cost)}>
             <CostChip quota={log.quota} subscription={isSubscription} />
@@ -577,13 +638,20 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
               <TokensCell
                 prompt={log.prompt_tokens}
                 completion={log.completion_tokens}
+                billingLine={unitPrices.tokensLine}
+                showBilling={showBillingPrices}
               />
             </div>
           )
         case 'cache':
           return (
             <div key={id} className={cn('text-right', STREAM_COLUMNS.cache)}>
-              <CacheCell read={cacheReadTokens} write={cacheWriteTokens} />
+              <CacheCell
+                read={cacheReadTokens}
+                write={cacheWriteTokens}
+                billingLine={unitPrices.cacheLine}
+                showBilling={showBillingPrices}
+              />
             </div>
           )
         case 'cost':
@@ -679,7 +747,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
 
   const className = cn(
     'border-border/40 hover:bg-accent/50 flex w-full items-center border-b border-l-2 border-l-transparent px-2 text-[13px] transition-colors',
-    props.compact ? 'h-[32px]' : 'h-[44px]',
+    props.compact ? 'h-[32px]' : 'min-h-[44px] py-1',
     rowTint,
     isError && 'border-l-rose-500/70 dark:border-l-rose-400/60',
     props.isNew && 'usage-log-row-new',
