@@ -77,7 +77,6 @@ import { DetailsDialog } from './dialogs/details-dialog'
 import { TopupOrderDetail } from './topup-order-detail'
 import { UsageLogsErrorAnalysisBar } from './usage-logs-error-analysis-bar'
 import { UsageLogsStreamColumnManager } from './usage-logs-stream-column-manager'
-import { UsageLogsStreamColumnTabs } from './usage-logs-stream-column-tabs'
 import { UsageLogsStreamHeader } from './usage-logs-stream-header'
 import { UsageLogsStreamRow } from './usage-logs-stream-row'
 
@@ -435,19 +434,22 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
       {!shouldUseSimplifiedUserView && <UsageLogsErrorAnalysisBar logs={logs} />}
 
       <div className='border-border/70 bg-card flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border'>
-        {!shouldUseSimplifiedUserView && !isCompact && !isTopupMode && (
-          <UsageLogsStreamColumnTabs
-            isAdmin={props.isAdmin}
-            settings={columnSettings}
-            onChange={handleColumnSettingsChange}
-          />
-        )}
         {!isTopupMode && (
           <UsageLogsStreamHeader
             isAdmin={props.isAdmin}
             compact={isCompact}
             simplifiedUserView={shouldUseSimplifiedUserView}
             columnOrder={renderedColumnOrder}
+            columnSettings={
+              !shouldUseSimplifiedUserView && !isCompact
+                ? columnSettings
+                : undefined
+            }
+            onColumnSettingsChange={
+              !shouldUseSimplifiedUserView && !isCompact
+                ? handleColumnSettingsChange
+                : undefined
+            }
           />
         )}
         <div ref={parentRef} className='min-h-0 flex-1 overflow-auto'>

@@ -48,7 +48,7 @@ import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
   getFirstResponseTimeColor,
-  getLogBillingUnitPrices,
+  getLogBilledCostLabels,
   getResponseTimeColor,
   getTieredBillingSummary,
   hasAnyCacheTokens,
@@ -811,7 +811,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const cacheWriteTokens = hasSplitCache
           ? cacheWrite5m + cacheWrite1h
           : other?.cache_creation_tokens || 0
-        const unitPrices = getLogBillingUnitPrices(other)
+        const billedCosts = getLogBilledCostLabels(log, other)
 
         return (
           <div className='flex flex-col gap-0.5'>
@@ -819,12 +819,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {promptTokens.toLocaleString()} /{' '}
               {completionTokens.toLocaleString()}
             </span>
-            {unitPrices.tokensLine && (
+            {billedCosts.tokensLine && (
               <span
                 className='text-muted-foreground/70 font-mono text-[11px] tabular-nums'
-                title={unitPrices.tokensLine}
+                title={billedCosts.tokensLine}
               >
-                {unitPrices.tokensLine}
+                {billedCosts.tokensLine}
               </span>
             )}
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
@@ -841,12 +841,12 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
                     </span>
                   )}
                 </div>
-                {unitPrices.cacheLine && (
+                {billedCosts.cacheLine && (
                   <span
                     className='text-muted-foreground/70 font-mono tabular-nums'
-                    title={unitPrices.cacheLine}
+                    title={billedCosts.cacheLine}
                   >
-                    {unitPrices.cacheLine}
+                    {billedCosts.cacheLine}
                   </span>
                 )}
               </div>

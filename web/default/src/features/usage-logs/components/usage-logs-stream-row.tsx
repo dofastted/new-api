@@ -42,7 +42,7 @@ import {
 import type { UsageLog } from '../data/schema'
 import {
   formatModelName,
-  getLogBillingUnitPrices,
+  getLogBilledCostLabels,
   getResponseTimeColor,
   parseLogOther,
 } from '../lib/format'
@@ -430,7 +430,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
     ? cacheWrite5m + cacheWrite1h
     : other?.cache_creation_tokens || 0
   const isSubscription = other?.billing_source === 'subscription'
-  const unitPrices = getLogBillingUnitPrices(other)
+  const billedCosts = getLogBilledCostLabels(log, other)
   const showBillingPrices = !props.compact
   const modelInfo = formatModelName(log)
 
@@ -503,12 +503,12 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
                   ? log.prompt_tokens.toLocaleString()
                   : '-'}
               </span>
-              {unitPrices.input && (
+              {billedCosts.input && (
                 <span
                   className='text-muted-foreground/70 max-w-full truncate text-[10px]'
-                  title={`${unitPrices.input}/M`}
+                  title={billedCosts.input}
                 >
-                  {unitPrices.input}/M
+                  {billedCosts.input}
                 </span>
               )}
             </div>
@@ -520,12 +520,12 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
                   ? log.completion_tokens.toLocaleString()
                   : '-'}
               </span>
-              {unitPrices.output && (
+              {billedCosts.output && (
                 <span
                   className='text-muted-foreground/70 max-w-full truncate text-[10px]'
-                  title={`${unitPrices.output}/M`}
+                  title={billedCosts.output}
                 >
-                  {unitPrices.output}/M
+                  {billedCosts.output}
                 </span>
               )}
             </div>
@@ -537,12 +537,12 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
                   ? (cacheReadTokens + cacheWriteTokens).toLocaleString()
                   : '-'}
               </span>
-              {unitPrices.cacheLine && (
+              {billedCosts.cacheLine && (
                 <span
                   className='text-muted-foreground/70 max-w-full truncate text-[10px]'
-                  title={unitPrices.cacheLine}
+                  title={billedCosts.cacheLine}
                 >
-                  {unitPrices.cacheLine}
+                  {billedCosts.cacheLine}
                 </span>
               )}
             </div>
@@ -638,7 +638,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
               <TokensCell
                 prompt={log.prompt_tokens}
                 completion={log.completion_tokens}
-                billingLine={unitPrices.tokensLine}
+                billingLine={billedCosts.tokensLine}
                 showBilling={showBillingPrices}
               />
             </div>
@@ -649,7 +649,7 @@ function UsageLogsStreamRowInner(props: UsageLogsStreamRowProps) {
               <CacheCell
                 read={cacheReadTokens}
                 write={cacheWriteTokens}
-                billingLine={unitPrices.cacheLine}
+                billingLine={billedCosts.cacheLine}
                 showBilling={showBillingPrices}
               />
             </div>

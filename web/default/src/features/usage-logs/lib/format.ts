@@ -17,13 +17,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { StatusBadgeProps } from '@/components/status-badge'
-import { formatBillingCurrencyFromUSD } from '@/lib/currency'
 import {
   BILLING_PRICING_VARS,
   normalizeTierLabel,
   parseTiersFromExpr,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import { formatLogQuota } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -252,107 +252,171 @@ export function hasAnyCacheTokens(
   )
 }
 
-const LOG_UNIT_PRICE_OPTS = {
-  digitsLarge: 4,
-  digitsSmall: 6,
-  abbreviate: false,
-} as const
-
-export interface LogBillingUnitPrices {
-  /** Formatted input unit price, e.g. "$2.00". */
+export interface LogBilledCostLabels {
+  /** Formatted billed input cost (non-cache prompt). */
   input?: string
-  /** Formatted output unit price, e.g. "$6.00". */
+  /** Formatted billed output/completion cost. */
   output?: string
-  /** Formatted cache-read unit price. */
+  /** Formatted billed cache-read cost. */
   cacheRead?: string
-  /** Formatted cache-write unit price (5m/default). */
+  /** Formatted billed cache-write cost. */
   cacheWrite?: string
-  /** Compact token column label: "$2.00 / $6.00/M". */
+  /** Compact tokens column: "input / output" billed amounts. */
   tokensLine?: string
-  /** Compact cache column label: "$0.50/M" or "$0.50 / $2.50/M". */
+  /** Compact cache column: "read / write" billed amounts. */
   cacheLine?: string
 }
 
-function formatUnitPriceUSD(priceUSD: number | null | undefined): string | undefined {
-  if (priceUSD == null || !Number.isFinite(priceUSD) || priceUSD < 0) {
-    return undefined
-  }
-  return formatBillingCurrencyFromUSD(priceUSD, LOG_UNIT_PRICE_OPTS)
+export interface LogBilledQuotaParts {
+  inputQuota: number
+  outputQuota: number
+  cacheReadQuota: number
+  cacheWriteQuota: number
 }
 
-function joinUnitPriceLine(parts: Array<string | undefined>): string | undefined {
+function effectiveGroupRatio(other: LogOtherData): number {
+  const userGroupRatio = other.user_group_ratio
+  if (
+    userGroupRatio != null &&
+    Number.isFinite(userGroupRatio) &&
+    userGroupRatio !== -1
+  ) {
+    return userGroupRatio
+  }
+  if (other.group_ratio != null && Number.isFinite(other.group_ratio)) {
+    return other.group_ratio
+  }
+  return 1
+}
+
+function joinCostLine(parts: Array<string | undefined>): string | undefined {
   const values = parts.filter((part): part is string => Boolean(part))
   if (values.length === 0) return undefined
-  return `${values.join(' / ')}/M`
+  return values.join(' / ')
 }
 
 /**
- * Resolve per-1M-token unit prices for a usage log from `other` billing metadata.
- * Used under Tokens / Cache columns so operators can see the applied rate.
+ * Split a usage log into billed quota parts using the same per-token formula
+ * as settlement (token counts × ratios × group ratio). Returns null when the
+ * log cannot be reconstructed (per-call / missing ratio / tiered expr).
  */
-export function getLogBillingUnitPrices(
+export function calculateLogBilledQuotaParts(
+  log: {
+    prompt_tokens?: number
+    completion_tokens?: number
+  },
   other: LogOtherData | null | undefined
-): LogBillingUnitPrices {
-  if (!other) return {}
-
-  if ((other.model_price ?? 0) > 0) {
-    // Per-call billing has no per-token unit price for these columns.
-    return {}
-  }
-
-  if (other.billing_mode === 'tiered_expr') {
-    const summary = getTieredBillingSummary(other)
-    if (!summary) return {}
-    const byField = new Map(
-      summary.priceEntries.map((entry) => [entry.field, entry.price])
-    )
-    const input = formatUnitPriceUSD(byField.get('inputPrice'))
-    const output = formatUnitPriceUSD(byField.get('outputPrice'))
-    const cacheRead = formatUnitPriceUSD(byField.get('cacheReadPrice'))
-    const cacheWrite =
-      formatUnitPriceUSD(byField.get('cacheCreatePrice')) ??
-      formatUnitPriceUSD(byField.get('cacheCreate1hPrice'))
-    return {
-      input,
-      output,
-      cacheRead,
-      cacheWrite,
-      tokensLine: joinUnitPriceLine([input, output]),
-      cacheLine: joinUnitPriceLine([cacheRead, cacheWrite]),
-    }
-  }
-
+): LogBilledQuotaParts | null {
+  if (!other) return null
+  if ((other.model_price ?? 0) > 0) return null
+  if (other.billing_mode === 'tiered_expr') return null
   if (other.model_ratio == null || !Number.isFinite(other.model_ratio)) {
-    return {}
+    return null
   }
 
-  const inputUSD = other.model_ratio * 2
-  const outputUSD =
+  const modelRatio = other.model_ratio
+  const groupRatio = effectiveGroupRatio(other)
+  const ratio = modelRatio * groupRatio
+  if (!Number.isFinite(ratio)) return null
+
+  const promptTokens = Math.max(0, log.prompt_tokens || 0)
+  const completionTokens = Math.max(0, log.completion_tokens || 0)
+  const cacheReadTokens = Math.max(0, other.cache_tokens || 0)
+  const cacheWrite5m = Math.max(0, other.cache_creation_tokens_5m || 0)
+  const cacheWrite1h = Math.max(0, other.cache_creation_tokens_1h || 0)
+  const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
+  const cacheWriteTokens = hasSplitCache
+    ? cacheWrite5m + cacheWrite1h
+    : Math.max(0, other.cache_creation_tokens || 0)
+
+  // OpenAI-style usage includes cache tokens inside prompt_tokens; Claude-style
+  // logs already keep cache out of the prompt total.
+  const isClaudeStyle = other.claude === true
+  let baseInputTokens = promptTokens
+  if (!isClaudeStyle) {
+    baseInputTokens = Math.max(
+      0,
+      promptTokens - cacheReadTokens - cacheWriteTokens
+    )
+  }
+
+  const completionRatio =
     other.completion_ratio != null && Number.isFinite(other.completion_ratio)
-      ? inputUSD * other.completion_ratio
-      : undefined
-  const cacheReadUSD =
+      ? other.completion_ratio
+      : 1
+  const cacheRatio =
     other.cache_ratio != null && Number.isFinite(other.cache_ratio)
-      ? inputUSD * other.cache_ratio
-      : undefined
-  const cacheWriteUSD =
+      ? other.cache_ratio
+      : 1
+  const cacheCreateRatio =
     other.cache_creation_ratio != null &&
     Number.isFinite(other.cache_creation_ratio)
-      ? inputUSD * other.cache_creation_ratio
-      : undefined
+      ? other.cache_creation_ratio
+      : 1
+  const cacheCreate5mRatio =
+    other.cache_creation_ratio_5m != null &&
+    Number.isFinite(other.cache_creation_ratio_5m)
+      ? other.cache_creation_ratio_5m
+      : cacheCreateRatio
+  const cacheCreate1hRatio =
+    other.cache_creation_ratio_1h != null &&
+    Number.isFinite(other.cache_creation_ratio_1h)
+      ? other.cache_creation_ratio_1h
+      : cacheCreateRatio
 
-  const input = formatUnitPriceUSD(inputUSD)
-  const output = formatUnitPriceUSD(outputUSD)
-  const cacheRead = formatUnitPriceUSD(cacheReadUSD)
-  const cacheWrite = formatUnitPriceUSD(cacheWriteUSD)
+  let cacheWriteWeighted = 0
+  if (hasSplitCache) {
+    cacheWriteWeighted =
+      cacheWrite5m * cacheCreate5mRatio + cacheWrite1h * cacheCreate1hRatio
+  } else if (cacheWriteTokens > 0) {
+    cacheWriteWeighted = cacheWriteTokens * cacheCreateRatio
+  }
+
+  const inputQuota = Math.round(baseInputTokens * ratio)
+  const outputQuota = Math.round(completionTokens * completionRatio * ratio)
+  const cacheReadQuota = Math.round(cacheReadTokens * cacheRatio * ratio)
+  const cacheWriteQuota = Math.round(cacheWriteWeighted * ratio)
+
+  return {
+    inputQuota,
+    outputQuota,
+    cacheReadQuota,
+    cacheWriteQuota,
+  }
+}
+
+/**
+ * Format actual billed cost fragments for Tokens / Cache columns.
+ * Uses settlement-style quota math, not official list unit prices.
+ */
+export function getLogBilledCostLabels(
+  log: {
+    prompt_tokens?: number
+    completion_tokens?: number
+  },
+  other: LogOtherData | null | undefined
+): LogBilledCostLabels {
+  const parts = calculateLogBilledQuotaParts(log, other)
+  if (!parts) return {}
+
+  const input =
+    parts.inputQuota > 0 ? formatLogQuota(parts.inputQuota) : undefined
+  const output =
+    parts.outputQuota > 0 ? formatLogQuota(parts.outputQuota) : undefined
+  const cacheRead =
+    parts.cacheReadQuota > 0 ? formatLogQuota(parts.cacheReadQuota) : undefined
+  const cacheWrite =
+    parts.cacheWriteQuota > 0
+      ? formatLogQuota(parts.cacheWriteQuota)
+      : undefined
 
   return {
     input,
     output,
     cacheRead,
     cacheWrite,
-    tokensLine: joinUnitPriceLine([input, output]),
-    cacheLine: joinUnitPriceLine([cacheRead, cacheWrite]),
+    tokensLine: joinCostLine([input, output]),
+    cacheLine: joinCostLine([cacheRead, cacheWrite]),
   }
 }
 

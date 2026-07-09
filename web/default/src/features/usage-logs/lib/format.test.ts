@@ -19,19 +19,26 @@ For commercial licensing, please contact support@quantumnous.com
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { formatModelName, getLogBillingUnitPrices } from './format'
+import {
+  calculateLogBilledQuotaParts,
+  formatModelName,
+  getLogBilledCostLabels,
+} from './format'
 
 import type { UsageLog } from '../data/schema'
 
-function makeLog(modelName: string, other: Record<string, unknown> = {}): UsageLog {
+function makeLog(
+  modelName: string,
+  other: Record<string, unknown> = {}
+): UsageLog {
   return {
     id: 1,
     user_id: 1,
-    created_at: 1000,
+    created_at: 0,
     type: 2,
     content: '',
-    username: '',
-    token_name: '',
+    username: 'tester',
+    token_name: 'key',
     model_name: modelName,
     quota: 0,
     prompt_tokens: 0,
@@ -41,55 +48,22 @@ function makeLog(modelName: string, other: Record<string, unknown> = {}): UsageL
     channel: 0,
     channel_name: '',
     token_id: 0,
-    group: '',
+    group: 'default',
     ip: '',
     other: JSON.stringify(other),
-    request_id: '',
-    upstream_request_id: '',
-  }
+  } as UsageLog
 }
 
 describe('formatModelName', () => {
-  test('marks mapped when upstream_model differs from request model', () => {
-    const result = formatModelName(
-      makeLog('gpt-4o', { upstream_model: 'gpt-4o-2024-08-06' })
-    )
-
-    assert.equal(result.name, 'gpt-4o')
-    assert.equal(result.isMapped, true)
-    assert.equal(result.actualModel, 'gpt-4o-2024-08-06')
-  })
-
-  test('does not mark mapped when upstream_model equals request model', () => {
-    const result = formatModelName(
-      makeLog('gpt-4o', { upstream_model: 'gpt-4o' })
-    )
-
-    assert.equal(result.name, 'gpt-4o')
-    assert.equal(result.isMapped, false)
-    assert.equal(result.actualModel, undefined)
-  })
-
-  test('upstream_model_name takes priority over upstream_model', () => {
+  test('marks mapped models and exposes the upstream model', () => {
     const result = formatModelName(
       makeLog('gpt-4o', {
         upstream_model: 'gpt-4o-2024-08-06',
-        upstream_model_name: 'azure-gpt-4o-mini',
+        is_model_mapped: true,
       })
     )
 
-    assert.equal(result.isMapped, true)
-    assert.equal(result.actualModel, 'azure-gpt-4o-mini')
-  })
-
-  test('falls back to upstream_model when upstream_model_name is empty', () => {
-    const result = formatModelName(
-      makeLog('gpt-4o', {
-        upstream_model_name: '',
-        upstream_model: 'gpt-4o-2024-08-06',
-      })
-    )
-
+    assert.equal(result.name, 'gpt-4o')
     assert.equal(result.isMapped, true)
     assert.equal(result.actualModel, 'gpt-4o-2024-08-06')
   })
@@ -112,39 +86,65 @@ describe('formatModelName', () => {
   })
 })
 
-describe('getLogBillingUnitPrices', () => {
-  test('builds token and cache unit price lines from ratio metadata', () => {
-    const prices = getLogBillingUnitPrices({
-      model_ratio: 1,
-      completion_ratio: 3,
-      cache_ratio: 0.25,
-      cache_creation_ratio: 1.25,
-    })
+describe('calculateLogBilledQuotaParts', () => {
+  test('computes actual billed quota after cache and group ratio', () => {
+    // prompt=1000, cache=800, completion=100, model=1, completion=3, cache=0.25, group=0.1
+    // base input = 200, inputQuota = round(200*0.1)=20
+    // output = round(100*3*0.1)=30
+    // cache read = round(800*0.25*0.1)=20
+    const parts = calculateLogBilledQuotaParts(
+      { prompt_tokens: 1000, completion_tokens: 100 },
+      {
+        model_ratio: 1,
+        completion_ratio: 3,
+        cache_ratio: 0.25,
+        cache_tokens: 800,
+        group_ratio: 0.1,
+      }
+    )
 
-    assert.ok(prices.input)
-    assert.ok(prices.output)
-    assert.ok(prices.cacheRead)
-    assert.ok(prices.cacheWrite)
-    assert.equal(prices.tokensLine, `${prices.input} / ${prices.output}/M`)
-    assert.equal(prices.cacheLine, `${prices.cacheRead} / ${prices.cacheWrite}/M`)
+    assert.deepEqual(parts, {
+      inputQuota: 20,
+      outputQuota: 30,
+      cacheReadQuota: 20,
+      cacheWriteQuota: 0,
+    })
   })
 
-  test('returns empty prices for per-call billing', () => {
-    const prices = getLogBillingUnitPrices({
-      model_price: 0.05,
-      model_ratio: 1,
-      completion_ratio: 3,
-    })
-
-    assert.deepEqual(prices, {})
+  test('returns null for per-call billing', () => {
+    const parts = calculateLogBilledQuotaParts(
+      { prompt_tokens: 10, completion_tokens: 1 },
+      { model_price: 0.05, model_ratio: 1 }
+    )
+    assert.equal(parts, null)
   })
 
-  test('returns empty prices when model ratio is missing', () => {
-    const prices = getLogBillingUnitPrices({
-      completion_ratio: 3,
-      cache_ratio: 0.25,
-    })
+  test('returns null when model ratio missing', () => {
+    const parts = calculateLogBilledQuotaParts(
+      { prompt_tokens: 10, completion_tokens: 1 },
+      { completion_ratio: 3, cache_ratio: 0.25 }
+    )
+    assert.equal(parts, null)
+  })
+})
 
-    assert.deepEqual(prices, {})
+describe('getLogBilledCostLabels', () => {
+  test('formats non-zero billed fragments', () => {
+    const labels = getLogBilledCostLabels(
+      { prompt_tokens: 1000, completion_tokens: 100 },
+      {
+        model_ratio: 1,
+        completion_ratio: 3,
+        cache_ratio: 0.25,
+        cache_tokens: 800,
+        group_ratio: 0.1,
+      }
+    )
+
+    assert.ok(labels.input)
+    assert.ok(labels.output)
+    assert.ok(labels.cacheRead)
+    assert.equal(labels.tokensLine, `${labels.input} / ${labels.output}`)
+    assert.equal(labels.cacheLine, labels.cacheRead)
   })
 })
