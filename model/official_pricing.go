@@ -47,6 +47,8 @@ type OfficialModelPrice struct {
 	CacheRatio              *float64 `json:"cache_ratio,omitempty"`
 	CreateCacheRatio        *float64 `json:"create_cache_ratio,omitempty"`
 	Active                  bool     `json:"active" gorm:"index"`
+	Stale                   bool     `json:"stale" gorm:"index"`
+	LastConfirmedAt         int64    `json:"last_confirmed_at" gorm:"bigint;index"`
 	CreatedAt               int64    `json:"created_at" gorm:"bigint;index"`
 	UpdatedAt               int64    `json:"updated_at" gorm:"bigint;index"`
 }
@@ -110,6 +112,9 @@ func ReplaceActiveOfficialPricing(snapshotID string, sources string, prices []Of
 		if err := tx.CreateInBatches(prices, 200).Error; err != nil {
 			return err
 		}
+		if _, err := BumpPricingRuntimeRevisionTx(tx); err != nil {
+			return err
+		}
 		return nil
 	})
 }
@@ -132,6 +137,27 @@ func GetActiveOfficialPricingRows() ([]OfficialModelPrice, error) {
 	var rows []OfficialModelPrice
 	err := DB.Where("active = ?", true).Find(&rows).Error
 	return rows, err
+}
+
+func GetEnabledAbilityModelNames(modelNames []string) (map[string]struct{}, error) {
+	result := make(map[string]struct{})
+	modelNames = normalizeLookupValues(modelNames)
+	if len(modelNames) == 0 {
+		return result, nil
+	}
+	var names []string
+	err := DB.Table("abilities").
+		Select("DISTINCT abilities.model").
+		Joins("JOIN channels ON channels.id = abilities.channel_id").
+		Where("abilities.model IN ? AND abilities.enabled = ? AND channels.status = ?", modelNames, true, common.ChannelStatusEnabled).
+		Pluck("abilities.model", &names).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		result[name] = struct{}{}
+	}
+	return result, nil
 }
 
 func LoadActiveOfficialPricingIntoRuntime() error {

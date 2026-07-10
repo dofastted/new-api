@@ -139,6 +139,11 @@ func main() {
 	// switch are enforced inside the runner and each handler's Enabled().
 	controller.RegisterScheduledSystemTasks()
 	service.StartSystemTaskRunner()
+	if common.IsMasterNode && common.GetEnvOrDefaultBool("OFFICIAL_PRICING_SYNC_TASK_ENABLED", true) {
+		if _, _, err := service.EnqueueSystemTask(model.SystemTaskTypeOfficialPricingSync, nil); err != nil {
+			common.SysError("failed to enqueue startup official pricing sync: " + err.Error())
+		}
+	}
 
 	if os.Getenv("BATCH_UPDATE_ENABLED") == "true" {
 		common.BatchUpdateEnabled = true
@@ -289,14 +294,14 @@ func InitResources() error {
 
 	// Initialize options, should after model.InitDB()
 	model.InitOptionMap()
-	if err := model.MigrateModelPricingConfigFromLegacyOptions(); err != nil {
-		common.SysError("failed to migrate model metadata pricing: " + err.Error())
-	}
-	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
-		common.SysError("failed to load model metadata pricing: " + err.Error())
-	}
 	if err := model.LoadActiveOfficialPricingIntoRuntime(); err != nil {
 		common.SysError("failed to load official pricing: " + err.Error())
+	}
+	if err := model.MigrateModelPricingOverridesFromLegacy(); err != nil {
+		common.SysError("failed to migrate manual model pricing overrides: " + err.Error())
+	}
+	if err := model.RefreshPricingRuntime(); err != nil {
+		common.SysError("failed to refresh pricing runtime: " + err.Error())
 	}
 
 	// 清理旧的磁盘缓存文件

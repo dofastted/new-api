@@ -30,6 +30,7 @@ import {
   Select,
   Modal,
   Spin,
+  Banner,
 } from '@douyinfe/semi-ui';
 import { IconSearch } from '@douyinfe/semi-icons';
 import { RefreshCcw, CheckSquare, AlertTriangle } from 'lucide-react';
@@ -49,6 +50,11 @@ import {
   IllustrationNoResultDark,
 } from '@douyinfe/semi-illustrations';
 import ChannelSelectorModal from '../../../components/settings/ChannelSelectorModal';
+import {
+  buildCanonicalPricingOptions,
+  fetchModelPricing,
+  saveModelPricingBatch,
+} from './modelPricingApi';
 
 const OFFICIAL_RATIO_PRESET_ID = -100;
 const OFFICIAL_RATIO_PRESET_NAME = '官方倍率预设';
@@ -126,6 +132,9 @@ export default function UpstreamRatioSync(props) {
   // 差异数据和测试结果
   const [differences, setDifferences] = useState({});
   const [resolutions, setResolutions] = useState({});
+  const [pricingViews, setPricingViews] = useState(null);
+  const [pricingLoading, setPricingLoading] = useState(true);
+  const [pricingError, setPricingError] = useState('');
 
   // 是否已经执行过同步
   const [hasSynced, setHasSynced] = useState(false);
@@ -149,6 +158,29 @@ export default function UpstreamRatioSync(props) {
   useEffect(() => {
     setCurrentPage(1);
   }, [ratioTypeFilter, searchKeyword]);
+
+  const loadPricing = useCallback(async () => {
+    setPricingLoading(true);
+    setPricingError('');
+    try {
+      setPricingViews(await fetchModelPricing());
+    } catch (error) {
+      setPricingViews(null);
+      setPricingError(error.message || t('加载模型价格失败'));
+      showError(error.message || t('加载模型价格失败'));
+    } finally {
+      setPricingLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    loadPricing();
+  }, [loadPricing]);
+
+  const canonicalOptions = useMemo(
+    () => buildCanonicalPricingOptions(pricingViews || [], props.options),
+    [pricingViews, props.options],
+  );
 
   const fetchAllChannels = async () => {
     setLoading(true);
@@ -293,7 +325,6 @@ export default function UpstreamRatioSync(props) {
     'audio_completion_ratio',
   ];
 
-  const numericSyncFields = new Set([...ratioSyncFields, 'model_price']);
   const syncFieldOrder = [
     ...ratioSyncFields,
     'model_price',
@@ -350,16 +381,54 @@ export default function UpstreamRatioSync(props) {
     return 'ratio';
   }
 
-  function optionKeyBySyncField(ratioType) {
-    const explicit = {
-      billing_mode: 'billing_setting.billing_mode',
-      billing_expr: 'billing_setting.billing_expr',
+  function buildPricingConfig(currentRatios, model, ratios) {
+    if (ratios.model_price !== undefined) {
+      return { mode: 'per-request', price: Number(ratios.model_price) };
+    }
+    if (
+      ratios.billing_mode === 'tiered_expr' ||
+      ratios.billing_expr !== undefined
+    ) {
+      return {
+        mode: 'tiered_expr',
+        billing_expr: String(ratios.billing_expr || ''),
+      };
+    }
+
+    const currentMode =
+      currentRatios['billing_setting.billing_mode'][model] === 'tiered_expr'
+        ? 'tiered_expr'
+        : currentRatios.ModelPrice[model] !== undefined
+          ? 'per-request'
+          : 'per-token';
+    const config =
+      currentMode === 'per-token'
+        ? {
+            mode: 'per-token',
+            ratio: currentRatios.ModelRatio[model],
+            completion_ratio: currentRatios.CompletionRatio[model],
+            cache_ratio: currentRatios.CacheRatio[model],
+            create_cache_ratio: currentRatios.CreateCacheRatio[model],
+            image_ratio: currentRatios.ImageRatio[model],
+            audio_ratio: currentRatios.AudioRatio[model],
+            audio_completion_ratio: currentRatios.AudioCompletionRatio[model],
+          }
+        : { mode: 'per-token' };
+    const fieldMap = {
+      model_ratio: 'ratio',
+      completion_ratio: 'completion_ratio',
+      cache_ratio: 'cache_ratio',
+      create_cache_ratio: 'create_cache_ratio',
+      image_ratio: 'image_ratio',
+      audio_ratio: 'audio_ratio',
+      audio_completion_ratio: 'audio_completion_ratio',
     };
-    if (explicit[ratioType]) return explicit[ratioType];
-    return ratioType
-      .split('_')
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join('');
+    for (const [ratioType, field] of Object.entries(fieldMap)) {
+      if (ratios[ratioType] !== undefined) {
+        config[field] = Number(ratios[ratioType]);
+      }
+    }
+    return config;
   }
 
   function getUpstreamValue(model, ratioType, sourceName) {
@@ -446,21 +515,21 @@ export default function UpstreamRatioSync(props) {
 
   const applySync = async () => {
     const currentRatios = {
-      ModelRatio: JSON.parse(props.options.ModelRatio || '{}'),
-      CompletionRatio: JSON.parse(props.options.CompletionRatio || '{}'),
-      CacheRatio: JSON.parse(props.options.CacheRatio || '{}'),
-      CreateCacheRatio: JSON.parse(props.options.CreateCacheRatio || '{}'),
-      ImageRatio: JSON.parse(props.options.ImageRatio || '{}'),
-      AudioRatio: JSON.parse(props.options.AudioRatio || '{}'),
+      ModelRatio: JSON.parse(canonicalOptions.ModelRatio || '{}'),
+      CompletionRatio: JSON.parse(canonicalOptions.CompletionRatio || '{}'),
+      CacheRatio: JSON.parse(canonicalOptions.CacheRatio || '{}'),
+      CreateCacheRatio: JSON.parse(canonicalOptions.CreateCacheRatio || '{}'),
+      ImageRatio: JSON.parse(canonicalOptions.ImageRatio || '{}'),
+      AudioRatio: JSON.parse(canonicalOptions.AudioRatio || '{}'),
       AudioCompletionRatio: JSON.parse(
-        props.options.AudioCompletionRatio || '{}',
+        canonicalOptions.AudioCompletionRatio || '{}',
       ),
-      ModelPrice: JSON.parse(props.options.ModelPrice || '{}'),
+      ModelPrice: JSON.parse(canonicalOptions.ModelPrice || '{}'),
       'billing_setting.billing_mode': JSON.parse(
-        props.options['billing_setting.billing_mode'] || '{}',
+        canonicalOptions['billing_setting.billing_mode'] || '{}',
       ),
       'billing_setting.billing_expr': JSON.parse(
-        props.options['billing_setting.billing_expr'] || '{}',
+        canonicalOptions['billing_setting.billing_expr'] || '{}',
       ),
     };
 
@@ -537,102 +606,42 @@ export default function UpstreamRatioSync(props) {
     await performSync(currentRatios);
   };
 
-  const performSync = useCallback(
-    async (currentRatios) => {
-      const finalRatios = {
-        ModelRatio: { ...currentRatios.ModelRatio },
-        CompletionRatio: { ...currentRatios.CompletionRatio },
-        CacheRatio: { ...currentRatios.CacheRatio },
-        CreateCacheRatio: { ...currentRatios.CreateCacheRatio },
-        ImageRatio: { ...currentRatios.ImageRatio },
-        AudioRatio: { ...currentRatios.AudioRatio },
-        AudioCompletionRatio: { ...currentRatios.AudioCompletionRatio },
-        ModelPrice: { ...currentRatios.ModelPrice },
-        'billing_setting.billing_mode': {
-          ...currentRatios['billing_setting.billing_mode'],
-        },
-        'billing_setting.billing_expr': {
-          ...currentRatios['billing_setting.billing_expr'],
-        },
-      };
+  const performSync = async (currentRatios) => {
+    setLoading(true);
+    showInfo(t('正在同步价格，请稍候'));
+    let success = false;
+    try {
+      const upserts = Object.entries(resolutions).map(([model, ratios]) => ({
+        model_name: model,
+        config: buildPricingConfig(currentRatios, model, ratios),
+      }));
+      await saveModelPricingBatch({ upserts, restore: [] });
+      showSuccess(t('同步成功'));
+      await Promise.all([props.refresh(), loadPricing()]);
 
-      Object.entries(resolutions).forEach(([model, ratios]) => {
-        const selectedTypes = Object.keys(ratios);
-        const hasPrice = selectedTypes.includes('model_price');
-        const hasRatio = selectedTypes.some((rt) =>
-          ratioSyncFields.includes(rt),
-        );
-
-        if (hasPrice) {
-          delete finalRatios.ModelRatio[model];
-          delete finalRatios.CompletionRatio[model];
-          delete finalRatios.CacheRatio[model];
-          delete finalRatios.CreateCacheRatio[model];
-          delete finalRatios.ImageRatio[model];
-          delete finalRatios.AudioRatio[model];
-          delete finalRatios.AudioCompletionRatio[model];
-        }
-        if (hasRatio) {
-          delete finalRatios.ModelPrice[model];
-        }
-
-        Object.entries(ratios).forEach(([ratioType, value]) => {
-          const optionKey = optionKeyBySyncField(ratioType);
-          finalRatios[optionKey][model] = numericSyncFields.has(ratioType)
-            ? parseFloat(value)
-            : value;
-        });
-      });
-
-      setLoading(true);
-      showInfo(t('正在同步价格，请稍候'));
-      let success = false;
-      try {
-        const updates = Object.entries(finalRatios).map(([key, value]) =>
-          API.put('/api/option/', {
-            key,
-            value: JSON.stringify(value, null, 2),
-          }),
-        );
-
-        const results = await Promise.all(updates);
-
-        if (results.every((res) => res.data.success)) {
-          showSuccess(t('同步成功'));
-          props.refresh();
-
-          setDifferences((prevDifferences) => {
-            const newDifferences = { ...prevDifferences };
-
-            Object.entries(resolutions).forEach(([model, ratios]) => {
-              Object.keys(ratios).forEach((ratioType) => {
-                if (newDifferences[model] && newDifferences[model][ratioType]) {
-                  delete newDifferences[model][ratioType];
-
-                  if (Object.keys(newDifferences[model]).length === 0) {
-                    delete newDifferences[model];
-                  }
-                }
-              });
-            });
-
-            return newDifferences;
+      setDifferences((prevDifferences) => {
+        const newDifferences = { ...prevDifferences };
+        Object.entries(resolutions).forEach(([model, ratios]) => {
+          Object.keys(ratios).forEach((ratioType) => {
+            if (newDifferences[model]?.[ratioType]) {
+              delete newDifferences[model][ratioType];
+              if (Object.keys(newDifferences[model]).length === 0) {
+                delete newDifferences[model];
+              }
+            }
           });
-
-          setResolutions({});
-          success = true;
-        } else {
-          showError(t('部分保存失败'));
-        }
-      } catch (error) {
-        showError(t('保存失败'));
-      } finally {
-        setLoading(false);
-      }
-      return success;
-    },
-    [resolutions, props.options, props.refresh],
-  );
+        });
+        return newDifferences;
+      });
+      setResolutions({});
+      success = true;
+    } catch (error) {
+      showError(error.message || t('保存失败'));
+    } finally {
+      setLoading(false);
+    }
+    return success;
+  };
 
   const getCurrentPageData = (dataSource) => {
     const startIndex = (currentPage - 1) * pageSize;
@@ -1078,6 +1087,18 @@ export default function UpstreamRatioSync(props) {
     }
   };
 
+  if (pricingError) {
+    return (
+      <div className='flex flex-col items-start gap-2'>
+        <Banner type='danger' description={pricingError} />
+        <Button onClick={loadPricing} loading={pricingLoading}>
+          {t('重试')}
+        </Button>
+      </div>
+    );
+  }
+  if (!pricingViews) return <Spin spinning={pricingLoading} />;
+
   return (
     <>
       <Form.Section text={renderHeader()}>
@@ -1105,23 +1126,25 @@ export default function UpstreamRatioSync(props) {
         onOk={async () => {
           setConfirmLoading(true);
           const curRatios = {
-            ModelRatio: JSON.parse(props.options.ModelRatio || '{}'),
-            CompletionRatio: JSON.parse(props.options.CompletionRatio || '{}'),
-            CacheRatio: JSON.parse(props.options.CacheRatio || '{}'),
+            ModelRatio: JSON.parse(canonicalOptions.ModelRatio || '{}'),
+            CompletionRatio: JSON.parse(
+              canonicalOptions.CompletionRatio || '{}',
+            ),
+            CacheRatio: JSON.parse(canonicalOptions.CacheRatio || '{}'),
             CreateCacheRatio: JSON.parse(
-              props.options.CreateCacheRatio || '{}',
+              canonicalOptions.CreateCacheRatio || '{}',
             ),
-            ImageRatio: JSON.parse(props.options.ImageRatio || '{}'),
-            AudioRatio: JSON.parse(props.options.AudioRatio || '{}'),
+            ImageRatio: JSON.parse(canonicalOptions.ImageRatio || '{}'),
+            AudioRatio: JSON.parse(canonicalOptions.AudioRatio || '{}'),
             AudioCompletionRatio: JSON.parse(
-              props.options.AudioCompletionRatio || '{}',
+              canonicalOptions.AudioCompletionRatio || '{}',
             ),
-            ModelPrice: JSON.parse(props.options.ModelPrice || '{}'),
+            ModelPrice: JSON.parse(canonicalOptions.ModelPrice || '{}'),
             'billing_setting.billing_mode': JSON.parse(
-              props.options['billing_setting.billing_mode'] || '{}',
+              canonicalOptions['billing_setting.billing_mode'] || '{}',
             ),
             'billing_setting.billing_expr': JSON.parse(
-              props.options['billing_setting.billing_expr'] || '{}',
+              canonicalOptions['billing_setting.billing_expr'] || '{}',
             ),
           };
           try {

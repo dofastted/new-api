@@ -5279,6 +5279,20 @@
     "Zero retention": "Không lưu dữ liệu",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Calibrate": "Hiệu chỉnh",
+    "Calibrate model prices?": "Hiệu chỉnh giá mô hình?",
+    "Calibrate prices": "Hiệu chỉnh giá",
+    "Failed to calibrate model prices": "Không thể hiệu chỉnh giá mô hình",
+    "Failed to save model prices": "Không thể lưu giá mô hình",
+    "Fallback": "Dự phòng",
+    "Manual": "Thủ công",
+    "Model price calibration task started": "Đã bắt đầu tác vụ hiệu chỉnh giá mô hình",
+    "Refresh official prices and reset fallback defaults. Manual prices are preserved.": "Làm mới giá chính thức và đặt lại giá trị dự phòng mặc định. Giá thủ công được giữ nguyên.",
+    "Restore official price": "Khôi phục giá chính thức",
+    "Stale": "Đã cũ",
+    "Pricing authority": "Quyền quản lý giá",
+    "Last confirmed": "Xác nhận lần cuối",
+    "Official Sync controls model metadata only. Changing pricing here creates a manual price override.": "Đồng bộ chính thức chỉ kiểm soát siêu dữ liệu mô hình. Thay đổi giá tại đây sẽ tạo ghi đè giá thủ công."
   }
 }

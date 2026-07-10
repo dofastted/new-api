@@ -28,10 +28,12 @@ func ReplaceOfficialPricing(entries map[string]OfficialPricingValues, authoritat
 	officialCacheRatioMap.Clear()
 	officialCreateCacheRatioMap.Clear()
 	for model, values := range entries {
-		setOfficialPricingValues(model, values)
-		for _, alias := range officialPricingAliases(model) {
+		for _, alias := range PricingAliases(model) {
 			setOfficialPricingValues(alias, values)
 		}
+	}
+	for model, values := range entries {
+		setOfficialPricingValues(model, values)
 	}
 	officialPricingAuthoritative.Store(authoritative)
 	InvalidateExposedDataCache()
@@ -48,7 +50,7 @@ func setOfficialPricingValues(model string, values OfficialPricingValues) {
 	}
 }
 
-func officialPricingAliases(model string) []string {
+func PricingAliases(model string) []string {
 	switch {
 	case strings.HasPrefix(model, "gemini-2.5-flash-lite"):
 		return []string{"gemini-2.5-flash-lite-thinking-*"}
@@ -59,6 +61,10 @@ func officialPricingAliases(model string) []string {
 	default:
 		return nil
 	}
+}
+
+func PricingLookupNames(name string) []string {
+	return officialPricingNames(name)
 }
 
 func OfficialPricingAuthoritative() bool {

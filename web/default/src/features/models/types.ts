@@ -47,6 +47,9 @@ export interface Model {
   created_time: number
   updated_time: number
   name_rule: number
+  pricing_authority?: 'manual' | 'official' | 'fallback'
+  pricing_official_stale?: boolean
+  pricing_official_last_confirmed_at?: number
   // Runtime fields
   bound_channels?: BoundChannel[]
   enable_groups?: string[]

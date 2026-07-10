@@ -16,86 +16,124 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { useTranslation } from 'react-i18next'
-import { toast } from 'sonner'
-import * as z from 'zod'
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useForm } from "react-hook-form";
+import { useTranslation } from "react-i18next";
+import { toast } from "sonner";
+import * as z from "zod";
 
-import { ConfirmDialog } from '@/components/confirm-dialog'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-import { resetModelRatios } from '../api'
-import { SettingsPageTitleStatusPortal } from '../components/settings-page-context'
-import { SettingsSection } from '../components/settings-section'
-import { useUpdateOption } from '../hooks/use-update-option'
-import { GroupRatioForm } from './group-ratio-form'
-import { ModelRatioForm } from './model-ratio-form'
-import { ToolPriceSettings } from './tool-price-settings'
-import { UpstreamRatioSync } from './upstream-ratio-sync'
+import {
+  calibrateModelPricing,
+  getModelPricing,
+  saveModelPricing,
+} from "../api";
+import { SettingsPageTitleStatusPortal } from "../components/settings-page-context";
+import { SettingsSection } from "../components/settings-section";
+import { useUpdateOption } from "../hooks/use-update-option";
+import type { ModelPricingBatchRequest } from "../types";
+import { GroupRatioForm } from "./group-ratio-form";
+import {
+  buildModelPricingFormValues,
+  buildModelPricingSourceMap,
+  buildModelSnapshots,
+  getSnapshotSignature,
+  snapshotToModelPricingConfig,
+} from "./model-pricing-snapshots";
+import { ModelRatioForm } from "./model-ratio-form";
+import { ToolPriceSettings } from "./tool-price-settings";
+import { UpstreamRatioSync } from "./upstream-ratio-sync";
 import {
   formatJsonForTextarea,
   type JsonValidationError,
   normalizeJsonString,
   validateJsonString,
-} from './utils'
+} from "./utils";
 
-type Translate = (key: string, options?: Record<string, unknown>) => string
+type Translate = (key: string, options?: Record<string, unknown>) => string;
 
 function formatJsonValidationError(
   t: Translate,
   error?: JsonValidationError,
-  fallback = 'Invalid JSON'
+  fallback = "Invalid JSON",
 ) {
-  if (!error) return t(fallback)
+  if (!error) return t(fallback);
 
-  if (error.type === 'required') return t('Value is required')
-  if (error.type === 'structure') {
+  if (error.type === "required") return t("Value is required");
+  if (error.type === "structure") {
     return t(
-      fallback === 'Invalid JSON' ? 'JSON structure is invalid' : fallback
-    )
+      fallback === "Invalid JSON" ? "JSON structure is invalid" : fallback,
+    );
   }
 
-  const parts = [
-    error.line && error.column
-      ? t('JSON is invalid at line {{line}}, column {{column}}.', {
-          line: error.line,
-          column: error.column,
-        })
-      : error.position !== undefined
-        ? t('JSON is invalid at position {{position}}.', {
-            position: error.position,
-          })
-        : t('JSON is invalid. Please check the syntax.'),
-  ]
+  let detail = t("JSON is invalid. Please check the syntax.");
+  if (error.line && error.column) {
+    detail = t("JSON is invalid at line {{line}}, column {{column}}.", {
+      line: error.line,
+      column: error.column,
+    });
+  } else if (error.position !== undefined) {
+    detail = t("JSON is invalid at position {{position}}.", {
+      position: error.position,
+    });
+  }
+
+  const parts = [detail];
 
   if (error.missingCommaLine) {
     parts.push(
-      t('Check line {{line}} for a missing comma.', {
+      t("Check line {{line}} for a missing comma.", {
         line: error.missingCommaLine,
-      })
-    )
+      }),
+    );
   }
 
-  return parts.join(' ')
+  return parts.join(" ");
 }
 
 function createJsonStringField(
   t: Translate,
-  options?: Parameters<typeof validateJsonString>[1]
+  options?: Parameters<typeof validateJsonString>[1],
 ) {
   return z.string().superRefine((value, ctx) => {
-    const result = validateJsonString(value, options)
+    const result = validateJsonString(value, options);
     if (!result.valid) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: formatJsonValidationError(t, result.error, result.message),
-      })
+      });
     }
-  })
+  });
 }
+
+type ModelFormValues = {
+  ModelPrice: string;
+  ModelRatio: string;
+  CacheRatio: string;
+  CreateCacheRatio: string;
+  CompletionRatio: string;
+  ImageRatio: string;
+  AudioRatio: string;
+  AudioCompletionRatio: string;
+  ExposeRatioEnabled: boolean;
+  BillingMode: string;
+  BillingExpr: string;
+};
+
+type GroupFormValues = {
+  GroupRatio: string;
+  TopupGroupRatio: string;
+  UserUsableGroups: string;
+  GroupGroupRatio: string;
+  AutoGroups: string;
+  DefaultUseAutoGroup: boolean;
+  GroupSpecialUsableGroup: string;
+};
 
 const createModelSchema = (t: Translate) =>
   z.object({
@@ -110,7 +148,7 @@ const createModelSchema = (t: Translate) =>
     ExposeRatioEnabled: z.boolean(),
     BillingMode: createJsonStringField(t),
     BillingExpr: createJsonStringField(t),
-  })
+  });
 
 const createGroupSchema = (t: Translate) =>
   z.object({
@@ -121,71 +159,120 @@ const createGroupSchema = (t: Translate) =>
     AutoGroups: createJsonStringField(t, {
       predicate: (parsed) =>
         Array.isArray(parsed) &&
-        parsed.every((item) => typeof item === 'string'),
-      predicateMessage: 'Expected a JSON array of group identifiers',
+        parsed.every((item) => typeof item === "string"),
+      predicateMessage: "Expected a JSON array of group identifiers",
     }),
     DefaultUseAutoGroup: z.boolean(),
     GroupSpecialUsableGroup: createJsonStringField(t),
-  })
+  });
 
-type ModelFormValues = z.infer<ReturnType<typeof createModelSchema>>
-type GroupFormValues = z.infer<ReturnType<typeof createGroupSchema>>
-type RatioTabId = 'models' | 'groups' | 'tool-prices' | 'upstream-sync'
+type RatioTabId = "models" | "groups" | "tool-prices" | "upstream-sync";
+
+const normalizeModelFormValues = (
+  values: ModelFormValues,
+): ModelFormValues => ({
+  ModelPrice: normalizeJsonString(values.ModelPrice),
+  ModelRatio: normalizeJsonString(values.ModelRatio),
+  CacheRatio: normalizeJsonString(values.CacheRatio),
+  CreateCacheRatio: normalizeJsonString(values.CreateCacheRatio),
+  CompletionRatio: normalizeJsonString(values.CompletionRatio),
+  ImageRatio: normalizeJsonString(values.ImageRatio),
+  AudioRatio: normalizeJsonString(values.AudioRatio),
+  AudioCompletionRatio: normalizeJsonString(values.AudioCompletionRatio),
+  ExposeRatioEnabled: values.ExposeRatioEnabled,
+  BillingMode: normalizeJsonString(values.BillingMode),
+  BillingExpr: normalizeJsonString(values.BillingExpr),
+});
+
+const buildSnapshotsFromFormValues = (values: ModelFormValues) =>
+  buildModelSnapshots({
+    modelPrice: values.ModelPrice,
+    modelRatio: values.ModelRatio,
+    cacheRatio: values.CacheRatio,
+    createCacheRatio: values.CreateCacheRatio,
+    completionRatio: values.CompletionRatio,
+    imageRatio: values.ImageRatio,
+    audioRatio: values.AudioRatio,
+    audioCompletionRatio: values.AudioCompletionRatio,
+    billingMode: values.BillingMode,
+    billingExpr: values.BillingExpr,
+  });
 
 type RatioSettingsCardProps = {
-  modelDefaults: ModelFormValues
-  groupDefaults: GroupFormValues
-  toolPricesDefault: string
-  titleKey?: string
-  visibleTabs?: RatioTabId[]
-}
+  modelDefaults: ModelFormValues;
+  groupDefaults: GroupFormValues;
+  toolPricesDefault: string;
+  titleKey?: string;
+  visibleTabs?: RatioTabId[];
+};
 
 export function RatioSettingsCard({
   modelDefaults,
   groupDefaults,
   toolPricesDefault,
-  titleKey = 'Pricing Ratios',
-  visibleTabs = ['models', 'groups', 'tool-prices', 'upstream-sync'],
+  titleKey = "Pricing Ratios",
+  visibleTabs = ["models", "groups", "tool-prices", "upstream-sync"],
 }: RatioSettingsCardProps) {
-  const { t } = useTranslation()
-  const updateOption = useUpdateOption()
-  const queryClient = useQueryClient()
-  const [confirmOpen, setConfirmOpen] = useState(false)
+  const { t } = useTranslation();
+  const updateOption = useUpdateOption();
+  const queryClient = useQueryClient();
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
+  const pricingQuery = useQuery({
+    queryKey: ["model-pricing"],
+    queryFn: getModelPricing,
+  });
+  const pricingViews = pricingQuery.data?.success
+    ? pricingQuery.data.data
+    : undefined;
+  const canonicalModelDefaults = useMemo(
+    () =>
+      pricingViews
+        ? buildModelPricingFormValues(
+            pricingViews,
+            modelDefaults.ExposeRatioEnabled,
+          )
+        : modelDefaults,
+    [modelDefaults, pricingViews],
+  );
+  const pricingSources = useMemo(
+    () => buildModelPricingSourceMap(pricingViews ?? []),
+    [pricingViews],
+  );
+  const pricingMutation = useMutation({
+    mutationFn: async (request: ModelPricingBatchRequest) => {
+      const response = await saveModelPricing(request);
+      if (!response.success) {
+        throw new Error(response.message || t("Failed to save model prices"));
+      }
+      return response;
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || t("Failed to save model prices"));
+    },
+  });
   const resetMutation = useMutation({
-    mutationFn: resetModelRatios,
+    mutationFn: calibrateModelPricing,
     onSuccess: (data) => {
       if (data.success) {
-        toast.success(t('Model prices reset successfully'))
-        queryClient.invalidateQueries({ queryKey: ['system-options'] })
-        setConfirmOpen(false)
+        toast.success(t("Model price calibration task started"));
+        queryClient.invalidateQueries({ queryKey: ["model-pricing"] });
+        setConfirmOpen(false);
       } else {
-        toast.error(data.message || t('Failed to reset model ratios'))
+        toast.error(data.message || t("Failed to calibrate model prices"));
       }
     },
     onError: (error: Error) => {
-      toast.error(error.message || t('Failed to reset model ratios'))
+      toast.error(error.message || t("Failed to calibrate model prices"));
     },
-  })
+  });
 
-  const modelNormalizedDefaults = useRef({
-    ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
-    ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
-    CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
-    CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
-    CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
-    ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
-    AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
-    AudioCompletionRatio: normalizeJsonString(
-      modelDefaults.AudioCompletionRatio
-    ),
-    ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
-    BillingMode: normalizeJsonString(modelDefaults.BillingMode),
-    BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-  })
+  const modelNormalizedDefaults = useRef(
+    normalizeModelFormValues(modelDefaults),
+  );
   const [savedModelValues, setSavedModelValues] = useState(
-    modelNormalizedDefaults.current
-  )
+    modelNormalizedDefaults.current,
+  );
 
   const groupNormalizedDefaults = useRef({
     GroupRatio: normalizeJsonString(groupDefaults.GroupRatio),
@@ -195,15 +282,15 @@ export function RatioSettingsCard({
     AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
     DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
     GroupSpecialUsableGroup: normalizeJsonString(
-      groupDefaults.GroupSpecialUsableGroup
+      groupDefaults.GroupSpecialUsableGroup,
     ),
-  })
-  const modelSchema = useMemo(() => createModelSchema(t), [t])
-  const groupSchema = useMemo(() => createGroupSchema(t), [t])
+  });
+  const modelSchema = useMemo(() => createModelSchema(t), [t]);
+  const groupSchema = useMemo(() => createGroupSchema(t), [t]);
 
   const modelForm = useForm<ModelFormValues>({
     resolver: zodResolver(modelSchema),
-    mode: 'onChange',
+    mode: "onChange",
     defaultValues: {
       ...modelDefaults,
       ModelPrice: formatJsonForTextarea(modelDefaults.ModelPrice),
@@ -214,16 +301,16 @@ export function RatioSettingsCard({
       ImageRatio: formatJsonForTextarea(modelDefaults.ImageRatio),
       AudioRatio: formatJsonForTextarea(modelDefaults.AudioRatio),
       AudioCompletionRatio: formatJsonForTextarea(
-        modelDefaults.AudioCompletionRatio
+        modelDefaults.AudioCompletionRatio,
       ),
       BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
       BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
     },
-  })
+  });
 
   const groupForm = useForm<GroupFormValues>({
     resolver: zodResolver(groupSchema),
-    mode: 'onChange',
+    mode: "onChange",
     defaultValues: {
       ...groupDefaults,
       GroupRatio: formatJsonForTextarea(groupDefaults.GroupRatio),
@@ -232,45 +319,36 @@ export function RatioSettingsCard({
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
-        groupDefaults.GroupSpecialUsableGroup
+        groupDefaults.GroupSpecialUsableGroup,
       ),
     },
-  })
+  });
 
   useEffect(() => {
-    modelNormalizedDefaults.current = {
-      ModelPrice: normalizeJsonString(modelDefaults.ModelPrice),
-      ModelRatio: normalizeJsonString(modelDefaults.ModelRatio),
-      CacheRatio: normalizeJsonString(modelDefaults.CacheRatio),
-      CreateCacheRatio: normalizeJsonString(modelDefaults.CreateCacheRatio),
-      CompletionRatio: normalizeJsonString(modelDefaults.CompletionRatio),
-      ImageRatio: normalizeJsonString(modelDefaults.ImageRatio),
-      AudioRatio: normalizeJsonString(modelDefaults.AudioRatio),
-      AudioCompletionRatio: normalizeJsonString(
-        modelDefaults.AudioCompletionRatio
-      ),
-      ExposeRatioEnabled: modelDefaults.ExposeRatioEnabled,
-      BillingMode: normalizeJsonString(modelDefaults.BillingMode),
-      BillingExpr: normalizeJsonString(modelDefaults.BillingExpr),
-    }
-    setSavedModelValues(modelNormalizedDefaults.current)
+    const normalized = normalizeModelFormValues(canonicalModelDefaults);
+    modelNormalizedDefaults.current = normalized;
+    setSavedModelValues(normalized);
 
     modelForm.reset({
-      ...modelDefaults,
-      ModelPrice: formatJsonForTextarea(modelDefaults.ModelPrice),
-      ModelRatio: formatJsonForTextarea(modelDefaults.ModelRatio),
-      CacheRatio: formatJsonForTextarea(modelDefaults.CacheRatio),
-      CreateCacheRatio: formatJsonForTextarea(modelDefaults.CreateCacheRatio),
-      CompletionRatio: formatJsonForTextarea(modelDefaults.CompletionRatio),
-      ImageRatio: formatJsonForTextarea(modelDefaults.ImageRatio),
-      AudioRatio: formatJsonForTextarea(modelDefaults.AudioRatio),
-      AudioCompletionRatio: formatJsonForTextarea(
-        modelDefaults.AudioCompletionRatio
+      ...canonicalModelDefaults,
+      ModelPrice: formatJsonForTextarea(canonicalModelDefaults.ModelPrice),
+      ModelRatio: formatJsonForTextarea(canonicalModelDefaults.ModelRatio),
+      CacheRatio: formatJsonForTextarea(canonicalModelDefaults.CacheRatio),
+      CreateCacheRatio: formatJsonForTextarea(
+        canonicalModelDefaults.CreateCacheRatio,
       ),
-      BillingMode: formatJsonForTextarea(modelDefaults.BillingMode),
-      BillingExpr: formatJsonForTextarea(modelDefaults.BillingExpr),
-    })
-  }, [modelDefaults, modelForm])
+      CompletionRatio: formatJsonForTextarea(
+        canonicalModelDefaults.CompletionRatio,
+      ),
+      ImageRatio: formatJsonForTextarea(canonicalModelDefaults.ImageRatio),
+      AudioRatio: formatJsonForTextarea(canonicalModelDefaults.AudioRatio),
+      AudioCompletionRatio: formatJsonForTextarea(
+        canonicalModelDefaults.AudioCompletionRatio,
+      ),
+      BillingMode: formatJsonForTextarea(canonicalModelDefaults.BillingMode),
+      BillingExpr: formatJsonForTextarea(canonicalModelDefaults.BillingExpr),
+    });
+  }, [canonicalModelDefaults, modelForm]);
 
   useEffect(() => {
     groupNormalizedDefaults.current = {
@@ -281,9 +359,9 @@ export function RatioSettingsCard({
       AutoGroups: normalizeJsonString(groupDefaults.AutoGroups),
       DefaultUseAutoGroup: groupDefaults.DefaultUseAutoGroup,
       GroupSpecialUsableGroup: normalizeJsonString(
-        groupDefaults.GroupSpecialUsableGroup
+        groupDefaults.GroupSpecialUsableGroup,
       ),
-    }
+    };
 
     groupForm.reset({
       ...groupDefaults,
@@ -293,53 +371,76 @@ export function RatioSettingsCard({
       GroupGroupRatio: formatJsonForTextarea(groupDefaults.GroupGroupRatio),
       AutoGroups: formatJsonForTextarea(groupDefaults.AutoGroups),
       GroupSpecialUsableGroup: formatJsonForTextarea(
-        groupDefaults.GroupSpecialUsableGroup
+        groupDefaults.GroupSpecialUsableGroup,
       ),
-    })
-  }, [groupDefaults, groupForm])
+    });
+  }, [groupDefaults, groupForm]);
 
   const saveModelRatios = useCallback(
     async (values: ModelFormValues) => {
-      const normalized = {
-        ModelPrice: normalizeJsonString(values.ModelPrice),
-        ModelRatio: normalizeJsonString(values.ModelRatio),
-        CacheRatio: normalizeJsonString(values.CacheRatio),
-        CreateCacheRatio: normalizeJsonString(values.CreateCacheRatio),
-        CompletionRatio: normalizeJsonString(values.CompletionRatio),
-        ImageRatio: normalizeJsonString(values.ImageRatio),
-        AudioRatio: normalizeJsonString(values.AudioRatio),
-        AudioCompletionRatio: normalizeJsonString(values.AudioCompletionRatio),
-        ExposeRatioEnabled: values.ExposeRatioEnabled,
-        BillingMode: normalizeJsonString(values.BillingMode),
-        BillingExpr: normalizeJsonString(values.BillingExpr),
+      const normalized = normalizeModelFormValues(values);
+      const savedByName = new Map(
+        buildSnapshotsFromFormValues(modelNormalizedDefaults.current).map(
+          (snapshot) => [snapshot.name, snapshot],
+        ),
+      );
+      const nextByName = new Map(
+        buildSnapshotsFromFormValues(normalized).map((snapshot) => [
+          snapshot.name,
+          snapshot,
+        ]),
+      );
+      const modelNames = new Set([...savedByName.keys(), ...nextByName.keys()]);
+      const upserts: ModelPricingBatchRequest["upserts"] = [];
+      const restore: string[] = [];
+
+      for (const modelName of modelNames) {
+        const saved = savedByName.get(modelName);
+        const next = nextByName.get(modelName);
+        if (!next) {
+          if (pricingSources[modelName]?.authority === "manual") {
+            restore.push(modelName);
+          }
+          continue;
+        }
+        if (getSnapshotSignature(saved) === getSnapshotSignature(next)) {
+          continue;
+        }
+        upserts.push({
+          model_name: modelName,
+          config: snapshotToModelPricingConfig(next),
+        });
       }
 
-      const apiKeyMap: Record<string, string> = {
-        BillingMode: 'billing_setting.billing_mode',
-        BillingExpr: 'billing_setting.billing_expr',
+      const exposeChanged =
+        normalized.ExposeRatioEnabled !==
+        modelNormalizedDefaults.current.ExposeRatioEnabled;
+      if (upserts.length === 0 && restore.length === 0 && !exposeChanged) {
+        toast.info(t("No model price changes to save"));
+        return;
       }
 
-      const updates = (
-        Object.keys(normalized) as Array<keyof ModelFormValues>
-      ).filter(
-        (key) => normalized[key] !== modelNormalizedDefaults.current[key]
-      )
+      try {
+        if (upserts.length > 0 || restore.length > 0) {
+          await pricingMutation.mutateAsync({ upserts, restore });
+        }
+        if (exposeChanged) {
+          await updateOption.mutateAsync({
+            key: "ExposeRatioEnabled",
+            value: normalized.ExposeRatioEnabled,
+          });
+        }
 
-      if (updates.length === 0) {
-        toast.info(t('No model price changes to save'))
-        return
+        modelNormalizedDefaults.current = normalized;
+        setSavedModelValues(normalized);
+        await queryClient.invalidateQueries({ queryKey: ["model-pricing"] });
+        toast.success(t("Setting updated successfully"));
+      } catch {
+        return;
       }
-
-      for (const key of updates) {
-        const apiKey = apiKeyMap[key as string] || (key as string)
-        await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
-      }
-
-      modelNormalizedDefaults.current = normalized
-      setSavedModelValues(normalized)
     },
-    [t, updateOption]
-  )
+    [pricingMutation, pricingSources, queryClient, t, updateOption],
+  );
 
   const saveGroupRatios = useCallback(
     async (values: GroupFormValues) => {
@@ -351,96 +452,122 @@ export function RatioSettingsCard({
         AutoGroups: normalizeJsonString(values.AutoGroups),
         DefaultUseAutoGroup: values.DefaultUseAutoGroup,
         GroupSpecialUsableGroup: normalizeJsonString(
-          values.GroupSpecialUsableGroup
+          values.GroupSpecialUsableGroup,
         ),
-      }
+      };
 
       // Map form field names to API keys (most are 1:1, except GroupSpecialUsableGroup)
       const apiKeyMap: Record<string, string> = {
         GroupSpecialUsableGroup:
-          'group_ratio_setting.group_special_usable_group',
-      }
+          "group_ratio_setting.group_special_usable_group",
+      };
 
       const updates = (
         Object.keys(normalized) as Array<keyof typeof normalized>
       ).filter(
-        (key) => normalized[key] !== groupNormalizedDefaults.current[key]
-      )
+        (key) => normalized[key] !== groupNormalizedDefaults.current[key],
+      );
 
       for (const key of updates) {
-        const apiKey = apiKeyMap[key] || key
-        await updateOption.mutateAsync({ key: apiKey, value: normalized[key] })
+        const apiKey = apiKeyMap[key] || key;
+        await updateOption.mutateAsync({ key: apiKey, value: normalized[key] });
       }
     },
-    [updateOption]
-  )
+    [updateOption],
+  );
 
   const handleResetRatios = useCallback(() => {
-    setConfirmOpen(true)
-  }, [])
+    setConfirmOpen(true);
+  }, []);
 
-  const { mutate: resetMutate } = resetMutation
+  const { mutate: resetMutate } = resetMutation;
   const handleConfirmReset = useCallback(() => {
-    resetMutate()
-  }, [resetMutate])
+    resetMutate();
+  }, [resetMutate]);
 
   const tabLabels: Record<RatioTabId, string> = {
-    models: 'Model prices',
-    groups: 'Group ratios',
-    'tool-prices': 'Tool prices',
-    'upstream-sync': 'Upstream price sync',
-  }
+    models: "Model prices",
+    groups: "Group ratios",
+    "tool-prices": "Tool prices",
+    "upstream-sync": "Upstream price sync",
+  };
   const tabsGridClass =
     {
-      1: 'grid-cols-1',
-      2: 'grid-cols-2',
-      3: 'grid-cols-3',
-      4: 'grid-cols-4',
-    }[visibleTabs.length] ?? 'grid-cols-4'
-  const defaultTab = visibleTabs[0] ?? 'models'
+      1: "grid-cols-1",
+      2: "grid-cols-2",
+      3: "grid-cols-3",
+      4: "grid-cols-4",
+    }[visibleTabs.length] ?? "grid-cols-4";
+  const defaultTab = visibleTabs[0] ?? "models";
 
   const renderTabContent = (tab: RatioTabId) => {
-    if (tab === 'models') {
+    if (tab === "models" || tab === "upstream-sync") {
+      if (pricingQuery.isLoading) {
+        return (
+          <div className="text-muted-foreground text-sm">{t("Loading...")}</div>
+        );
+      }
+      if (!pricingViews) {
+        return (
+          <div className="flex items-center gap-3">
+            <span className="text-destructive text-sm">
+              {t("Failed to load")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={pricingQuery.isFetching}
+              onClick={() => pricingQuery.refetch()}
+            >
+              {t("Retry")}
+            </Button>
+          </div>
+        );
+      }
+    }
+    if (tab === "models") {
       return (
         <ModelRatioForm
           form={modelForm}
           savedValues={savedModelValues}
+          pricingSources={pricingSources}
           onSave={saveModelRatios}
           onReset={handleResetRatios}
-          isSaving={updateOption.isPending}
+          isSaving={updateOption.isPending || pricingMutation.isPending}
           isResetting={resetMutation.isPending}
         />
-      )
+      );
     }
-    if (tab === 'groups') {
+    if (tab === "groups") {
       return (
         <GroupRatioForm
           form={groupForm}
           onSave={saveGroupRatios}
           isSaving={updateOption.isPending}
         />
-      )
+      );
     }
-    if (tab === 'tool-prices') {
-      return <ToolPriceSettings defaultValue={toolPricesDefault} />
+    if (tab === "tool-prices") {
+      return <ToolPriceSettings defaultValue={toolPricesDefault} />;
     }
     return (
       <UpstreamRatioSync
         modelRatios={{
-          ModelPrice: modelDefaults.ModelPrice,
-          ModelRatio: modelDefaults.ModelRatio,
-          CompletionRatio: modelDefaults.CompletionRatio,
-          CacheRatio: modelDefaults.CacheRatio,
-          CreateCacheRatio: modelDefaults.CreateCacheRatio,
-          ImageRatio: modelDefaults.ImageRatio,
-          AudioRatio: modelDefaults.AudioRatio,
-          AudioCompletionRatio: modelDefaults.AudioCompletionRatio,
-          'billing_setting.billing_mode': modelDefaults.BillingMode,
-          'billing_setting.billing_expr': modelDefaults.BillingExpr,
+          ModelPrice: savedModelValues.ModelPrice,
+          ModelRatio: savedModelValues.ModelRatio,
+          CompletionRatio: savedModelValues.CompletionRatio,
+          CacheRatio: savedModelValues.CacheRatio,
+          CreateCacheRatio: savedModelValues.CreateCacheRatio,
+          ImageRatio: savedModelValues.ImageRatio,
+          AudioRatio: savedModelValues.AudioRatio,
+          AudioCompletionRatio: savedModelValues.AudioCompletionRatio,
+          "billing_setting.billing_mode": savedModelValues.BillingMode,
+          "billing_setting.billing_expr": savedModelValues.BillingExpr,
         }}
       />
-    )
-  }
+    );
+  };
 
   const renderTabSwitcher = () => (
     <TabsList className={`grid w-fit max-w-full ${tabsGridClass}`}>
@@ -450,7 +577,7 @@ export function RatioSettingsCard({
         </TabsTrigger>
       ))}
     </TabsList>
-  )
+  );
 
   return (
     <>
@@ -459,7 +586,7 @@ export function RatioSettingsCard({
           {renderTabContent(defaultTab)}
         </SettingsSection>
       ) : (
-        <Tabs defaultValue={defaultTab} className='space-y-6'>
+        <Tabs defaultValue={defaultTab} className="space-y-6">
           <SettingsPageTitleStatusPortal>
             {renderTabSwitcher()}
           </SettingsPageTitleStatusPortal>
@@ -477,15 +604,15 @@ export function RatioSettingsCard({
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        title={t('Reset all model prices?')}
+        title={t("Calibrate model prices?")}
         desc={t(
-          'This will clear custom pricing ratios and revert to upstream defaults.'
+          "Refresh official prices and reset fallback defaults. Manual prices are preserved.",
         )}
         destructive
         isLoading={resetMutation.isPending}
         handleConfirm={handleConfirmReset}
-        confirmText={t('Reset')}
+        confirmText={t("Calibrate")}
       />
     </>
-  )
+  );
 }

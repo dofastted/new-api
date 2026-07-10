@@ -39,6 +39,7 @@ import {
   SettingsSwitchContent,
   SettingsSwitchItem,
 } from '../components/settings-form-layout'
+import type { ModelPricingSourceInfo } from './model-pricing-snapshots'
 import {
   ModelRatioVisualEditor,
   type ModelRatioVisualEditorHandle,
@@ -61,6 +62,7 @@ type ModelFormValues = {
 type ModelRatioFormProps = {
   form: UseFormReturn<ModelFormValues>
   savedValues: ModelFormValues
+  pricingSources: Record<string, ModelPricingSourceInfo>
   onSave: (values: ModelFormValues) => Promise<void>
   onReset: () => void
   isSaving: boolean
@@ -160,6 +162,7 @@ function ModelJsonTextareaField(props: {
 export const ModelRatioForm = memo(function ModelRatioForm({
   form,
   savedValues,
+  pricingSources,
   onSave,
   onReset,
   isSaving,
@@ -203,7 +206,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
           disabled={isResetting}
         >
           <RotateCcw data-icon='inline-start' />
-          {t('Reset prices')}
+          {t('Calibrate prices')}
         </Button>
         {editMode === 'json' && (
           <Button
@@ -246,6 +249,7 @@ export const ModelRatioForm = memo(function ModelRatioForm({
               savedAudioCompletionRatio={savedValues.AudioCompletionRatio}
               savedBillingMode={savedValues.BillingMode}
               savedBillingExpr={savedValues.BillingExpr}
+              pricingSources={pricingSources}
               modelPrice={form.watch('ModelPrice')}
               modelRatio={form.watch('ModelRatio')}
               cacheRatio={form.watch('CacheRatio')}

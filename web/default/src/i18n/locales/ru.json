@@ -5279,6 +5279,20 @@
     "Zero retention": "Без хранения данных",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V4",
-    "Zoom": "Zoom"
+    "Zoom": "Zoom",
+    "Calibrate": "Калибровать",
+    "Calibrate model prices?": "Калибровать цены моделей?",
+    "Calibrate prices": "Калибровать цены",
+    "Failed to calibrate model prices": "Не удалось откалибровать цены моделей",
+    "Failed to save model prices": "Не удалось сохранить цены моделей",
+    "Fallback": "Резервная цена",
+    "Manual": "Вручную",
+    "Model price calibration task started": "Задача калибровки цен моделей запущена",
+    "Refresh official prices and reset fallback defaults. Manual prices are preserved.": "Обновить официальные цены и сбросить резервные значения по умолчанию. Ручные цены сохраняются.",
+    "Restore official price": "Восстановить официальную цену",
+    "Stale": "Устарело",
+    "Pricing authority": "Источник цены",
+    "Last confirmed": "Последнее подтверждение",
+    "Official Sync controls model metadata only. Changing pricing here creates a manual price override.": "Официальная синхронизация управляет только метаданными модели. Изменение цены здесь создаёт ручное переопределение."
   }
 }

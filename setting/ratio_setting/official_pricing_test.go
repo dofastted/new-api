@@ -3,63 +3,109 @@ package ratio_setting
 import (
 	"testing"
 
-	"github.com/QuantumNous/new-api/setting/operation_setting"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestOfficialPricingAuthoritativeOverridesLegacyRatios(t *testing.T) {
-	oldSelfUse := operation_setting.SelfUseModeEnabled
+func preservePricingRuntimeState(t *testing.T) {
+	t.Helper()
+
+	oldModelPrice := modelPriceMap.ReadAll()
+	oldModelRatio := modelRatioMap.ReadAll()
+	oldOfficialAuthoritative := officialPricingAuthoritative.Load()
+	oldOfficialModelRatio := officialModelRatioMap.ReadAll()
+	oldOfficialCompletionRatio := officialCompletionRatioMap.ReadAll()
+	oldOfficialCacheRatio := officialCacheRatioMap.ReadAll()
+	oldOfficialCreateCacheRatio := officialCreateCacheRatioMap.ReadAll()
+	oldMetadataModelPrice := metadataModelPriceMap.ReadAll()
+	oldMetadataModelRatio := metadataModelRatioMap.ReadAll()
+	oldMetadataCompletionRatio := metadataCompletionRatioMap.ReadAll()
+	oldMetadataCacheRatio := metadataCacheRatioMap.ReadAll()
+	oldMetadataCreateCacheRatio := metadataCreateCacheRatioMap.ReadAll()
+	oldMetadataImageRatio := metadataImageRatioMap.ReadAll()
+	oldMetadataAudioRatio := metadataAudioRatioMap.ReadAll()
+	oldMetadataAudioCompletionRatio := metadataAudioCompletionRatioMap.ReadAll()
+	oldMetadataBillingMode := metadataBillingModeMap.ReadAll()
+	oldMetadataBillingExpr := metadataBillingExprMap.ReadAll()
+	oldExposedCache, _ := exposedData.Load().(*exposedCache)
+
 	t.Cleanup(func() {
-		operation_setting.SelfUseModeEnabled = oldSelfUse
-		ReplaceOfficialPricing(nil, false)
+		modelPriceMap.Clear()
+		modelPriceMap.AddAll(oldModelPrice)
+		modelRatioMap.Clear()
+		modelRatioMap.AddAll(oldModelRatio)
+		officialModelRatioMap.Clear()
+		officialModelRatioMap.AddAll(oldOfficialModelRatio)
+		officialCompletionRatioMap.Clear()
+		officialCompletionRatioMap.AddAll(oldOfficialCompletionRatio)
+		officialCacheRatioMap.Clear()
+		officialCacheRatioMap.AddAll(oldOfficialCacheRatio)
+		officialCreateCacheRatioMap.Clear()
+		officialCreateCacheRatioMap.AddAll(oldOfficialCreateCacheRatio)
+		officialPricingAuthoritative.Store(oldOfficialAuthoritative)
+		metadataModelPriceMap.Clear()
+		metadataModelPriceMap.AddAll(oldMetadataModelPrice)
+		metadataModelRatioMap.Clear()
+		metadataModelRatioMap.AddAll(oldMetadataModelRatio)
+		metadataCompletionRatioMap.Clear()
+		metadataCompletionRatioMap.AddAll(oldMetadataCompletionRatio)
+		metadataCacheRatioMap.Clear()
+		metadataCacheRatioMap.AddAll(oldMetadataCacheRatio)
+		metadataCreateCacheRatioMap.Clear()
+		metadataCreateCacheRatioMap.AddAll(oldMetadataCreateCacheRatio)
+		metadataImageRatioMap.Clear()
+		metadataImageRatioMap.AddAll(oldMetadataImageRatio)
+		metadataAudioRatioMap.Clear()
+		metadataAudioRatioMap.AddAll(oldMetadataAudioRatio)
+		metadataAudioCompletionRatioMap.Clear()
+		metadataAudioCompletionRatioMap.AddAll(oldMetadataAudioCompletionRatio)
+		metadataBillingModeMap.Clear()
+		metadataBillingModeMap.AddAll(oldMetadataBillingMode)
+		metadataBillingExprMap.Clear()
+		metadataBillingExprMap.AddAll(oldMetadataBillingExpr)
+		exposedData.Store(oldExposedCache)
+	})
+}
+
+func TestOfficialPricingUsesPerModelPriority(t *testing.T) {
+	preservePricingRuntimeState(t)
+	modelRatioMap.Clear()
+	modelRatioMap.AddAll(map[string]float64{
+		"fallback-model": 1.25,
+		"official-model": 99,
+		"manual-model":   99,
 	})
 
-	cacheRatio := 0.1
-	createCacheRatio := 1.25
 	ReplaceOfficialPricing(map[string]OfficialPricingValues{
-		"gpt-5-codex": {
-			ModelRatio:       0.625,
-			CompletionRatio:  8,
-			CacheRatio:       &cacheRatio,
-			CreateCacheRatio: &createCacheRatio,
-		},
+		"official-model": {ModelRatio: 2.5},
+		"manual-model":   {ModelRatio: 3.5},
 	}, true)
+	manualRatio := 4.5
+	ReplaceModelMetadataPricing(map[string]ModelMetadataPricingValues{
+		"manual-model": {ModelRatio: &manualRatio},
+	})
 
-	modelPrice, hasPrice := GetModelPrice("gpt-5-codex", false)
-	assert.False(t, hasPrice)
-	assert.Equal(t, -1.0, modelPrice)
-
-	ratio, ok, matchName := GetModelRatio("gpt-5-codex")
-	require.True(t, ok)
-	assert.Equal(t, "gpt-5-codex", matchName)
-	assert.Equal(t, 0.625, ratio)
-	assert.Equal(t, 8.0, GetCompletionRatio("gpt-5-codex"))
-
-	compactRatio, compactOK, _ := GetModelRatio("gpt-5-codex-openai-compact")
-	require.True(t, compactOK)
-	assert.Equal(t, 0.625, compactRatio)
-
-	readRatio, readOK := GetCacheRatio("gpt-5-codex")
-	require.True(t, readOK)
-	assert.Equal(t, 0.1, readRatio)
-
-	writeRatio, writeOK := GetCreateCacheRatio("gpt-5-codex")
-	require.True(t, writeOK)
-	assert.Equal(t, 1.25, writeRatio)
-
-	operation_setting.SelfUseModeEnabled = true
-	legacyRatio, legacyOK, legacyMatch := GetModelRatio("deepseek-chat")
-	assert.False(t, legacyOK)
-	assert.Equal(t, "deepseek-chat", legacyMatch)
-	assert.Equal(t, 37.5, legacyRatio)
+	cases := []struct {
+		name  string
+		model string
+		want  float64
+	}{
+		{name: "official model uses official ratio", model: "official-model", want: 2.5},
+		{name: "unlisted model keeps legacy fallback", model: "fallback-model", want: 1.25},
+		{name: "manual metadata overrides official ratio", model: "manual-model", want: 4.5},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ratio, ok, matchName := GetModelRatio(tc.model)
+			require.True(t, ok)
+			assert.Equal(t, tc.model, matchName)
+			assert.Equal(t, tc.want, ratio)
+		})
+	}
 }
 
 func TestOfficialPricingAddsGeminiThinkingAliases(t *testing.T) {
-	t.Cleanup(func() {
-		ReplaceOfficialPricing(nil, false)
-	})
-
+	preservePricingRuntimeState(t)
 	ReplaceOfficialPricing(map[string]OfficialPricingValues{
 		"gemini-2.5-flash": {
 			ModelRatio:      0.15,
@@ -75,10 +121,7 @@ func TestOfficialPricingAddsGeminiThinkingAliases(t *testing.T) {
 }
 
 func TestModelMetadataPricingOverridesOfficialPricing(t *testing.T) {
-	t.Cleanup(func() {
-		ReplaceModelMetadataPricing(nil)
-		ReplaceOfficialPricing(nil, false)
-	})
+	preservePricingRuntimeState(t)
 
 	officialCacheRatio := 0.1
 	officialCreateCacheRatio := 1.25
@@ -119,33 +162,38 @@ func TestModelMetadataPricingOverridesOfficialPricing(t *testing.T) {
 	assert.Equal(t, 1.6, createCacheRatio)
 }
 
-func TestGPT56SeriesDefaultRatiosAndCompletion(t *testing.T) {
-	t.Cleanup(func() {
-		ReplaceOfficialPricing(nil, false)
-		ReplaceModelMetadataPricing(nil)
+func TestGetExposedDataLayersFallbackOfficialAndManualPricing(t *testing.T) {
+	preservePricingRuntimeState(t)
+	modelPriceMap.Clear()
+	modelPriceMap.AddAll(map[string]float64{
+		"official-per-token": 0.12,
 	})
-	ReplaceOfficialPricing(nil, false)
-	ReplaceModelMetadataPricing(nil)
+	modelRatioMap.Clear()
+	modelRatioMap.AddAll(map[string]float64{
+		"fallback-model": 1.25,
+		"official-model": 99,
+		"manual-model":   99,
+	})
 
-	// Ensure defaults are present for offline/fallback billing.
-	InitRatioSettings()
+	ReplaceOfficialPricing(map[string]OfficialPricingValues{
+		"official-model":     {ModelRatio: 2.5},
+		"manual-model":       {ModelRatio: 3.5},
+		"official-per-token": {ModelRatio: 4.5},
+	}, true)
+	manualRatio := 5.5
+	ReplaceModelMetadataPricing(map[string]ModelMetadataPricingValues{
+		"manual-model": {ModelRatio: &manualRatio},
+	})
 
-	cases := []struct {
-		name       string
-		modelRatio float64
-	}{
-		{"gpt-5.6-sol", 2.5},
-		{"gpt-5.6-terra", 1.25},
-		{"gpt-5.6-luna", 0.5},
-	}
-	for _, tc := range cases {
-		ratio, ok, matchName := GetModelRatio(tc.name)
-		require.Truef(t, ok, "missing default model ratio for %s", tc.name)
-		assert.Equal(t, tc.name, matchName)
-		assert.Equal(t, tc.modelRatio, ratio)
-		assert.Equal(t, 6.0, GetCompletionRatio(tc.name))
-		cacheRatio, cacheOK := GetCacheRatio(tc.name)
-		require.Truef(t, cacheOK, "missing default cache ratio for %s", tc.name)
-		assert.Equal(t, 0.1, cacheRatio)
-	}
+	data := GetExposedData()
+	modelRatio, ok := data["model_ratio"].(map[string]float64)
+	require.True(t, ok)
+	modelPrice, ok := data["model_price"].(map[string]float64)
+	require.True(t, ok)
+
+	assert.Equal(t, 1.25, modelRatio["fallback-model"])
+	assert.Equal(t, 2.5, modelRatio["official-model"])
+	assert.Equal(t, 5.5, modelRatio["manual-model"])
+	assert.Equal(t, 4.5, modelRatio["official-per-token"])
+	assert.NotContains(t, modelPrice, "official-per-token")
 }

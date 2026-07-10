@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/stretchr/testify/assert"
@@ -19,16 +20,20 @@ func setupOfficialMetadataServiceTestDB(t *testing.T) {
 		&model.Vendor{},
 		&model.OfficialModelPrice{},
 		&model.OfficialPricingSnapshot{},
+		&model.ModelPricingOverride{},
 		&model.Option{},
 		&model.Ability{},
+		&model.Channel{},
 	))
 	clear := func() {
 		model.DB.Exec("DELETE FROM official_model_prices")
 		model.DB.Exec("DELETE FROM official_pricing_snapshots")
 		model.DB.Exec("DELETE FROM models")
+		model.DB.Exec("DELETE FROM model_pricing_overrides")
 		model.DB.Exec("DELETE FROM vendors")
 		model.DB.Exec("DELETE FROM abilities")
 		model.DB.Exec("DELETE FROM options")
+		model.DB.Exec("DELETE FROM channels")
 		ratio_setting.ReplaceModelMetadataPricing(nil)
 		ratio_setting.ReplaceOfficialPricing(nil, false)
 		model.InvalidatePricingCache()
@@ -447,6 +452,11 @@ func TestParseOpenAIOfficialTokenPricingSupportsFourPriceColumns(t *testing.T) {
 func TestMergePreservedOfficialPricingRowsKeepsFailedProviderCatalog(t *testing.T) {
 	setupOfficialMetadataServiceTestDB(t)
 
+	const (
+		freshLastConfirmedAt = int64(12345)
+		staleLastConfirmedAt = int64(67890)
+	)
+
 	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
 		Provider:        OfficialPricingProviderOpenAI,
 		ModelName:       "gpt-preserved-failed-provider",
@@ -454,6 +464,17 @@ func TestMergePreservedOfficialPricingRowsKeepsFailedProviderCatalog(t *testing.
 		ModelRatio:      1.25,
 		CompletionRatio: 6,
 		Active:          true,
+		LastConfirmedAt: freshLastConfirmedAt,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderOpenAI,
+		ModelName:       "gpt-stale-failed-provider",
+		SourceURL:       OfficialPricingOpenAIURL,
+		ModelRatio:      1.5,
+		CompletionRatio: 6,
+		Active:          true,
+		Stale:           true,
+		LastConfirmedAt: staleLastConfirmedAt,
 	}).Error)
 	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
 		Provider:        OfficialPricingProviderClaude,
@@ -471,9 +492,11 @@ func TestMergePreservedOfficialPricingRowsKeepsFailedProviderCatalog(t *testing.
 		ModelRatio:      2.5,
 		CompletionRatio: 5,
 	}}
-	merged := mergePreservedOfficialPricingRows("op_test_merge", fresh, map[string]string{
+	result := &OfficialPricingSyncResult{}
+	merged, err := mergeOfficialPricingRows("op_test_merge", fresh, map[string]string{
 		OfficialPricingProviderOpenAI: "openai source unavailable",
-	})
+	}, result)
+	require.NoError(t, err)
 
 	byName := make(map[string]model.OfficialModelPrice, len(merged))
 	for _, row := range merged {
@@ -481,10 +504,92 @@ func TestMergePreservedOfficialPricingRowsKeepsFailedProviderCatalog(t *testing.
 	}
 	require.Contains(t, byName, "claude-fresh-ok")
 	require.Contains(t, byName, "gpt-preserved-failed-provider")
+	require.Contains(t, byName, "gpt-stale-failed-provider")
 	require.NotContains(t, byName, "claude-should-not-preserve")
-	assert.Equal(t, "op_test_merge", byName["gpt-preserved-failed-provider"].SnapshotID)
-	assert.Equal(t, int64(0), byName["gpt-preserved-failed-provider"].ID)
-	assert.True(t, byName["gpt-preserved-failed-provider"].Active)
+	freshPreserved := byName["gpt-preserved-failed-provider"]
+	assert.Equal(t, "op_test_merge", freshPreserved.SnapshotID)
+	assert.Equal(t, int64(0), freshPreserved.ID)
+	assert.True(t, freshPreserved.Active)
+	assert.False(t, freshPreserved.Stale)
+	assert.Equal(t, freshLastConfirmedAt, freshPreserved.LastConfirmedAt)
+	stalePreserved := byName["gpt-stale-failed-provider"]
+	assert.True(t, stalePreserved.Stale)
+	assert.Equal(t, staleLastConfirmedAt, stalePreserved.LastConfirmedAt)
+	assert.Equal(t, 2, result.CarriedCount)
+	assert.Equal(t, 1, result.StaleCount)
+}
+
+func TestMergeOfficialPricingRowsMarksEnabledMissingModelsStaleAndClearsOnReappearance(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+
+	const modelName = "gpt-stale-lifecycle"
+	const lastConfirmedAt = int64(12345)
+	require.NoError(t, model.DB.Create(&model.Channel{
+		Id:     801,
+		Key:    "stale-pricing-key",
+		Name:   "stale-pricing-channel",
+		Status: common.ChannelStatusEnabled,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.Ability{
+		Group:     "default",
+		Model:     modelName,
+		ChannelId: 801,
+		Enabled:   true,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderOpenAI,
+		ModelName:       modelName,
+		SourceURL:       OfficialPricingOpenAIURL,
+		ModelRatio:      1.25,
+		CompletionRatio: 6,
+		Active:          true,
+		LastConfirmedAt: lastConfirmedAt,
+	}).Error)
+
+	staleResult := &OfficialPricingSyncResult{}
+	staleRows, err := mergeOfficialPricingRows("op_stale", []model.OfficialModelPrice{{
+		Provider:        OfficialPricingProviderClaude,
+		ModelName:       "claude-fresh",
+		SourceURL:       OfficialPricingClaudeURL,
+		ModelRatio:      2,
+		CompletionRatio: 5,
+	}}, nil, staleResult)
+	require.NoError(t, err)
+	require.Len(t, staleRows, 2)
+	assert.Equal(t, 1, staleResult.FreshCount)
+	assert.Equal(t, 1, staleResult.CarriedCount)
+	assert.Equal(t, 1, staleResult.StaleCount)
+	assert.Zero(t, staleResult.RemovedCount)
+
+	var staleRow model.OfficialModelPrice
+	for _, row := range staleRows {
+		if row.ModelName == modelName {
+			staleRow = row
+		}
+	}
+	assert.True(t, staleRow.Stale)
+	assert.Equal(t, lastConfirmedAt, staleRow.LastConfirmedAt)
+	assert.Equal(t, 1.25, staleRow.ModelRatio)
+	require.NoError(t, model.ReplaceActiveOfficialPricing("op_stale", "test", staleRows))
+
+	freshResult := &OfficialPricingSyncResult{}
+	freshRows, err := mergeOfficialPricingRows("op_fresh", []model.OfficialModelPrice{{
+		Provider:        OfficialPricingProviderOpenAI,
+		ModelName:       modelName,
+		SourceURL:       OfficialPricingOpenAIURL,
+		ModelRatio:      2.5,
+		CompletionRatio: 6,
+		LastConfirmedAt: 23456,
+	}}, nil, freshResult)
+	require.NoError(t, err)
+	require.Len(t, freshRows, 1)
+	assert.False(t, freshRows[0].Stale)
+	assert.Equal(t, int64(23456), freshRows[0].LastConfirmedAt)
+	assert.Equal(t, 2.5, freshRows[0].ModelRatio)
+	assert.Equal(t, 1, freshResult.FreshCount)
+	assert.Zero(t, freshResult.CarriedCount)
+	assert.Zero(t, freshResult.StaleCount)
+	assert.Equal(t, 1, freshResult.RemovedCount)
 }
 
 func TestConvertXAIOfficialPricingToRatioData(t *testing.T) {

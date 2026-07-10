@@ -5279,6 +5279,20 @@
     "Zero retention": "データ保持なし",
     "Zhipu": "Zhipu",
     "Zhipu V4": "Zhipu V 4",
-    "Zoom": "ズーム"
+    "Zoom": "ズーム",
+    "Calibrate": "調整",
+    "Calibrate model prices?": "モデル価格を調整しますか？",
+    "Calibrate prices": "価格を調整",
+    "Failed to calibrate model prices": "モデル価格の調整に失敗しました",
+    "Failed to save model prices": "モデル価格の保存に失敗しました",
+    "Fallback": "フォールバック",
+    "Manual": "手動",
+    "Model price calibration task started": "モデル価格の調整タスクを開始しました",
+    "Refresh official prices and reset fallback defaults. Manual prices are preserved.": "公式価格を更新し、フォールバックの既定値をリセットします。手動価格は保持されます。",
+    "Restore official price": "公式価格に戻す",
+    "Stale": "期限切れ",
+    "Pricing authority": "価格の管理元",
+    "Last confirmed": "最終確認",
+    "Official Sync controls model metadata only. Changing pricing here creates a manual price override.": "公式同期で制御されるのはモデルのメタデータのみです。ここで価格を変更すると、手動価格の上書きが作成されます。"
   }
 }

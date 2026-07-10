@@ -1,6 +1,9 @@
 package controller
 
 import (
+	"context"
+	"fmt"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -8,8 +11,10 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // GetAllModelsMeta 获取模型列表（分页）
@@ -22,7 +27,10 @@ func GetAllModelsMeta(c *gin.Context) {
 		return
 	}
 	// 批量填充附加字段，提升列表接口性能
-	enrichModels(modelsMeta)
+	if err := enrichModels(modelsMeta); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	var total int64
 	model.DB.Model(&model.Model{}).Count(&total)
 
@@ -53,7 +61,10 @@ func SearchModelsMeta(c *gin.Context) {
 		return
 	}
 	// 批量填充附加字段，提升列表接口性能
-	enrichModels(modelsMeta)
+	if err := enrichModels(modelsMeta); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	pageInfo.SetTotal(int(total))
 	pageInfo.SetItems(modelsMeta)
 	common.ApiSuccess(c, pageInfo)
@@ -72,15 +83,53 @@ func GetModelMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	enrichModels([]*model.Model{&m})
+	if err := enrichModels([]*model.Model{&m}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, &m)
 }
 
-func refreshModelMetadataPricing() {
-	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
-		common.SysError("failed to load model metadata pricing: " + err.Error())
+func refreshModelMetadataPricing() error {
+	if err := model.RefreshPricingRuntime(); err != nil {
+		return fmt.Errorf("model metadata was committed, but pricing runtime refresh failed; automatic retry is pending: %w", err)
 	}
-	model.RefreshPricing()
+	return nil
+}
+
+func buildModelMetadataPricingRequest(modelName string, rawConfig string, current *service.ModelPricingView) (service.ModelPricingBatchRequest, error) {
+	cfg, valid, err := model.ParseModelPricingConfig(rawConfig)
+	if err != nil {
+		return service.ModelPricingBatchRequest{}, err
+	}
+	if current == nil {
+		if !valid {
+			return service.ModelPricingBatchRequest{}, nil
+		}
+		return service.ModelPricingBatchRequest{Upserts: []service.ModelPricingMutation{{ModelName: modelName, Config: cfg}}}, nil
+	}
+	if valid && reflect.DeepEqual(cfg, current.EffectiveConfig) {
+		return service.ModelPricingBatchRequest{}, nil
+	}
+	if valid {
+		return service.ModelPricingBatchRequest{Upserts: []service.ModelPricingMutation{{ModelName: modelName, Config: cfg}}}, nil
+	}
+	if current.Authority == model.AuthorityLevelManual {
+		return service.ModelPricingBatchRequest{Restore: []string{modelName}}, nil
+	}
+	return service.ModelPricingBatchRequest{}, nil
+}
+
+func loadModelPricingViews(ctx context.Context) (map[string]service.ModelPricingView, error) {
+	views, err := service.ListModelPricing(ctx)
+	if err != nil {
+		return nil, err
+	}
+	byName := make(map[string]service.ModelPricingView, len(views))
+	for _, view := range views {
+		byName[view.ModelName] = view
+	}
+	return byName, nil
 }
 
 // CreateModelMeta 新建模型
@@ -107,11 +156,26 @@ func CreateModelMeta(c *gin.Context) {
 		return
 	}
 
-	if err := m.Insert(); err != nil {
+	pricingRequest, err := buildModelMetadataPricingRequest(m.ModelName, m.PricingConfig, nil)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	refreshModelMetadataPricing()
+	m.PricingConfig = ""
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := m.InsertTx(tx); err != nil {
+			return err
+		}
+		_, err := service.SaveModelPricingBatchTx(tx, pricingRequest)
+		return err
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := refreshModelMetadataPricing(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, &m)
 }
 
@@ -135,26 +199,74 @@ func UpdateModelMeta(c *gin.Context) {
 			common.ApiError(c, err)
 			return
 		}
-	} else {
-		// 名称冲突检查
-		if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
+		if err := refreshModelMetadataPricing(); err != nil {
 			common.ApiError(c, err)
 			return
-		} else if dup {
-			common.ApiErrorMsg(c, "模型名称已存在")
-			return
 		}
-		if err := model.ValidateModelPricingConfig(m.PricingConfig); err != nil {
-			common.ApiErrorMsg(c, "模型定价配置无效: "+err.Error())
-			return
-		}
+		common.ApiSuccess(c, &m)
+		return
+	}
 
-		if err := m.Update(); err != nil {
+	if dup, err := model.IsModelNameDuplicated(m.Id, m.ModelName); err != nil {
+		common.ApiError(c, err)
+		return
+	} else if dup {
+		common.ApiErrorMsg(c, "模型名称已存在")
+		return
+	}
+	if err := model.ValidateModelPricingConfig(m.PricingConfig); err != nil {
+		common.ApiErrorMsg(c, "模型定价配置无效: "+err.Error())
+		return
+	}
+
+	var existing model.Model
+	if err := model.DB.First(&existing, m.Id).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	pricingViews, err := loadModelPricingViews(c.Request.Context())
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	current, hasCurrent := pricingViews[existing.ModelName]
+	var currentPtr *service.ModelPricingView
+	if hasCurrent {
+		currentPtr = &current
+	}
+	incomingPricingConfig := m.PricingConfig
+	pricingRequest, err := buildModelMetadataPricingRequest(m.ModelName, incomingPricingConfig, currentPtr)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if existing.ModelName != m.ModelName {
+		pricingRequest.Restore = append(pricingRequest.Restore, existing.ModelName)
+		cfg, valid, err := model.ParseModelPricingConfig(incomingPricingConfig)
+		if err != nil {
 			common.ApiError(c, err)
 			return
+		}
+		if valid {
+			pricingRequest.Upserts = []service.ModelPricingMutation{{ModelName: m.ModelName, Config: cfg}}
 		}
 	}
-	refreshModelMetadataPricing()
+	m.PricingConfig = existing.PricingConfig
+
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := m.UpdateTx(tx); err != nil {
+			return err
+		}
+		_, err := service.SaveModelPricingBatchTx(tx, pricingRequest)
+		return err
+	}); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	if err := refreshModelMetadataPricing(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, &m)
 }
 
@@ -166,23 +278,55 @@ func DeleteModelMeta(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	if err := model.DB.Delete(&model.Model{}, id).Error; err != nil {
+	var deletedModel model.Model
+	if err := model.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.First(&deletedModel, id).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&deletedModel).Error; err != nil {
+			return err
+		}
+		_, err := service.SaveModelPricingBatchTx(tx, service.ModelPricingBatchRequest{
+			Restore: []string{deletedModel.ModelName},
+		})
+		return err
+	}); err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	refreshModelMetadataPricing()
+	if err := refreshModelMetadataPricing(); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, nil)
 }
 
 // enrichModels 批量填充附加信息：端点、渠道、分组、计费类型，避免 N+1 查询
-func enrichModels(models []*model.Model) {
+func enrichModels(models []*model.Model) error {
 	if len(models) == 0 {
-		return
+		return nil
+	}
+	pricingViews, err := loadModelPricingViews(context.Background())
+	if err != nil {
+		return err
 	}
 	for _, m := range models {
-		if m != nil {
-			m.AuthorityLevel = m.ResolveAuthorityLevel()
+		if m == nil {
+			continue
 		}
+		m.AuthorityLevel = m.ResolveAuthorityLevel()
+		view, ok := pricingViews[m.ModelName]
+		if !ok {
+			continue
+		}
+		payload, err := common.Marshal(view.EffectiveConfig)
+		if err != nil {
+			return err
+		}
+		m.PricingConfig = string(payload)
+		m.PricingAuthority = view.Authority
+		m.PricingOfficialStale = view.OfficialStale
+		m.PricingOfficialLastConfirmedAt = view.OfficialLastConfirmedAt
 	}
 
 	// 1) 拆分精确与规则匹配
@@ -222,7 +366,7 @@ func enrichModels(models []*model.Model) {
 	}
 
 	if len(ruleIndices) == 0 {
-		return
+		return nil
 	}
 
 	// 4) 一次性读取定价缓存，内存匹配所有规则模型
@@ -346,4 +490,5 @@ func enrichModels(models []*model.Model) {
 		mm.MatchedModels = names
 		mm.MatchedCount = len(names)
 	}
+	return nil
 }

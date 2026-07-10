@@ -5279,6 +5279,20 @@
     "Zero retention": "零数据保留",
     "Zhipu": "智谱",
     "Zhipu V4": "智谱 V4",
-    "Zoom": "缩放"
+    "Zoom": "缩放",
+    "Calibrate": "校准",
+    "Calibrate model prices?": "校准模型价格？",
+    "Calibrate prices": "校准价格",
+    "Failed to calibrate model prices": "模型价格校准失败",
+    "Failed to save model prices": "模型价格保存失败",
+    "Fallback": "回退",
+    "Manual": "手动",
+    "Model price calibration task started": "模型价格校准任务已启动",
+    "Refresh official prices and reset fallback defaults. Manual prices are preserved.": "刷新官方价格并重置回退默认值。手动价格保持不变。",
+    "Restore official price": "恢复官方价格",
+    "Stale": "已过期",
+    "Pricing authority": "价格权限",
+    "Last confirmed": "最后确认时间",
+    "Official Sync controls model metadata only. Changing pricing here creates a manual price override.": "官方同步仅控制模型元数据。在此修改价格会创建手动价格覆盖。"
   }
 }

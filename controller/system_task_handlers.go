@@ -153,6 +153,10 @@ func (asyncTaskPollHandler) Run(ctx context.Context, task *model.SystemTask, run
 	finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusSucceeded, summary, nil)
 }
 
+type officialPricingSyncTaskPayload struct {
+	Calibrate bool `json:"calibrate"`
+}
+
 type officialPricingSyncHandler struct{}
 
 func (officialPricingSyncHandler) Type() string { return model.SystemTaskTypeOfficialPricingSync }
@@ -169,10 +173,18 @@ func (officialPricingSyncHandler) Interval() time.Duration {
 	return time.Duration(intervalMinutes) * time.Minute
 }
 
-func (officialPricingSyncHandler) NewPayload() any { return nil }
+func (officialPricingSyncHandler) NewPayload() any { return officialPricingSyncTaskPayload{} }
 
 func (officialPricingSyncHandler) Run(ctx context.Context, task *model.SystemTask, runnerID string) {
+	payload := officialPricingSyncTaskPayload{}
+	if err := task.DecodePayload(&payload); err != nil {
+		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, nil, err)
+		return
+	}
 	result, err := service.SyncOfficialPricing(ctx)
+	if err == nil && payload.Calibrate {
+		err = service.ResetFallbackModelPricing()
+	}
 	if err != nil {
 		finishSystemTaskHandler(task, runnerID, model.SystemTaskStatusFailed, result, err)
 		return

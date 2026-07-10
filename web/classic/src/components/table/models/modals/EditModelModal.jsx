@@ -59,6 +59,12 @@ const nameRuleOptions = [
   { label: '后缀名称匹配', value: 3 },
 ];
 
+const pricingAuthorityLabels = {
+  manual: '手动价格',
+  official: '官方价格',
+  fallback: '回退价格',
+};
+
 const EditModelModal = (props) => {
   const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
@@ -73,6 +79,11 @@ const EditModelModal = (props) => {
   // 预填组（标签、端点）
   const [tagGroups, setTagGroups] = useState([]);
   const [endpointGroups, setEndpointGroups] = useState([]);
+  const [pricingAuthority, setPricingAuthority] = useState('fallback');
+  const [pricingOfficialStale, setPricingOfficialStale] = useState(false);
+  const [pricingConfig, setPricingConfig] = useState('');
+  const [pricingOfficialLastConfirmedAt, setPricingOfficialLastConfirmedAt] =
+    useState(0);
 
   // 获取供应商列表
   const fetchVendors = async () => {
@@ -151,6 +162,12 @@ const EditModelModal = (props) => {
         // 处理status/sync_official，将数字转为布尔值
         data.status = data.status === 1;
         data.sync_official = (data.sync_official ?? 1) === 1;
+        setPricingAuthority(data.pricing_authority || 'fallback');
+        setPricingOfficialStale(Boolean(data.pricing_official_stale));
+        setPricingConfig(data.pricing_config || '');
+        setPricingOfficialLastConfirmedAt(
+          data.pricing_official_last_confirmed_at || 0,
+        );
         if (formApiRef.current) {
           formApiRef.current.setValues({ ...getInitValues(), ...data });
         }
@@ -179,6 +196,10 @@ const EditModelModal = (props) => {
       if (isEdit) {
         loadModel();
       } else {
+        setPricingAuthority('fallback');
+        setPricingOfficialStale(false);
+        setPricingConfig('');
+        setPricingOfficialLastConfirmedAt(0);
         formApiRef.current?.setValues({
           ...getInitValues(),
           model_name: props.editingModel?.model_name || '',
@@ -195,6 +216,7 @@ const EditModelModal = (props) => {
       const submitData = {
         ...values,
         tags: Array.isArray(values.tags) ? values.tags.join(',') : values.tags,
+        pricing_config: pricingConfig,
         endpoints: values.endpoints || '',
         status: values.status ? 1 : 0,
         sync_official: values.sync_official ? 1 : 0,
@@ -525,11 +547,44 @@ const EditModelModal = (props) => {
                     />
                   </Col>
                   <Col span={24}>
+                    <Banner
+                      type='info'
+                      closeIcon={null}
+                      description={
+                        <Space>
+                          <span>{t('价格权限')}</span>
+                          <Tag
+                            color={
+                              pricingAuthority === 'manual' ? 'blue' : 'grey'
+                            }
+                          >
+                            {t(
+                              pricingAuthorityLabels[pricingAuthority] ||
+                                pricingAuthorityLabels.fallback,
+                            )}
+                          </Tag>
+                          {pricingOfficialStale ? (
+                            <Tag
+                              color='orange'
+                              title={
+                                pricingOfficialLastConfirmedAt
+                                  ? `${t('最后确认时间')}: ${new Date(pricingOfficialLastConfirmedAt * 1000).toLocaleString()}`
+                                  : undefined
+                              }
+                            >
+                              {t('官方价格已过期')}
+                            </Tag>
+                          ) : null}
+                        </Space>
+                      }
+                    />
+                  </Col>
+                  <Col span={24}>
                     <Form.Switch
                       field='sync_official'
                       label={t('参与官方同步')}
                       extraText={t(
-                        '关闭后，此模型将不会被“同步官方”自动覆盖或创建',
+                        '仅控制模型描述、图标、标签和端点等元数据的官方同步，不控制价格权限。',
                       )}
                       size='large'
                     />

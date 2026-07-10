@@ -44,11 +44,14 @@ type Model struct {
 	UpdatedTime   int64          `json:"updated_time" gorm:"bigint"`
 	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index;uniqueIndex:uk_model_name_delete_at,priority:2"`
 
-	AuthorityLevel AuthorityLevel `json:"authority_level,omitempty" gorm:"-"`
-	BoundChannels  []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
-	EnableGroups   []string       `json:"enable_groups,omitempty" gorm:"-"`
-	QuotaTypes     []int          `json:"quota_types,omitempty" gorm:"-"`
-	NameRule       int            `json:"name_rule" gorm:"default:0"`
+	AuthorityLevel                 AuthorityLevel `json:"authority_level,omitempty" gorm:"-"`
+	BoundChannels                  []BoundChannel `json:"bound_channels,omitempty" gorm:"-"`
+	PricingAuthority               AuthorityLevel `json:"pricing_authority,omitempty" gorm:"-"`
+	PricingOfficialStale           bool           `json:"pricing_official_stale,omitempty" gorm:"-"`
+	PricingOfficialLastConfirmedAt int64          `json:"pricing_official_last_confirmed_at,omitempty" gorm:"-"`
+	EnableGroups                   []string       `json:"enable_groups,omitempty" gorm:"-"`
+	QuotaTypes                     []int          `json:"quota_types,omitempty" gorm:"-"`
+	NameRule                       int            `json:"name_rule" gorm:"default:0"`
 
 	MatchedModels []string `json:"matched_models,omitempty" gorm:"-"`
 	MatchedCount  int      `json:"matched_count,omitempty" gorm:"-"`
@@ -68,6 +71,10 @@ func (mi *Model) ResolveAuthorityLevel() AuthorityLevel {
 }
 
 func (mi *Model) Insert() error {
+	return mi.InsertTx(DB)
+}
+
+func (mi *Model) InsertTx(tx *gorm.DB) error {
 	now := common.GetTimestamp()
 	mi.CreatedTime = now
 	mi.UpdatedTime = now
@@ -77,12 +84,12 @@ func (mi *Model) Insert() error {
 	originalSyncOfficial := mi.SyncOfficial
 
 	// 先创建记录（GORM 会对零值字段应用默认值）
-	if err := DB.Create(mi).Error; err != nil {
+	if err := tx.Create(mi).Error; err != nil {
 		return err
 	}
 
 	// 使用保存的原始值进行更新，确保零值能正确保存
-	return DB.Model(&Model{}).Where("id = ?", mi.Id).Updates(map[string]interface{}{
+	return tx.Model(&Model{}).Where("id = ?", mi.Id).Updates(map[string]interface{}{
 		"status":        originalStatus,
 		"sync_official": originalSyncOfficial,
 	}).Error
@@ -98,9 +105,13 @@ func IsModelNameDuplicated(id int, name string) (bool, error) {
 }
 
 func (mi *Model) Update() error {
+	return mi.UpdateTx(DB)
+}
+
+func (mi *Model) UpdateTx(tx *gorm.DB) error {
 	mi.UpdatedTime = common.GetTimestamp()
 	// 使用 Select 强制更新所有字段，包括零值
-	return DB.Model(&Model{}).Where("id = ?", mi.Id).
+	return tx.Model(&Model{}).Where("id = ?", mi.Id).
 		Select("model_name", "description", "icon", "tags", "vendor_id", "endpoints", "pricing_config", "status", "sync_official", "name_rule", "updated_time").
 		Updates(mi).Error
 }

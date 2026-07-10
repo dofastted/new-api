@@ -28,16 +28,61 @@ import {
   Spin,
 } from '@douyinfe/semi-ui';
 import {
-  compareObjects,
   API,
   showError,
   showSuccess,
   showWarning,
   verifyJSON,
 } from '../../../helpers';
+import {
+  buildPricingViewMap,
+  calibrateModelPricing,
+  pricingConfigSignature,
+  saveModelPricingBatch,
+} from './modelPricingApi';
 import { useTranslation } from 'react-i18next';
 
-export default function ModelRatioSettings(props) {
+const parseJsonMap = (value) => JSON.parse(value || '{}');
+
+const buildPricingConfigs = (inputs) => {
+  const maps = {
+    price: parseJsonMap(inputs.ModelPrice),
+    ratio: parseJsonMap(inputs.ModelRatio),
+    cache_ratio: parseJsonMap(inputs.CacheRatio),
+    create_cache_ratio: parseJsonMap(inputs.CreateCacheRatio),
+    completion_ratio: parseJsonMap(inputs.CompletionRatio),
+    image_ratio: parseJsonMap(inputs.ImageRatio),
+    audio_ratio: parseJsonMap(inputs.AudioRatio),
+    audio_completion_ratio: parseJsonMap(inputs.AudioCompletionRatio),
+  };
+  const modelNames = new Set(
+    Object.values(maps).flatMap((value) => Object.keys(value)),
+  );
+
+  return Object.fromEntries(
+    Array.from(modelNames).map((modelName) => {
+      if (maps.price[modelName] !== undefined) {
+        return [
+          modelName,
+          { mode: 'per-request', price: Number(maps.price[modelName]) },
+        ];
+      }
+      const config = { mode: 'per-token' };
+      for (const [field, values] of Object.entries(maps)) {
+        if (field !== 'price' && values[modelName] !== undefined) {
+          config[field] = Number(values[modelName]);
+        }
+      }
+      return [modelName, config];
+    }),
+  );
+};
+
+export default function ModelRatioSettings({
+  options,
+  pricingViews = [],
+  refresh,
+}) {
   const [loading, setLoading] = useState(false);
   const [inputs, setInputs] = useState({
     ModelPrice: '',
@@ -56,83 +101,84 @@ export default function ModelRatioSettings(props) {
 
   async function onSubmit() {
     try {
-      await refForm.current
-        .validate()
-        .then(() => {
-          const updateArray = compareObjects(inputs, inputsRow);
-          if (!updateArray.length)
-            return showWarning(t('你似乎并没有修改什么'));
-
-          const requestQueue = updateArray.map((item) => {
-            const value =
-              typeof inputs[item.key] === 'boolean'
-                ? String(inputs[item.key])
-                : inputs[item.key];
-            return API.put('/api/option/', { key: item.key, value });
-          });
-
-          setLoading(true);
-          Promise.all(requestQueue)
-            .then((res) => {
-              if (res.includes(undefined)) {
-                return showError(
-                  requestQueue.length > 1
-                    ? t('部分保存失败，请重试')
-                    : t('保存失败'),
-                );
-              }
-
-              for (let i = 0; i < res.length; i++) {
-                if (!res[i].data.success) {
-                  return showError(res[i].data.message);
-                }
-              }
-
-              showSuccess(t('保存成功'));
-              props.refresh();
-            })
-            .catch((error) => {
-              console.error('Unexpected error:', error);
-              showError(t('保存失败，请重试'));
-            })
-            .finally(() => {
-              setLoading(false);
-            });
+      await refForm.current.validate();
+      const desiredByName = buildPricingConfigs(inputs);
+      const viewByName = buildPricingViewMap(pricingViews);
+      const upserts = Object.entries(desiredByName)
+        .filter(([modelName, config]) => {
+          const original = viewByName[modelName]?.effective_config;
+          return (
+            !original ||
+            pricingConfigSignature(original) !== pricingConfigSignature(config)
+          );
         })
-        .catch(() => {
-          showError(t('请检查输入'));
+        .map(([modelName, config]) => ({
+          model_name: modelName,
+          config,
+        }));
+      const restore = pricingViews
+        .filter(
+          (view) =>
+            view.authority === 'manual' &&
+            view.effective_config?.mode !== 'tiered_expr' &&
+            desiredByName[view.model_name] === undefined,
+        )
+        .map((view) => view.model_name);
+      const exposeChanged =
+        inputs.ExposeRatioEnabled !== inputsRow.ExposeRatioEnabled;
+
+      if (upserts.length === 0 && restore.length === 0 && !exposeChanged) {
+        showWarning(t('你似乎并没有修改什么'));
+        return;
+      }
+
+      setLoading(true);
+      if (upserts.length > 0 || restore.length > 0) {
+        await saveModelPricingBatch({ upserts, restore });
+      }
+      if (exposeChanged) {
+        const response = await API.put('/api/option/', {
+          key: 'ExposeRatioEnabled',
+          value: String(inputs.ExposeRatioEnabled),
         });
+        if (!response?.data?.success) {
+          throw new Error(response?.data?.message || t('保存失败'));
+        }
+      }
+      showSuccess(t('保存成功'));
+      await refresh();
     } catch (error) {
-      showError(t('请检查输入'));
+      showError(error.message || t('请检查输入'));
       console.error(error);
+    } finally {
+      setLoading(false);
     }
   }
 
   async function resetModelRatio() {
     try {
-      let res = await API.post(`/api/option/rest_model_ratio`);
-      if (res.data.success) {
-        showSuccess(res.data.message);
-        props.refresh();
-      } else {
-        showError(res.data.message);
-      }
+      setLoading(true);
+      await calibrateModelPricing();
+      showSuccess(t('模型价格校准任务已启动'));
+      await refresh();
     } catch (error) {
-      showError(error);
+      showError(error.message || t('模型价格校准失败'));
+    } finally {
+      setLoading(false);
     }
   }
 
   useEffect(() => {
     const currentInputs = {};
-    for (let key in props.options) {
+    for (let key in options) {
       if (Object.keys(inputs).includes(key)) {
-        currentInputs[key] = props.options[key];
+        currentInputs[key] = options[key];
       }
     }
     setInputs(currentInputs);
     setInputsRow(structuredClone(currentInputs));
     refForm.current.setValues(currentInputs);
-  }, [props.options]);
+  }, [options]);
 
   return (
     <Spin spinning={loading}>
@@ -334,13 +380,13 @@ export default function ModelRatioSettings(props) {
       <Space>
         <Button onClick={onSubmit}>{t('保存模型倍率设置')}</Button>
         <Popconfirm
-          title={t('确定重置模型倍率吗？')}
-          content={t('此修改将不可逆')}
-          okType={'danger'}
+          title={t('确定校准模型价格吗？')}
+          content={t('将刷新官方价格并重置回退默认值，手动价格保持不变。')}
+          okType={'primary'}
           position={'top'}
           onConfirm={resetModelRatio}
         >
-          <Button type={'danger'}>{t('重置模型倍率')}</Button>
+          <Button>{t('校准模型价格')}</Button>
         </Popconfirm>
       </Space>
     </Spin>
