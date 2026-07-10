@@ -350,6 +350,143 @@ func TestConvertOpenAIOfficialPricingIncludesCodex(t *testing.T) {
 	assert.Equal(t, 0.1, cacheRatio["gpt-5-codex"])
 }
 
+func TestParseOpenAIOfficialTokenPricingSupportsFourPriceColumns(t *testing.T) {
+	body := `
+<div data-content-switcher-pane data-value="standard">
+<TextTokenPricingTables
+  client:load
+  tier="standard"
+  rows={[
+    ["gpt-5.6-sol", 5, 0.5, 6.25, 30],
+    ["gpt-5.6-terra", 2.5, 0.25, 3.125, 15],
+    ["gpt-5.6-luna", 1, 0.1, 1.25, 6],
+    ["gpt-5.5 (<272K context length)", 5, 0.5, "-", 30],
+    ["gpt-5.5-pro (<272K context length)", 30, "-", "-", 180],
+    ["gpt-5.4-mini", 0.75, 0.075, "-", 4.5],
+    ["gpt-5.2", 1.75, 0.175, 14],
+    ["gpt-5-pro", 15, null, 120],
+  ]}
+/>
+</div>
+<div data-content-switcher-pane data-value="batch" hidden>
+  <TextTokenPricingTables rows={[
+    ["gpt-5.5 (<272K context length)", 2.5, 0.25, "-", 15],
+  ]} />
+</div>`
+
+	entries, err := ParseOpenAIOfficialTokenPricing(strings.NewReader(body), OfficialPricingOpenAIURL)
+	require.NoError(t, err)
+
+	byModel := make(map[string]OfficialTokenPricing, len(entries))
+	for _, entry := range entries {
+		byModel[entry.Model] = entry
+	}
+
+	require.Contains(t, byModel, "gpt-5.6-sol")
+	assert.Equal(t, 5.0, byModel["gpt-5.6-sol"].InputUSDPerMTok)
+	assert.Equal(t, 30.0, byModel["gpt-5.6-sol"].OutputUSDPerMTok)
+	require.NotNil(t, byModel["gpt-5.6-sol"].CacheReadUSDPerMTok)
+	assert.Equal(t, 0.5, *byModel["gpt-5.6-sol"].CacheReadUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5.6-terra")
+	assert.Equal(t, 2.5, byModel["gpt-5.6-terra"].InputUSDPerMTok)
+	assert.Equal(t, 15.0, byModel["gpt-5.6-terra"].OutputUSDPerMTok)
+	require.NotNil(t, byModel["gpt-5.6-terra"].CacheReadUSDPerMTok)
+	assert.Equal(t, 0.25, *byModel["gpt-5.6-terra"].CacheReadUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5.6-luna")
+	assert.Equal(t, 1.0, byModel["gpt-5.6-luna"].InputUSDPerMTok)
+	assert.Equal(t, 6.0, byModel["gpt-5.6-luna"].OutputUSDPerMTok)
+	require.NotNil(t, byModel["gpt-5.6-luna"].CacheReadUSDPerMTok)
+	assert.Equal(t, 0.1, *byModel["gpt-5.6-luna"].CacheReadUSDPerMTok)
+
+	converted, err := ConvertOfficialTokenPricingToRatioData([]OfficialTokenPricing{
+		byModel["gpt-5.6-sol"],
+		byModel["gpt-5.6-terra"],
+		byModel["gpt-5.6-luna"],
+	})
+	require.NoError(t, err)
+	modelRatio := converted["model_ratio"].(map[string]any)
+	completionRatio := converted["completion_ratio"].(map[string]any)
+	cacheRatio := converted["cache_ratio"].(map[string]any)
+	assert.Equal(t, 2.5, modelRatio["gpt-5.6-sol"])
+	assert.Equal(t, 1.25, modelRatio["gpt-5.6-terra"])
+	assert.Equal(t, 0.5, modelRatio["gpt-5.6-luna"])
+	assert.Equal(t, 6.0, completionRatio["gpt-5.6-sol"])
+	assert.Equal(t, 6.0, completionRatio["gpt-5.6-terra"])
+	assert.Equal(t, 6.0, completionRatio["gpt-5.6-luna"])
+	assert.Equal(t, 0.1, cacheRatio["gpt-5.6-sol"])
+	assert.Equal(t, 0.1, cacheRatio["gpt-5.6-terra"])
+	assert.Equal(t, 0.1, cacheRatio["gpt-5.6-luna"])
+
+	require.Contains(t, byModel, "gpt-5.5")
+	assert.Equal(t, 5.0, byModel["gpt-5.5"].InputUSDPerMTok)
+	assert.Equal(t, 30.0, byModel["gpt-5.5"].OutputUSDPerMTok)
+	require.NotNil(t, byModel["gpt-5.5"].CacheReadUSDPerMTok)
+	assert.Equal(t, 0.5, *byModel["gpt-5.5"].CacheReadUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5.5-pro")
+	assert.Equal(t, 30.0, byModel["gpt-5.5-pro"].InputUSDPerMTok)
+	assert.Equal(t, 180.0, byModel["gpt-5.5-pro"].OutputUSDPerMTok)
+	assert.Nil(t, byModel["gpt-5.5-pro"].CacheReadUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5.4-mini")
+	assert.Equal(t, 0.75, byModel["gpt-5.4-mini"].InputUSDPerMTok)
+	assert.Equal(t, 4.5, byModel["gpt-5.4-mini"].OutputUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5.2")
+	assert.Equal(t, 1.75, byModel["gpt-5.2"].InputUSDPerMTok)
+	assert.Equal(t, 14.0, byModel["gpt-5.2"].OutputUSDPerMTok)
+
+	require.Contains(t, byModel, "gpt-5-pro")
+	assert.Equal(t, 15.0, byModel["gpt-5-pro"].InputUSDPerMTok)
+	assert.Equal(t, 120.0, byModel["gpt-5-pro"].OutputUSDPerMTok)
+	assert.Nil(t, byModel["gpt-5-pro"].CacheReadUSDPerMTok)
+}
+
+func TestMergePreservedOfficialPricingRowsKeepsFailedProviderCatalog(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderOpenAI,
+		ModelName:       "gpt-preserved-failed-provider",
+		SourceURL:       OfficialPricingOpenAIURL,
+		ModelRatio:      1.25,
+		CompletionRatio: 6,
+		Active:          true,
+	}).Error)
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderClaude,
+		ModelName:       "claude-should-not-preserve",
+		SourceURL:       OfficialPricingClaudeURL,
+		ModelRatio:      1.5,
+		CompletionRatio: 5,
+		Active:          true,
+	}).Error)
+
+	fresh := []model.OfficialModelPrice{{
+		Provider:        OfficialPricingProviderClaude,
+		ModelName:       "claude-fresh-ok",
+		SourceURL:       OfficialPricingClaudeURL,
+		ModelRatio:      2.5,
+		CompletionRatio: 5,
+	}}
+	merged := mergePreservedOfficialPricingRows("op_test_merge", fresh, map[string]string{
+		OfficialPricingProviderOpenAI: "openai source unavailable",
+	})
+
+	byName := make(map[string]model.OfficialModelPrice, len(merged))
+	for _, row := range merged {
+		byName[row.ModelName] = row
+	}
+	require.Contains(t, byName, "claude-fresh-ok")
+	require.Contains(t, byName, "gpt-preserved-failed-provider")
+	require.NotContains(t, byName, "claude-should-not-preserve")
+	assert.Equal(t, "op_test_merge", byName["gpt-preserved-failed-provider"].SnapshotID)
+	assert.Equal(t, int64(0), byName["gpt-preserved-failed-provider"].ID)
+	assert.True(t, byName["gpt-preserved-failed-provider"].Active)
+}
+
 func TestConvertXAIOfficialPricingToRatioData(t *testing.T) {
 	body := `
 | Model | Context | Input / 1M tokens | Output / 1M tokens |

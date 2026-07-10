@@ -118,3 +118,34 @@ func TestModelMetadataPricingOverridesOfficialPricing(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, 1.6, createCacheRatio)
 }
+
+func TestGPT56SeriesDefaultRatiosAndCompletion(t *testing.T) {
+	t.Cleanup(func() {
+		ReplaceOfficialPricing(nil, false)
+		ReplaceModelMetadataPricing(nil)
+	})
+	ReplaceOfficialPricing(nil, false)
+	ReplaceModelMetadataPricing(nil)
+
+	// Ensure defaults are present for offline/fallback billing.
+	InitRatioSettings()
+
+	cases := []struct {
+		name       string
+		modelRatio float64
+	}{
+		{"gpt-5.6-sol", 2.5},
+		{"gpt-5.6-terra", 1.25},
+		{"gpt-5.6-luna", 0.5},
+	}
+	for _, tc := range cases {
+		ratio, ok, matchName := GetModelRatio(tc.name)
+		require.Truef(t, ok, "missing default model ratio for %s", tc.name)
+		assert.Equal(t, tc.name, matchName)
+		assert.Equal(t, tc.modelRatio, ratio)
+		assert.Equal(t, 6.0, GetCompletionRatio(tc.name))
+		cacheRatio, cacheOK := GetCacheRatio(tc.name)
+		require.Truef(t, cacheOK, "missing default cache ratio for %s", tc.name)
+		assert.Equal(t, 0.1, cacheRatio)
+	}
+}

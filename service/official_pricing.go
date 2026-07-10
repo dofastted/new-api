@@ -135,6 +135,11 @@ func SyncOfficialPricing(ctx context.Context) (*OfficialPricingSyncResult, error
 		return result, err
 	}
 	rows := officialPricingRowsFromEntries(snapshotID, entries)
+	if len(result.Errors) > 0 {
+		// Keep last known good prices for providers that failed this run so a
+		// single broken upstream page cannot wipe an entire vendor catalog.
+		rows = mergePreservedOfficialPricingRows(snapshotID, rows, result.Errors)
+	}
 	if len(rows) == 0 {
 		err = fmt.Errorf("official pricing sync produced no rows")
 		_ = model.RecordFailedOfficialPricingSnapshot(snapshotID, officialPricingSourcesText(sources), err)
@@ -232,12 +237,45 @@ func FetchOfficialPricing(ctx context.Context, snapshotID string, sources []Offi
 		result.Counts[source.Provider] = len(entries)
 		allEntries = append(allEntries, entries...)
 	}
-	if len(result.Errors) > 0 {
+	// Partial success is allowed: one broken official page should not block the
+	// rest of the directory refresh. Only fail hard when every source fails.
+	if len(allEntries) == 0 {
 		return nil, result, fmt.Errorf("official pricing source failures: %v", result.Errors)
 	}
 	allEntries = dedupeOfficialPricing(allEntries)
 	result.EntriesCount = len(allEntries)
 	return allEntries, result, nil
+}
+
+func mergePreservedOfficialPricingRows(snapshotID string, rows []model.OfficialModelPrice, failedProviders map[string]string) []model.OfficialModelPrice {
+	if len(failedProviders) == 0 {
+		return rows
+	}
+	previous, err := model.GetActiveOfficialPricingRows()
+	if err != nil || len(previous) == 0 {
+		return rows
+	}
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		seen[row.Provider+"\x00"+row.ModelName] = struct{}{}
+	}
+	merged := append([]model.OfficialModelPrice(nil), rows...)
+	for _, row := range previous {
+		if _, failed := failedProviders[row.Provider]; !failed {
+			continue
+		}
+		key := row.Provider + "\x00" + row.ModelName
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		preserved := row
+		preserved.ID = 0
+		preserved.SnapshotID = snapshotID
+		preserved.Active = true
+		merged = append(merged, preserved)
+		seen[key] = struct{}{}
+	}
+	return merged
 }
 
 func fetchOfficialPricingSource(ctx context.Context, client *http.Client, source OfficialPricingSource) ([]OfficialTokenPricing, error) {
@@ -744,7 +782,11 @@ func ConvertDeepSeekOfficialPricingToRatioData(reader io.Reader) (map[string]any
 	return ConvertOfficialTokenPricingToRatioData(entries)
 }
 
-var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^,\]]+),\s*([^,\]]+),\s*([^\]]+)\]`)
+// OpenAI pricing rows are JS arrays inside TextTokenPricingTables:
+//   legacy 3-price: [model, input, cached_input, output]
+//   current 4-price: [model, input, cached_input, flex_or_dash, output]
+// The final numeric token is always output; the optional middle flex column is ignored.
+var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^\]]+)\]`)
 
 func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]OfficialTokenPricing, error) {
 	bodyBytes, err := io.ReadAll(reader)
@@ -758,12 +800,7 @@ func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 	}
 	entries := make([]OfficialTokenPricing, 0, len(matches))
 	for _, match := range matches {
-		input, ok := parseOptionalOfficialPriceToken(match[2])
-		if !ok {
-			continue
-		}
-		cachedInput, hasCachedInput := parseOptionalOfficialPriceToken(match[3])
-		output, ok := parseOptionalOfficialPriceToken(match[4])
+		input, cachedInput, hasCachedInput, output, ok := resolveOpenAIOfficialPriceTokens(match[2])
 		if !ok {
 			continue
 		}
@@ -788,6 +825,53 @@ func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 		return nil, fmt.Errorf("no valid OpenAI pricing entries found")
 	}
 	return entries, nil
+}
+
+func resolveOpenAIOfficialPriceTokens(rawValues string) (input float64, cachedInput float64, hasCachedInput bool, output float64, ok bool) {
+	tokens := splitOpenAIOfficialPriceTokens(rawValues)
+	switch len(tokens) {
+	case 2:
+		// [input, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		output, ok = parseOptionalOfficialPriceToken(tokens[1])
+		return input, 0, false, output, ok
+	case 3:
+		// [input, cached_input, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		cachedInput, hasCachedInput = parseOptionalOfficialPriceToken(tokens[1])
+		output, ok = parseOptionalOfficialPriceToken(tokens[2])
+		return input, cachedInput, hasCachedInput, output, ok
+	case 4:
+		// [input, cached_input, flex_or_placeholder, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		cachedInput, hasCachedInput = parseOptionalOfficialPriceToken(tokens[1])
+		output, ok = parseOptionalOfficialPriceToken(tokens[3])
+		return input, cachedInput, hasCachedInput, output, ok
+	default:
+		return 0, 0, false, 0, false
+	}
+}
+
+func splitOpenAIOfficialPriceTokens(rawValues string) []string {
+	parts := strings.Split(rawValues, ",")
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens
 }
 
 func parseOptionalOfficialPriceToken(token string) (float64, bool) {
