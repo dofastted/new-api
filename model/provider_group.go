@@ -408,13 +408,10 @@ func RebuildAbilitiesFromProviderGroups() error {
 	return rebuildAbilitiesFromProviderGroups()
 }
 
-// SyncProviderGroupChannelsForChannel mirrors a channel's Group/Priority into
-// provider_group_channels, the single source of truth for routing abilities.
-// When syncPriority is true, existing memberships get their priority updated to
-// channel.Priority; enabled is always left to the groups page. Stale memberships
-// (group no longer in channel.Group) are deleted. No-op when the PGC table is
-// absent (legacy deployments keep the channel.Group-driven ability path).
-func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) error {
+// SyncProviderGroupChannelsForChannel mirrors a channel's routing groups into
+// provider_group_channels. Membership priority and enabled state remain owned
+// by the provider groups page. No-op when the PGC table is absent.
+func SyncProviderGroupChannelsForChannel(channel Channel) error {
 	if !providerGroupTableReady(&ProviderGroupChannel{}) {
 		return nil
 	}
@@ -448,12 +445,13 @@ func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) err
 			if err != nil {
 				continue
 			}
+			priority := int64(0)
 			weight := uint(channel.GetWeight())
 			toCreate = append(toCreate, ProviderGroupChannel{
 				ProviderGroupId: pgID,
 				GroupName:       g,
 				ChannelId:       channel.Id,
-				Priority:        channel.Priority,
+				Priority:        &priority,
 				Weight:          &weight,
 				RouteTypes:      ProviderRouteTypesForChannel(channel),
 				Enabled:         channel.Status == common.ChannelStatusEnabled,
@@ -461,12 +459,9 @@ func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) err
 				UpdatedTime:     now,
 			})
 		} else {
-			// Always refresh route_types (derived from channel config); priority
-			// only when syncPriority. Enabled stays groups-page authoritative.
+			// route_types is derived from channel config. Priority and enabled
+			// remain provider-group membership settings.
 			m.RouteTypes = ProviderRouteTypesForChannel(channel)
-			if syncPriority {
-				m.Priority = channel.Priority
-			}
 			m.UpdatedTime = now
 			toUpdate = append(toUpdate, m)
 		}
@@ -487,9 +482,6 @@ func SyncProviderGroupChannelsForChannel(channel Channel, syncPriority bool) err
 			patch := map[string]interface{}{
 				"route_types":  m.RouteTypes,
 				"updated_time": m.UpdatedTime,
-			}
-			if syncPriority {
-				patch["priority"] = m.Priority
 			}
 			if err := tx.Model(&ProviderGroupChannel{}).Where("id = ?", m.Id).
 				Updates(patch).Error; err != nil {
@@ -602,9 +594,9 @@ func rebuildAbilitiesFromProviderGroups() error {
 			if !ok {
 				continue
 			}
-			priority := member.Priority
-			if priority == nil {
-				priority = channel.Priority
+			priority := int64(0)
+			if member.Priority != nil {
+				priority = *member.Priority
 			}
 			weight := uint(channel.GetWeight())
 			if member.Weight != nil {
@@ -625,7 +617,7 @@ func rebuildAbilitiesFromProviderGroups() error {
 					Model:     modelName,
 					ChannelId: channel.Id,
 					Enabled:   channel.Status == common.ChannelStatusEnabled && member.Enabled,
-					Priority:  priority,
+					Priority:  &priority,
 					Weight:    weight,
 					Tag:       channel.Tag,
 				})

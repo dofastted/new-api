@@ -104,13 +104,13 @@ func TestChannelCircuitHalfOpenFailureReopens(t *testing.T) {
 	assert.Equal(t, int64(300), status.NextAttemptUnix-status.OpenedAtUnix)
 }
 
-func TestFilterOpenCircuitChannelIDs(t *testing.T) {
+func TestFilterOpenCircuitCachedAbilities(t *testing.T) {
 	resetChannelCircuitTestCache(t)
 	t.Setenv("CHANNEL_CIRCUIT_FAILURE_THRESHOLD", "1")
 
 	RecordChannelCircuitFailure(201, "bad_response")
-	filtered := filterOpenCircuitChannelIDs([]int{201, 202})
-	require.Equal(t, []int{202}, filtered)
+	filtered := filterOpenCircuitCachedAbilities([]cachedAbility{{channelID: 201}, {channelID: 202}})
+	require.Equal(t, []cachedAbility{{channelID: 202}}, filtered)
 }
 
 func TestResetChannelCircuitIgnoresInvalidID(t *testing.T) {
