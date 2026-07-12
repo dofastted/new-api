@@ -66,7 +66,6 @@ const CHANNELS_VIEW_MODE_STORAGE_KEY = 'channels:view-mode'
 const CHANNEL_SORTABLE_COLUMNS = new Set<ChannelSortBy>([
   'id',
   'name',
-  'priority',
   'balance',
   'response_time',
   'test_time',

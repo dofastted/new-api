@@ -288,18 +288,6 @@ export const DEFAULT_CHANNEL_VALUES = {
 export const CHANNELS_TABLE_PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
 
 // ============================================================================
-// Sort Options (label values are i18n keys)
-// ============================================================================
-
-export const SORT_OPTIONS = [
-  { value: 'priority', label: 'Priority (Default)' },
-  { value: 'id', label: 'ID' },
-  { value: 'name', label: 'Name' },
-  { value: 'balance', label: 'Balance' },
-  { value: 'response_time', label: 'Response Time' },
-] as const
-
-// ============================================================================
 // Balance Display
 // ============================================================================
 
@@ -358,8 +346,6 @@ export const FIELD_DESCRIPTIONS = {
     'User groups that can access this channel. Membership syncs to provider groups; enabled status and drag order are managed on the Provider groups page.',
   MODEL_MAPPING:
     'Map request model names to actual provider model names (JSON format)',
-  PRIORITY:
-    'Higher priority channels are selected first. Syncs to provider group membership; drag order on the Provider groups page overrides this.',
   WEIGHT: 'Used for load balancing. Higher weight = more requests',
   TEST_MODEL: 'Model to use when testing channel connectivity',
   AUTO_BAN: 'Automatically disable channel on repeated failures',

@@ -530,7 +530,7 @@ func (channel *Channel) Insert() error {
 		return err
 	}
 	if providerGroupTableReady(&ProviderGroupChannel{}) {
-		if err := SyncProviderGroupChannelsForChannel(*channel, false); err != nil {
+		if err := SyncProviderGroupChannelsForChannel(*channel); err != nil {
 			return err
 		}
 		if err := RebuildAbilitiesFromProviderGroups(); err != nil {
@@ -581,36 +581,15 @@ func (channel *Channel) Update() error {
 			}
 		}
 	}
-	var err error
-	// Read pre-update priority so we only sync priority into PGC when it
-	// actually changed; otherwise groups-page drag-order priority survives.
-	var prevPriority *int64
-	if providerGroupTableReady(&ProviderGroupChannel{}) {
-		if before, e := GetChannelById(channel.Id, true); e == nil {
-			prevPriority = before.Priority
-		}
-	}
-	err = DB.Model(channel).Updates(channel).Error
+	err := DB.Model(channel).Updates(channel).Error
 	if err != nil {
 		return err
 	}
 	DB.Model(channel).First(channel, "id = ?", channel.Id)
 	if providerGroupTableReady(&ProviderGroupChannel{}) {
 		// provider_group_channels is the single source of truth for routing;
-		// mirror group/priority into it and rebuild abilities from PGC instead
-		// of writing channel.Group/Priority straight into abilities.
-		// Compare by GetPriority semantics (nil == 0) so saving unrelated
-		// fields does not overwrite groups-page drag-order priority with 0.
-		prevVal := int64(0)
-		if prevPriority != nil {
-			prevVal = *prevPriority
-		}
-		curVal := int64(0)
-		if channel.Priority != nil {
-			curVal = *channel.Priority
-		}
-		syncPriority := prevVal != curVal
-		if err := SyncProviderGroupChannelsForChannel(*channel, syncPriority); err != nil {
+		// channel updates only mirror membership and derived route types.
+		if err := SyncProviderGroupChannelsForChannel(*channel); err != nil {
 			return err
 		}
 		if err := RebuildAbilitiesFromProviderGroups(); err != nil {
@@ -885,14 +864,13 @@ func EditChannelByTag(tag string, newTag *string, modelMapping *string, models *
 	}
 	if providerGroupTableReady(&ProviderGroupChannel{}) {
 		// PGC is the routing source of truth: sync each tagged channel's
-		// membership (group/priority/route_types) and rebuild once.
+		// membership and derived route types, then rebuild once.
 		channels, gerr := GetChannelsByTag(updatedTag, false, false)
 		if gerr != nil {
 			return gerr
 		}
-		syncPriority := priority != nil
 		for _, channel := range channels {
-			if e := SyncProviderGroupChannelsForChannel(*channel, syncPriority); e != nil {
+			if e := SyncProviderGroupChannelsForChannel(*channel); e != nil {
 				return e
 			}
 		}

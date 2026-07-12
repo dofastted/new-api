@@ -55,9 +55,9 @@ const providerFlowSteps = [
     icon: Route,
   },
   {
-    titleKey: 'Order fallback priority',
+    titleKey: 'Set provider group priority',
     descriptionKey:
-      'Higher priority is tried first; weight balances traffic inside the same priority.',
+      'Set per-group priorities on the Provider groups page; equal priorities share traffic by weight.',
     icon: ListChecks,
   },
   {
@@ -136,7 +136,7 @@ function ProviderManagementOverview() {
                   <CardTitle>{t('Provider routing center')}</CardTitle>
                   <CardDescription>
                     {t(
-                      'Manage upstream providers in one place: credentials, model coverage, group access, priority, weight, and failure handling.'
+                      'Manage upstream credentials, model coverage, provider group membership, weight, and failure handling.'
                     )}
                   </CardDescription>
                 </div>

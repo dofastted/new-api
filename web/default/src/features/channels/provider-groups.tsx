@@ -62,6 +62,7 @@ import { TableRow, TableCell } from '@/components/ui/table'
 import { getChannels } from '@/features/channels/api'
 import { CHANNEL_TYPES } from '@/features/channels/constants'
 import { channelsQueryKeys } from '@/features/channels/lib'
+import { NumericSpinnerInput } from '@/features/channels/components/numeric-spinner-input'
 import {
   getAdvancedCustomIncomingPathLabel,
   parseAdvancedCustomConfig,
@@ -145,10 +146,12 @@ function buildMembershipState(
   const membershipByChannel = new Map(
     memberships.map((item) => [item.channel_id, item])
   )
-  // Stable ordering by sort_order so the member list reflects the saved
-  // drag order; ties fall back to channel id for deterministic output.
+  // Routing order follows priority first; sort_order is the stable tie-breaker.
   const ordered = [...memberships].sort(
-    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.channel_id - b.channel_id
+    (a, b) =>
+      (b.priority ?? 0) - (a.priority ?? 0) ||
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+      a.channel_id - b.channel_id
   )
   const state: Record<number, MembershipState> = {}
   for (const channel of channels) {
@@ -156,12 +159,12 @@ function buildMembershipState(
     state[channel.id] = membership
       ? {
           enabled: membership.enabled,
-          priority: membership.priority ?? channel.priority ?? 0,
+          priority: membership.priority ?? 0,
           sortOrder: membership.sort_order ?? 0,
         }
       : {
           enabled: false,
-          priority: channel.priority ?? 0,
+          priority: 0,
           sortOrder: 0,
         }
   }
@@ -615,18 +618,15 @@ function ProviderGroupDetail({
   const membershipMutation = useMutation({
     mutationFn: async () => {
       const items: ProviderGroupChannel[] = selectedChannels.map(
-        (channel, index) => {
-          return {
-            provider_group_id: group.id,
-            channel_id: channel.id,
-            // Drag order IS priority: top of list = highest priority.
-            priority: selectedChannels.length - index,
-            weight: null,
-            route_types: '',
-            enabled: true,
-            sort_order: index,
-          }
-        }
+        (channel, index) => ({
+          provider_group_id: group.id,
+          channel_id: channel.id,
+          priority: membership[channel.id]?.priority ?? 0,
+          weight: null,
+          route_types: '',
+          enabled: true,
+          sort_order: index,
+        })
       )
       const response = await updateProviderGroupChannels(group.id, items)
       if (!response.success) {
@@ -688,7 +688,11 @@ function ProviderGroupDetail({
     setMembership((current) => {
       const next = { ...current }
       ordered.forEach((channel, index) => {
-        next[channel.id] = { ...next[channel.id], sortOrder: index }
+        next[channel.id] = {
+          ...next[channel.id],
+          priority: ordered.length - index,
+          sortOrder: index,
+        }
       })
       return next
     })
@@ -737,7 +741,11 @@ function ProviderGroupDetail({
     .filter((channel) => membership[channel.id]?.enabled)
     .sort(
       (a, b) =>
-        (membership[a.id]?.sortOrder ?? 0) - (membership[b.id]?.sortOrder ?? 0)
+        (membership[b.id]?.priority ?? 0) -
+          (membership[a.id]?.priority ?? 0) ||
+        (membership[a.id]?.sortOrder ?? 0) -
+          (membership[b.id]?.sortOrder ?? 0) ||
+        a.id - b.id
     )
   const selectedChannelIds = new Set(
     selectedChannels.map((channel) => channel.id)
@@ -909,7 +917,7 @@ function ProviderGroupDetail({
                 <div className='text-sm font-medium'>{t('Providers')}</div>
                 <p className='text-muted-foreground text-xs'>
                   {t(
-                    'Add providers to this group and drag to set routing priority — top of the list is tried first. Enabled status and order here are the final routing source of truth.'
+                    'Set numeric priorities directly; equal values share one weighted routing tier. Dragging reorders providers and assigns unique priorities from top to bottom.'
                   )}{' '}
                   {t('{{count}} provider(s) selected', { count: memberCount })}
                 </p>
@@ -967,7 +975,7 @@ function ProviderGroupDetail({
               getRowKey={(row) => row.id}
               emptyContent={t('No providers selected yet. Add one above.')}
               columns={memberColumns}
-              renderRow={(row, index) => (
+              renderRow={(row) => (
                 <TableRow
                   key={row.id}
                   draggable
@@ -1013,11 +1021,14 @@ function ProviderGroupDetail({
                       ))}
                     </div>
                   </TableCell>
-                  <TableCell className='w-28 text-sm tabular-nums'>
-                    {selectedChannels.length - index}
-                    <span className='text-muted-foreground ml-1 text-xs'>
-                      ({t('by order')})
-                    </span>
+                  <TableCell className='w-28'>
+                    <NumericSpinnerInput
+                      value={membership[row.id]?.priority ?? 0}
+                      onChange={(priority) =>
+                        updateMembership(row.id, { priority })
+                      }
+                      min={-999}
+                    />
                   </TableCell>
                   <TableCell className='w-24'>
                     <Button

@@ -2548,29 +2548,6 @@ export function ChannelMutateDrawer({
                           icon={<Route className='h-3.5 w-3.5' />}
                         />
                         <div className='grid gap-4 sm:grid-cols-2'>
-                          <FormField
-                            control={form.control}
-                            name='priority'
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>{t('Priority')}</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    type='number'
-                                    placeholder='0'
-                                    {...field}
-                                    onChange={(e) =>
-                                      field.onChange(Number(e.target.value))
-                                    }
-                                  />
-                                </FormControl>
-                                <FormDescription>
-                                  {t(FIELD_DESCRIPTIONS.PRIORITY)}
-                                </FormDescription>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
 
                           <FormField
                             control={form.control}

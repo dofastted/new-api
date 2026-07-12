@@ -233,48 +233,50 @@ func TestSyncProviderGroupChannelsForChannel(t *testing.T) {
 		Name: "sync-channel", Models: "gpt-4o", Group: "sync-g", Priority: &priority,
 	}).Error)
 
-	// First sync: creates membership for sync-g.
+	// First sync creates membership with a neutral priority, independent of the
+	// channel's legacy global priority.
 	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
 		Id: 9301, Group: "sync-g", Priority: &priority, Status: common.ChannelStatusEnabled,
 		Models: "gpt-4o", Type: 1,
-	}, false))
+	}))
 	var member ProviderGroupChannel
 	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9301, "sync-g").First(&member).Error)
 	require.NotNil(t, member.Priority)
-	assert.Equal(t, priority, *member.Priority)
+	assert.Equal(t, int64(0), *member.Priority)
 	assert.True(t, member.Enabled)
 
-	// Groups page disables the member; sync must NOT re-enable it.
+	// Groups page owns enabled and priority; channel sync must preserve both.
+	membershipPriority := int64(7)
 	require.NoError(t, DB.Model(&ProviderGroupChannel{}).Where("id = ?", member.Id).
-		Update("enabled", false).Error)
+		Updates(map[string]interface{}{"enabled": false, "priority": membershipPriority}).Error)
 
-	// Sync with new group added, syncPriority=false: existing enabled untouched, new row created.
+	// Adding another group preserves the existing membership settings and gives
+	// the new membership a neutral priority.
 	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
 		Id: 9301, Group: "sync-g,other-g", Priority: &priority, Status: common.ChannelStatusEnabled,
 		Models: "gpt-4o", Type: 1,
-	}, false))
+	}))
 	var otherMember ProviderGroupChannel
 	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9301, "other-g").First(&otherMember).Error)
+	require.NotNil(t, otherMember.Priority)
+	assert.Equal(t, int64(0), *otherMember.Priority)
 	assert.True(t, otherMember.Enabled)
-	var stillDisabled ProviderGroupChannel
-	require.NoError(t, DB.Where("id = ?", member.Id).First(&stillDisabled).Error)
-	assert.False(t, stillDisabled.Enabled, "sync must not override groups-page enabled=false")
 
-	// Sync with syncPriority=true updates priority on existing rows.
 	newPriority := int64(99)
 	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
 		Id: 9301, Group: "sync-g,other-g", Priority: &newPriority, Status: common.ChannelStatusEnabled,
 		Models: "gpt-4o", Type: 1,
-	}, true))
+	}))
 	require.NoError(t, DB.Where("id = ?", member.Id).First(&member).Error)
 	require.NotNil(t, member.Priority)
-	assert.Equal(t, newPriority, *member.Priority)
+	assert.Equal(t, membershipPriority, *member.Priority)
+	assert.False(t, member.Enabled, "sync must preserve provider-group membership state")
 
 	// Sync with group removed: stale membership deleted.
 	require.NoError(t, SyncProviderGroupChannelsForChannel(Channel{
 		Id: 9301, Group: "sync-g", Priority: &newPriority, Status: common.ChannelStatusEnabled,
 		Models: "gpt-4o", Type: 1,
-	}, false))
+	}))
 	var otherCount int64
 	require.NoError(t, DB.Model(&ProviderGroupChannel{}).Where("channel_id = ? AND group_name = ?", 9301, "other-g").Count(&otherCount).Error)
 	assert.Equal(t, int64(0), otherCount, "stale membership should be deleted")
@@ -290,7 +292,7 @@ func TestSyncProviderGroupChannelsRefreshesRouteTypes(t *testing.T) {
 		Name: "rt-channel", Models: "gpt-4o", Group: "rt-g",
 	}
 	require.NoError(t, DB.Create(&ch).Error)
-	require.NoError(t, SyncProviderGroupChannelsForChannel(ch, false))
+	require.NoError(t, SyncProviderGroupChannelsForChannel(ch))
 	var member ProviderGroupChannel
 	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9311, "rt-g").First(&member).Error)
 	assert.True(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeOther))
@@ -302,7 +304,7 @@ func TestSyncProviderGroupChannelsRefreshesRouteTypes(t *testing.T) {
 			Routes: []dto.AdvancedCustomRoute{{IncomingPath: "/v1/responses"}},
 		},
 	})
-	require.NoError(t, SyncProviderGroupChannelsForChannel(ch, false))
+	require.NoError(t, SyncProviderGroupChannelsForChannel(ch))
 	require.NoError(t, DB.Where("channel_id = ? AND group_name = ?", 9311, "rt-g").First(&member).Error)
 	assert.True(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeResponses))
 	assert.False(t, providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeOther))
@@ -334,6 +336,71 @@ func TestRebuildAbilitiesRespectsGroupStatusToggle(t *testing.T) {
 	var afterCount int64
 	require.NoError(t, DB.Model(&Ability{}).Where(commonGroupCol+" = ?", "toggle-g").Count(&afterCount).Error)
 	assert.Equal(t, int64(0), afterCount, "offline group abilities must be removed on rebuild")
+}
+
+func TestProviderGroupPriorityMatchesWithAndWithoutMemoryCache(t *testing.T) {
+	oldMemoryCacheEnabled := common.MemoryCacheEnabled
+	t.Cleanup(func() {
+		common.MemoryCacheEnabled = oldMemoryCacheEnabled
+		if oldMemoryCacheEnabled {
+			InitChannelCache()
+		}
+	})
+	clearProviderGroupTestTables(t)
+
+	require.NoError(t, DB.Create(&[]ProviderGroup{
+		{Id: 9451, Name: "cache-g1", DisplayName: "cache-g1", Status: ProviderGroupStatusEnabled, UsageRatio: 1},
+		{Id: 9452, Name: "cache-g2", DisplayName: "cache-g2", Status: ProviderGroupStatusEnabled, UsageRatio: 1},
+	}).Error)
+	globalHigh := int64(100)
+	globalLow := int64(0)
+	globalHighest := int64(999)
+	require.NoError(t, DB.Create(&[]Channel{
+		{Id: 9453, Type: 1, Key: "sk-a", Status: common.ChannelStatusEnabled, Name: "channel-a", Models: "gpt-4o", Priority: &globalHigh},
+		{Id: 9454, Type: 1, Key: "sk-b", Status: common.ChannelStatusEnabled, Name: "channel-b", Models: "gpt-4o", Priority: &globalLow},
+		{Id: 9455, Type: 1, Key: "sk-c", Status: common.ChannelStatusEnabled, Name: "channel-c", Models: "gpt-4o", Priority: &globalHighest},
+	}).Error)
+	priority1 := int64(1)
+	priority10 := int64(10)
+	require.NoError(t, DB.Create(&[]ProviderGroupChannel{
+		{ProviderGroupId: 9451, GroupName: "cache-g1", ChannelId: 9453, Priority: &priority1, Weight: uintPointer(1), Enabled: true},
+		{ProviderGroupId: 9451, GroupName: "cache-g1", ChannelId: 9454, Priority: &priority10, Weight: uintPointer(1), Enabled: true},
+		{ProviderGroupId: 9452, GroupName: "cache-g2", ChannelId: 9453, Priority: &priority10, Weight: uintPointer(1), Enabled: true},
+		{ProviderGroupId: 9452, GroupName: "cache-g2", ChannelId: 9455, Priority: nil, Weight: uintPointer(1), Enabled: true},
+	}).Error)
+	require.NoError(t, RebuildAbilitiesFromProviderGroups())
+
+	var nilPriorityAbility Ability
+	require.NoError(t, DB.Where(commonGroupCol+" = ? AND model = ? AND channel_id = ?", "cache-g2", "gpt-4o", 9455).
+		First(&nilPriorityAbility).Error)
+	require.NotNil(t, nilPriorityAbility.Priority)
+	assert.Equal(t, int64(0), *nilPriorityAbility.Priority)
+
+	for _, memoryCacheEnabled := range []bool{false, true} {
+		common.MemoryCacheEnabled = memoryCacheEnabled
+		if memoryCacheEnabled {
+			InitChannelCache()
+		}
+
+		selected, err := GetRandomSatisfiedChannel("cache-g1", "gpt-4o", 0, "", nil)
+		require.NoError(t, err)
+		require.NotNil(t, selected)
+		assert.Equal(t, 9454, selected.Id, "membership priority must override global channel priority")
+
+		fallback, err := GetRandomSatisfiedChannel("cache-g1", "gpt-4o", 1, "", nil)
+		require.NoError(t, err)
+		require.NotNil(t, fallback)
+		assert.Equal(t, 9453, fallback.Id)
+
+		otherGroup, err := GetRandomSatisfiedChannel("cache-g2", "gpt-4o", 0, "", nil)
+		require.NoError(t, err)
+		require.NotNil(t, otherGroup)
+		assert.Equal(t, 9453, otherGroup.Id, "the same channel may have a different priority in another group")
+	}
+}
+
+func uintPointer(value uint) *uint {
+	return &value
 }
 
 // TestProviderGroupChannelSupportsPathPrefersMemberRouteTypes guards the
