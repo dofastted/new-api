@@ -144,7 +144,7 @@ func TestShouldSkipRetryAfterChannelAffinityFailure(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "fallback to matched rule meta",
+			name: "matched rule meta alone does not skip retry",
 			ctx: func() *gin.Context {
 				return buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
 					RuleName:   "rule-skip-retry",
@@ -152,6 +152,20 @@ func TestShouldSkipRetryAfterChannelAffinityFailure(t *testing.T) {
 					UsingGroup: "default",
 					ModelName:  "gpt-5",
 				})
+			},
+			want: false,
+		},
+		{
+			name: "used affinity channel applies skip retry",
+			ctx: func() *gin.Context {
+				ctx := buildChannelAffinityTemplateContextForTest(channelAffinityMeta{
+					RuleName:   "rule-skip-retry",
+					SkipRetry:  true,
+					UsingGroup: "default",
+					ModelName:  "gpt-5",
+				})
+				MarkChannelAffinityUsed(ctx, "default", 123)
+				return ctx
 			},
 			want: true,
 		},
@@ -253,6 +267,7 @@ func TestClearCurrentChannelAffinityCache(t *testing.T) {
 		RuleName:   "codex cli trace",
 		SkipRetry:  true,
 	})
+	MarkChannelAffinityUsed(ctx, "default", 9527)
 	require.True(t, ShouldSkipRetryAfterChannelAffinityFailure(ctx))
 
 	deleted := ClearCurrentChannelAffinityCache(ctx)

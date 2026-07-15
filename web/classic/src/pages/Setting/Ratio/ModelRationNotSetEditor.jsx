@@ -17,38 +17,76 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Banner, Button, Space, Spin } from '@douyinfe/semi-ui';
 import { API, showError } from '../../../helpers';
 import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
+import {
+  buildCanonicalPricingOptions,
+  fetchModelPricing,
+} from './modelPricingApi';
 
 export default function ModelRatioNotSetEditor(props) {
   const { t } = useTranslation();
   const [enabledModels, setEnabledModels] = useState([]);
+  const [pricingViews, setPricingViews] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  const getAllEnabledModels = async () => {
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError('');
     try {
-      const res = await API.get('/api/channel/models_enabled');
-      const { success, message, data } = res.data;
-      if (success) {
-        setEnabledModels(data);
-      } else {
-        showError(message);
+      const [modelsResponse, views] = await Promise.all([
+        API.get('/api/channel/models_enabled'),
+        fetchModelPricing(),
+      ]);
+      const { success, message, data } = modelsResponse.data;
+      if (!success) {
+        throw new Error(message || t('获取启用模型失败'));
       }
-    } catch (error) {
-      console.error(t('获取启用模型失败:'), error);
-      showError(t('获取启用模型失败'));
+      setEnabledModels(data);
+      setPricingViews(views);
+    } catch (loadError) {
+      setPricingViews(null);
+      setError(loadError.message || t('获取启用模型失败'));
+      showError(loadError.message || t('获取启用模型失败'));
+    } finally {
+      setLoading(false);
     }
-  };
+  }, [t]);
 
   useEffect(() => {
-    // 获取所有启用的模型
-    getAllEnabledModels();
-  }, []);
+    loadData();
+  }, [loadData]);
+
+  const canonicalOptions = useMemo(
+    () => buildCanonicalPricingOptions(pricingViews || [], props.options),
+    [pricingViews, props.options],
+  );
+
+  const refreshPricing = useCallback(async () => {
+    await Promise.all([loadData(), props.refresh?.()]);
+  }, [loadData, props.refresh]);
+  if (error) {
+    return (
+      <Space vertical align='start'>
+        <Banner type='danger' description={error} />
+        <Button onClick={loadData} loading={loading}>
+          {t('重试')}
+        </Button>
+      </Space>
+    );
+  }
+
+  if (!pricingViews) return <Spin spinning={loading} />;
+
   return (
     <ModelPricingEditor
-      options={props.options}
-      refresh={props.refresh}
+      options={canonicalOptions}
+      pricingViews={pricingViews}
+      refresh={refreshPricing}
       candidateModelNames={enabledModels}
       filterMode='unset'
       allowAddModel={false}

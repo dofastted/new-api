@@ -303,6 +303,7 @@ func migrateDB() error {
 		&SystemTaskLock{},
 		&OfficialPricingSnapshot{},
 		&OfficialModelPrice{},
+		&ModelPricingOverride{},
 		&RiskEvent{},
 	)
 	if err != nil {
@@ -363,6 +364,9 @@ func migrateDBFast() error {
 		{&SystemInstance{}, "SystemInstance"},
 		{&SystemTask{}, "SystemTask"},
 		{&SystemTaskLock{}, "SystemTaskLock"},
+		{&OfficialPricingSnapshot{}, "OfficialPricingSnapshot"},
+		{&OfficialModelPrice{}, "OfficialModelPrice"},
+		{&ModelPricingOverride{}, "ModelPricingOverride"},
 	}
 	// 动态计算migration数量，确保errChan缓冲区足够大
 	errChan := make(chan error, len(migrations))
@@ -529,6 +533,7 @@ func ensureSubscriptionPlanTableSQLite() error {
 ` + "`max_purchase_per_user`" + ` integer DEFAULT 0,
 ` + "`upgrade_group`" + ` varchar(64) DEFAULT '',
 ` + "`downgrade_group`" + ` varchar(64) DEFAULT '',
+` + "`provider_groups`" + ` text DEFAULT '',
 ` + "`total_amount`" + ` bigint NOT NULL DEFAULT 0,
 ` + "`quota_reset_period`" + ` varchar(16) DEFAULT 'never',
 ` + "`quota_reset_custom_seconds`" + ` bigint DEFAULT 0,
@@ -566,6 +571,7 @@ PRIMARY KEY (` + "`id`" + `)
 		{Name: "max_purchase_per_user", DDL: "`max_purchase_per_user` integer DEFAULT 0"},
 		{Name: "upgrade_group", DDL: "`upgrade_group` varchar(64) DEFAULT ''"},
 		{Name: "downgrade_group", DDL: "`downgrade_group` varchar(64) DEFAULT ''"},
+		{Name: "provider_groups", DDL: "`provider_groups` text DEFAULT ''"},
 		{Name: "total_amount", DDL: "`total_amount` bigint NOT NULL DEFAULT 0"},
 		{Name: "quota_reset_period", DDL: "`quota_reset_period` varchar(16) DEFAULT 'never'"},
 		{Name: "quota_reset_custom_seconds", DDL: "`quota_reset_custom_seconds` bigint DEFAULT 0"},

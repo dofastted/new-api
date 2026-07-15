@@ -848,21 +848,6 @@ func TestChannel(c *gin.Context) {
 	endpointType := c.Query("endpoint_type")
 	isStream, _ := strconv.ParseBool(c.Query("stream"))
 	cacheKey := channelTestCacheKey(channel.Id, testModel, endpointType, isStream)
-	if cached, found := getCachedChannelTestResult(cacheKey); found {
-		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, true))
-		return
-	}
-	if shouldBlockManualClaudeChannelHealthProbe(channel) {
-		scheduledCacheKey := channelTestCacheKey(channel.Id, "", "", shouldUseStreamForAutomaticChannelTest(channel))
-		if scheduledCacheKey != cacheKey {
-			if cached, found := getCachedChannelTestResult(scheduledCacheKey); found {
-				c.JSON(http.StatusOK, channelTestResponseFromCachedResult(cached, true))
-				return
-			}
-		}
-		c.JSON(http.StatusOK, channelTestResponseFromCachedResult(claudeChannelHealthProbeBlockedResult(), false))
-		return
-	}
 	testUserID, err := resolveChannelTestUserID(c)
 	if err != nil {
 		common.ApiError(c, err)

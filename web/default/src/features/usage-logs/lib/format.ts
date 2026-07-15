@@ -23,6 +23,7 @@ import {
   parseTiersFromExpr,
   type ParsedTier,
 } from '@/features/pricing/lib/billing-expr'
+import { formatLogQuota } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -249,6 +250,174 @@ export function hasAnyCacheTokens(
     (other.cache_creation_tokens_5m || 0) > 0 ||
     (other.cache_creation_tokens_1h || 0) > 0
   )
+}
+
+export interface LogBilledCostLabels {
+  /** Formatted billed input cost (non-cache prompt). */
+  input?: string
+  /** Formatted billed output/completion cost. */
+  output?: string
+  /** Formatted billed cache-read cost. */
+  cacheRead?: string
+  /** Formatted billed cache-write cost. */
+  cacheWrite?: string
+  /** Compact tokens column: "input / output" billed amounts. */
+  tokensLine?: string
+  /** Compact cache column: "read / write" billed amounts. */
+  cacheLine?: string
+}
+
+export interface LogBilledQuotaParts {
+  inputQuota: number
+  outputQuota: number
+  cacheReadQuota: number
+  cacheWriteQuota: number
+}
+
+function effectiveGroupRatio(other: LogOtherData): number {
+  const userGroupRatio = other.user_group_ratio
+  if (
+    userGroupRatio != null &&
+    Number.isFinite(userGroupRatio) &&
+    userGroupRatio !== -1
+  ) {
+    return userGroupRatio
+  }
+  if (other.group_ratio != null && Number.isFinite(other.group_ratio)) {
+    return other.group_ratio
+  }
+  return 1
+}
+
+function joinCostLine(parts: Array<string | undefined>): string | undefined {
+  const values = parts.filter((part): part is string => Boolean(part))
+  if (values.length === 0) return undefined
+  return values.join(' / ')
+}
+
+/**
+ * Split a usage log into billed quota parts using the same per-token formula
+ * as settlement (token counts × ratios × group ratio). Returns null when the
+ * log cannot be reconstructed (per-call / missing ratio / tiered expr).
+ */
+export function calculateLogBilledQuotaParts(
+  log: {
+    prompt_tokens?: number
+    completion_tokens?: number
+  },
+  other: LogOtherData | null | undefined
+): LogBilledQuotaParts | null {
+  if (!other) return null
+  if ((other.model_price ?? 0) > 0) return null
+  if (other.billing_mode === 'tiered_expr') return null
+  if (other.model_ratio == null || !Number.isFinite(other.model_ratio)) {
+    return null
+  }
+
+  const modelRatio = other.model_ratio
+  const groupRatio = effectiveGroupRatio(other)
+  const ratio = modelRatio * groupRatio
+  if (!Number.isFinite(ratio)) return null
+
+  const promptTokens = Math.max(0, log.prompt_tokens || 0)
+  const completionTokens = Math.max(0, log.completion_tokens || 0)
+  const cacheReadTokens = Math.max(0, other.cache_tokens || 0)
+  const cacheWrite5m = Math.max(0, other.cache_creation_tokens_5m || 0)
+  const cacheWrite1h = Math.max(0, other.cache_creation_tokens_1h || 0)
+  const hasSplitCache = cacheWrite5m > 0 || cacheWrite1h > 0
+  const cacheWriteTokens = hasSplitCache
+    ? cacheWrite5m + cacheWrite1h
+    : Math.max(0, other.cache_creation_tokens || 0)
+
+  // OpenAI-style usage includes cache tokens inside prompt_tokens; Claude-style
+  // logs already keep cache out of the prompt total.
+  const isClaudeStyle = other.claude === true
+  let baseInputTokens = promptTokens
+  if (!isClaudeStyle) {
+    baseInputTokens = Math.max(
+      0,
+      promptTokens - cacheReadTokens - cacheWriteTokens
+    )
+  }
+
+  const completionRatio =
+    other.completion_ratio != null && Number.isFinite(other.completion_ratio)
+      ? other.completion_ratio
+      : 1
+  const cacheRatio =
+    other.cache_ratio != null && Number.isFinite(other.cache_ratio)
+      ? other.cache_ratio
+      : 1
+  const cacheCreateRatio =
+    other.cache_creation_ratio != null &&
+    Number.isFinite(other.cache_creation_ratio)
+      ? other.cache_creation_ratio
+      : 1
+  const cacheCreate5mRatio =
+    other.cache_creation_ratio_5m != null &&
+    Number.isFinite(other.cache_creation_ratio_5m)
+      ? other.cache_creation_ratio_5m
+      : cacheCreateRatio
+  const cacheCreate1hRatio =
+    other.cache_creation_ratio_1h != null &&
+    Number.isFinite(other.cache_creation_ratio_1h)
+      ? other.cache_creation_ratio_1h
+      : cacheCreateRatio
+
+  let cacheWriteWeighted = 0
+  if (hasSplitCache) {
+    cacheWriteWeighted =
+      cacheWrite5m * cacheCreate5mRatio + cacheWrite1h * cacheCreate1hRatio
+  } else if (cacheWriteTokens > 0) {
+    cacheWriteWeighted = cacheWriteTokens * cacheCreateRatio
+  }
+
+  const inputQuota = Math.round(baseInputTokens * ratio)
+  const outputQuota = Math.round(completionTokens * completionRatio * ratio)
+  const cacheReadQuota = Math.round(cacheReadTokens * cacheRatio * ratio)
+  const cacheWriteQuota = Math.round(cacheWriteWeighted * ratio)
+
+  return {
+    inputQuota,
+    outputQuota,
+    cacheReadQuota,
+    cacheWriteQuota,
+  }
+}
+
+/**
+ * Format actual billed cost fragments for Tokens / Cache columns.
+ * Uses settlement-style quota math, not official list unit prices.
+ */
+export function getLogBilledCostLabels(
+  log: {
+    prompt_tokens?: number
+    completion_tokens?: number
+  },
+  other: LogOtherData | null | undefined
+): LogBilledCostLabels {
+  const parts = calculateLogBilledQuotaParts(log, other)
+  if (!parts) return {}
+
+  const input =
+    parts.inputQuota > 0 ? formatLogQuota(parts.inputQuota) : undefined
+  const output =
+    parts.outputQuota > 0 ? formatLogQuota(parts.outputQuota) : undefined
+  const cacheRead =
+    parts.cacheReadQuota > 0 ? formatLogQuota(parts.cacheReadQuota) : undefined
+  const cacheWrite =
+    parts.cacheWriteQuota > 0
+      ? formatLogQuota(parts.cacheWriteQuota)
+      : undefined
+
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    tokensLine: joinCostLine([input, output]),
+    cacheLine: joinCostLine([cacheRead, cacheWrite]),
+  }
 }
 
 export function getTieredBillingSummary(

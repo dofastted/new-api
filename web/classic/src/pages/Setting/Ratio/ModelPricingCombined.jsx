@@ -17,34 +17,105 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React, { useState } from 'react';
-import { Radio, RadioGroup } from '@douyinfe/semi-ui';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Banner,
+  Button,
+  Radio,
+  RadioGroup,
+  Space,
+  Spin,
+} from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
+import OfficialPricingConflictReview from './OfficialPricingConflictReview';
 import ModelRatioSettings from './ModelRatioSettings';
+import {
+  buildCanonicalPricingOptions,
+  fetchModelPricing,
+} from './modelPricingApi';
 
 export default function ModelPricingCombined({ options, refresh }) {
   const { t } = useTranslation();
   const [editMode, setEditMode] = useState('visual');
+  const [pricingViews, setPricingViews] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPricing = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setPricingViews(await fetchModelPricing());
+    } catch (loadError) {
+      setPricingViews(null);
+      setError(loadError.message || t('加载模型价格失败'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    loadPricing();
+  }, [loadPricing]);
+
+  const canonicalOptions = useMemo(
+    () => buildCanonicalPricingOptions(pricingViews || [], options),
+    [options, pricingViews],
+  );
+  const pricingConflicts = useMemo(
+    () => (pricingViews || []).filter((view) => view.pricing_conflict),
+    [pricingViews],
+  );
+
+  const refreshPricing = useCallback(async () => {
+    await Promise.all([loadPricing(), refresh?.()]);
+  }, [loadPricing, refresh]);
+
+  if (error) {
+    return (
+      <Space vertical align='start'>
+        <Banner type='danger' description={error} />
+        <Button onClick={loadPricing} loading={loading}>
+          {t('重试')}
+        </Button>
+      </Space>
+    );
+  }
+  if (!pricingViews) return <Spin spinning={loading} />;
 
   return (
-    <div>
-      <div style={{ marginTop: 12, marginBottom: 16 }}>
-        <RadioGroup
-          type='button'
-          size='small'
-          value={editMode}
-          onChange={(e) => setEditMode(e.target.value)}
-        >
-          <Radio value='visual'>{t('可视化编辑')}</Radio>
-          <Radio value='manual'>{t('手动编辑')}</Radio>
-        </RadioGroup>
+    <Spin spinning={loading}>
+      <div>
+        <OfficialPricingConflictReview
+          conflicts={pricingConflicts}
+          refresh={refreshPricing}
+        />
+        <div style={{ marginTop: 12, marginBottom: 16 }}>
+          <RadioGroup
+            type='button'
+            size='small'
+            value={editMode}
+            onChange={(e) => setEditMode(e.target.value)}
+          >
+            <Radio value='visual'>{t('可视化编辑')}</Radio>
+            <Radio value='manual'>{t('手动编辑')}</Radio>
+          </RadioGroup>
+        </div>
+        {editMode === 'visual' ? (
+          <ModelPricingEditor
+            options={canonicalOptions}
+            pricingViews={pricingViews}
+            refresh={refreshPricing}
+          />
+        ) : (
+          <ModelRatioSettings
+            options={canonicalOptions}
+            pricingViews={pricingViews}
+            refresh={refreshPricing}
+          />
+        )}
       </div>
-      {editMode === 'visual' ? (
-        <ModelPricingEditor options={options} refresh={refresh} />
-      ) : (
-        <ModelRatioSettings options={options} refresh={refresh} />
-      )}
-    </div>
+    </Spin>
   );
 }

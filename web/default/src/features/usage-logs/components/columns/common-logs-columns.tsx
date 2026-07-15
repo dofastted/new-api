@@ -48,6 +48,7 @@ import type { UsageLog } from '../../data/schema'
 import {
   formatModelName,
   getFirstResponseTimeColor,
+  getLogBilledCostLabels,
   getResponseTimeColor,
   getTieredBillingSummary,
   hasAnyCacheTokens,
@@ -797,7 +798,6 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         if (!isDisplayableLogType(log.type)) return null
 
         const other = parseLogOther(log.other)
-
         const promptTokens = log.prompt_tokens || 0
         const completionTokens = log.completion_tokens || 0
         if (promptTokens === 0 && completionTokens === 0) {
@@ -811,6 +811,7 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const cacheWriteTokens = hasSplitCache
           ? cacheWrite5m + cacheWrite1h
           : other?.cache_creation_tokens || 0
+        const billedCosts = getLogBilledCostLabels(log, other)
 
         return (
           <div className='flex flex-col gap-0.5'>
@@ -818,16 +819,34 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
               {promptTokens.toLocaleString()} /{' '}
               {completionTokens.toLocaleString()}
             </span>
+            {billedCosts.tokensLine && (
+              <span
+                className='text-muted-foreground/70 font-mono text-[11px] tabular-nums'
+                title={billedCosts.tokensLine}
+              >
+                {billedCosts.tokensLine}
+              </span>
+            )}
             {(cacheReadTokens > 0 || cacheWriteTokens > 0) && (
-              <div className='flex items-center gap-1 text-[11px]'>
-                {cacheReadTokens > 0 && (
-                  <span className='text-muted-foreground/60'>
-                    {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
-                  </span>
-                )}
-                {cacheWriteTokens > 0 && (
-                  <span className='text-muted-foreground/60'>
-                    ↑ {cacheWriteTokens.toLocaleString()}
+              <div className='flex flex-col gap-0.5 text-[11px]'>
+                <div className='flex items-center gap-1'>
+                  {cacheReadTokens > 0 && (
+                    <span className='text-muted-foreground/60'>
+                      {t('Cache')}↓ {cacheReadTokens.toLocaleString()}
+                    </span>
+                  )}
+                  {cacheWriteTokens > 0 && (
+                    <span className='text-muted-foreground/60'>
+                      ↑ {cacheWriteTokens.toLocaleString()}
+                    </span>
+                  )}
+                </div>
+                {billedCosts.cacheLine && (
+                  <span
+                    className='text-muted-foreground/70 font-mono tabular-nums'
+                    title={billedCosts.cacheLine}
+                  >
+                    {billedCosts.cacheLine}
                   </span>
                 )}
               </div>

@@ -10,6 +10,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,63 @@ func TestCacheGetRandomSatisfiedChannelSkipsCachedFailedAnthropic(t *testing.T) 
 	assert.Equal(t, available.Id, channel.Id)
 	assert.Equal(t, "claude-sub", group)
 	assert.Contains(t, param.ExcludedChannelIds, failed.Id)
+}
+
+func TestPrepareRetryAfterChannelFailureSwitchesAutoProviderGroup(t *testing.T) {
+	db := setupChannelHealthRoutingTestDB(t)
+	primary := seedHealthRoutingChannelForGroup(t, db, 41009, constant.ChannelTypeAnthropic, "claude-sub", "claude-sonnet-4-6", 100)
+	fallback := seedHealthRoutingChannelForGroup(t, db, 41010, constant.ChannelTypeAnthropic, "claude-p-max", "claude-sonnet-4-6", 100)
+	model.InitChannelCache()
+
+	oldAutoGroups := setting.AutoGroups2JsonString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(oldAutoGroups))
+	})
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`["claude-sub","claude-p-max"]`))
+
+	ctx := newHealthRoutingContext()
+	ctx.Request = httptest.NewRequest("POST", "/v1/messages", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hi"}]}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	common.SetContextKey(ctx, constant.ContextKeyTokenCrossGroupRetry, true)
+	param := &RetryParam{
+		Ctx:         ctx,
+		TokenGroup:  "auto",
+		ModelName:   "claude-sonnet-4-6",
+		RequestPath: "/v1/messages",
+		Retry:       common.GetPointer(0),
+	}
+
+	channel, group, err := CacheGetRandomSatisfiedChannel(param)
+	require.NoError(t, err)
+	require.NotNil(t, channel)
+	assert.Equal(t, primary.Id, channel.Id)
+	assert.Equal(t, "claude-sub", group)
+
+	PrepareRetryAfterChannelFailure(param, channel)
+	param.IncreaseRetry()
+	next, nextGroup, err := CacheGetRandomSatisfiedChannel(param)
+
+	require.NoError(t, err)
+	require.NotNil(t, next)
+	assert.Equal(t, fallback.Id, next.Id)
+	assert.Equal(t, "claude-p-max", nextGroup)
+	assert.Contains(t, param.ExcludedChannelIds, primary.Id)
+}
+
+func TestRetryParamKeepsFailedExclusionsWhenRateLimitResets(t *testing.T) {
+	param := &RetryParam{}
+
+	param.ExcludeFailedChannel(41011)
+	param.ExcludeRateLimitedChannel(41012)
+	assert.Contains(t, param.SelectionExcludedChannelIds(), 41011)
+	assert.Contains(t, param.SelectionExcludedChannelIds(), 41012)
+
+	param.ResetRateLimitedChannelExclusions()
+
+	assert.Contains(t, param.SelectionExcludedChannelIds(), 41011)
+	assert.NotContains(t, param.SelectionExcludedChannelIds(), 41012)
+	assert.Contains(t, param.ExcludedChannelIds, 41011)
+	assert.NotContains(t, param.ExcludedChannelIds, 41012)
 }
 
 func TestCacheGetRandomSatisfiedChannelSkipsOpenCircuitClaudeMaxFallback(t *testing.T) {

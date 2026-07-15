@@ -3680,6 +3680,26 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "{{count}} 个手动模型价格与最新官方价格不同。": "Les prix manuels de {{count}} modèles diffèrent des derniers prix officiels.",
+    "价格字段": "Champ tarifaire",
+    "使用官方价格": "Utiliser le prix officiel",
+    "保留手动价格": "Conserver le prix manuel",
+    "在完成选择前，系统继续使用手动价格计费。": "Le prix manuel reste actif jusqu'à votre choix.",
+    "处理价格冲突失败": "Échec du traitement du conflit de prix",
+    "完整官方配置": "Configuration officielle complète",
+    "完整手动配置": "Configuration manuelle complète",
+    "官方价格不可用": "Le prix officiel n'est pas disponible",
+    "官方值": "Valeur officielle",
+    "审核价格变化": "Examiner les changements de prix",
+    "审核官方价格变化": "Examiner le changement de prix officiel",
+    "已保留手动价格": "Prix manuel conservé",
+    "已恢复官方价格": "Prix officiel restauré",
+    "手动值": "Valeur manuelle",
+    "无值": "Aucune valeur",
+    "输出倍率": "Ratio de sortie",
+    "图片倍率": "Ratio d'image",
+    "音频输出倍率": "Ratio de sortie audio",
+    "计费表达式": "Expression de facturation"
   }
 }

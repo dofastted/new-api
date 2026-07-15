@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -190,13 +191,16 @@ func getModelListGroups(c *gin.Context) (modelListGroups, error) {
 		return modelListGroups{
 			userGroup:   userGroup,
 			tokenGroup:  tokenGroup,
-			ownerGroups: service.GetUserAutoGroup(userGroup),
+			ownerGroups: service.GetRequestAutoModelGroups(c, userGroup),
 		}, nil
 	}
 
 	group := userGroup
 	if tokenGroup != "" {
 		group = tokenGroup
+	}
+	if accessErr := service.ProviderGroupAccessError(c, group); accessErr != nil {
+		return modelListGroups{}, accessErr
 	}
 	return modelListGroups{
 		userGroup:   userGroup,
@@ -220,6 +224,11 @@ func ListModels(c *gin.Context, modelType int) {
 	userModelNames := make([]string, 0)
 	groups, err := getModelListGroups(c)
 	if err != nil {
+		var apiErr *types.NewAPIError
+		if errors.As(err, &apiErr) {
+			c.JSON(apiErr.StatusCode, gin.H{"error": apiErr.ToOpenAIError()})
+			return
+		}
 		c.JSON(http.StatusOK, gin.H{
 			"success": false,
 			"message": "get user group failed",

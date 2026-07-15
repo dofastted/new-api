@@ -160,6 +160,11 @@ func Distribute() func(c *gin.Context) {
 				}
 
 				usingGroup = routeAutoGroupForRequestPath(c, usingGroup)
+				autoAllowedGroups, autoFallbackToAllGroups, autoGroupErr := subscriptionAutoGroupOptions(c, usingGroup)
+				if autoGroupErr != nil {
+					abortWithOpenAiMessage(c, http.StatusForbidden, autoGroupErr.Error(), types.ErrorCodeAccessDenied)
+					return
+				}
 				if accessErr := service.ProviderGroupAccessError(c, usingGroup); accessErr != nil {
 					abortWithNewAPIError(c, accessErr)
 					return
@@ -173,6 +178,9 @@ func Distribute() func(c *gin.Context) {
 						if usingGroup == "auto" {
 							userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
 							autoGroups := service.GetRequestAutoGroup(c, userGroup)
+							if len(autoAllowedGroups) > 0 {
+								autoGroups = model.SubscriptionProviderGroupScope{HasActive: true, Groups: autoAllowedGroups}.Filter(autoGroups)
+							}
 							for _, g := range autoGroups {
 								if model.IsChannelEnabledForGroupModel(g, modelRequest.Model, preferred.Id) && model.ProviderGroupChannelSupportsPath(g, preferred.Id, c.Request.URL.Path) {
 									selectGroup = g
@@ -199,11 +207,13 @@ func Distribute() func(c *gin.Context) {
 
 				if channel == nil {
 					channel, selectGroup, err = service.CacheGetRandomSatisfiedChannel(&service.RetryParam{
-						Ctx:         c,
-						ModelName:   modelRequest.Model,
-						TokenGroup:  usingGroup,
-						RequestPath: c.Request.URL.Path,
-						Retry:       common.GetPointer(0),
+						Ctx:                 c,
+						ModelName:           modelRequest.Model,
+						TokenGroup:          usingGroup,
+						RequestPath:         c.Request.URL.Path,
+						Retry:               common.GetPointer(0),
+						AllowedGroups:       autoAllowedGroups,
+						FallbackToAllGroups: autoFallbackToAllGroups,
 					})
 					if err != nil {
 						var newAPIError *types.NewAPIError
@@ -252,6 +262,31 @@ func routeAutoGroupForRequestPath(c *gin.Context, usingGroup string) string {
 	common.SetContextKey(c, constant.ContextKeyUsingGroup, usingGroup)
 	common.SetContextKey(c, constant.ContextKeyTokenGroup, usingGroup)
 	return usingGroup
+}
+
+func subscriptionAutoGroupOptions(c *gin.Context, usingGroup string) ([]string, bool, error) {
+	if usingGroup != "auto" {
+		return nil, false, nil
+	}
+	pref := common.NormalizeBillingPreference("")
+	if userSetting, ok := common.GetContextKeyType[dto.UserSetting](c, constant.ContextKeyUserSetting); ok {
+		pref = common.NormalizeBillingPreference(userSetting.BillingPreference)
+	}
+	if pref != "subscription_only" && pref != "subscription_first" {
+		return nil, false, nil
+	}
+	scope, err := model.GetActiveSubscriptionProviderGroupScope(c.GetInt("id"))
+	if err != nil {
+		return nil, false, err
+	}
+	if !scope.Restricts() {
+		return nil, false, nil
+	}
+	userGroup := common.GetContextKeyString(c, constant.ContextKeyUserGroup)
+	if len(scope.Filter(service.GetRequestAutoGroup(c, userGroup))) == 0 && pref == "subscription_only" {
+		return nil, false, fmt.Errorf("订阅不可用于当前自动分组")
+	}
+	return append([]string(nil), scope.Groups...), pref == "subscription_first", nil
 }
 
 func isChatCompletionsPath(requestPath string) bool {

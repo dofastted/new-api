@@ -97,19 +97,6 @@ func ChannelTestUsesStream(channel *model.Channel) bool {
 	return channel != nil && channel.Type == constant.ChannelTypeCodex
 }
 
-func ShouldBlockManualClaudeChannelHealthProbe(channel *model.Channel) bool {
-	return channel != nil && channel.Type == constant.ChannelTypeAnthropic
-}
-
-func ClaudeChannelHealthProbeBlockedResult() ChannelTestCachedResult {
-	return ChannelTestCachedResult{
-		Success:  false,
-		Message:  "Claude channel health probe is disabled; use cached scheduled monitor result or Claude Code traffic instead",
-		Time:     0,
-		TestedAt: common.GetTimestamp(),
-	}
-}
-
 func ShouldExcludeChannelByCachedHealth(channel *model.Channel) bool {
 	if channel == nil || channel.Type != constant.ChannelTypeAnthropic {
 		return false

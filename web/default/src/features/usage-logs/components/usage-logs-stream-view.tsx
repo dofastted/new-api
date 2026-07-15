@@ -100,9 +100,9 @@ const SKELETON_ROW_KEYS = [
   'stream-skeleton-g',
   'stream-skeleton-h',
 ] as const
-
 const ROW_HEIGHT: Record<UsageLogsDensity, number> = {
-  [USAGE_LOGS_DENSITY.COMFORTABLE]: 44,
+  // Tokens/Cache unit-price lines make comfortable rows taller than a single pair.
+  [USAGE_LOGS_DENSITY.COMFORTABLE]: 56,
   [USAGE_LOGS_DENSITY.COMPACT]: 32,
 }
 
@@ -440,6 +440,16 @@ export function UsageLogsStreamView(props: UsageLogsStreamViewProps) {
             compact={isCompact}
             simplifiedUserView={shouldUseSimplifiedUserView}
             columnOrder={renderedColumnOrder}
+            columnSettings={
+              !shouldUseSimplifiedUserView && !isCompact
+                ? columnSettings
+                : undefined
+            }
+            onColumnSettingsChange={
+              !shouldUseSimplifiedUserView && !isCompact
+                ? handleColumnSettingsChange
+                : undefined
+            }
           />
         )}
         <div ref={parentRef} className='min-h-0 flex-1 overflow-auto'>

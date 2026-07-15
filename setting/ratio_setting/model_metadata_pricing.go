@@ -45,10 +45,12 @@ func ReplaceModelMetadataPricing(entries map[string]ModelMetadataPricingValues) 
 	metadataBillingExprMap.Clear()
 
 	for model, values := range entries {
-		setModelMetadataPricingValues(model, values)
-		for _, alias := range officialPricingAliases(model) {
+		for _, alias := range PricingAliases(model) {
 			setModelMetadataPricingValues(alias, values)
 		}
+	}
+	for model, values := range entries {
+		setModelMetadataPricingValues(model, values)
 	}
 	InvalidateExposedDataCache()
 }

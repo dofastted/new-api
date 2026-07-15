@@ -217,11 +217,12 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+		Ctx:           c,
+		TokenGroup:    relayInfo.TokenGroup,
+		ModelName:     relayInfo.OriginModelName,
+		RequestPath:   c.Request.URL.Path,
+		Retry:         common.GetPointer(0),
+		AllowedGroups: relayInfo.SubscriptionProviderGroups,
 	}
 	relayInfo.RetryIndex = 0
 	relayInfo.LastError = nil
@@ -287,6 +288,9 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			t429Retry++
 		}
 
+		if len(retryParam.AllowedGroups) == 0 && len(relayInfo.SubscriptionProviderGroups) > 0 {
+			retryParam.AllowedGroups = append([]string(nil), relayInfo.SubscriptionProviderGroups...)
+		}
 		if retriedAfter429WithinChannel {
 			if shouldContinueAfterUpstreamRateLimit(c, newAPIError) {
 				continue
@@ -304,6 +308,7 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 			}
 			break
 		}
+		service.PrepareRetryAfterChannelFailure(retryParam, channel)
 		retryParam.IncreaseRetry()
 	}
 
@@ -462,7 +467,7 @@ func selectRelayChannelWithRateLimit(c *gin.Context, retryParam *service.RetryPa
 	var selectErr *types.NewAPIError
 	var stillLimited bool
 	waitErr := relayRateWaitForSlot(c.Request.Context(), func() bool {
-		retryParam.ExcludedChannelIds = nil
+		retryParam.ResetRateLimitedChannelExclusions()
 		selected, stillLimited, selectErr = trySelectRelayChannelWithRateLimit(c, retryParam, selector)
 		if selectErr != nil && !stillLimited {
 			return true
@@ -503,13 +508,9 @@ func trySelectRelayChannelWithRateLimit(c *gin.Context, retryParam *service.Retr
 			return channel, false, nil
 		}
 		limited = true
-		if retryParam.ExcludedChannelIds == nil {
-			retryParam.ExcludedChannelIds = make(map[int]struct{})
-		}
-		if _, alreadyExcluded := retryParam.ExcludedChannelIds[channel.Id]; alreadyExcluded {
+		if !retryParam.ExcludeRateLimitedChannel(channel.Id) {
 			return nil, true, nil
 		}
-		retryParam.ExcludedChannelIds[channel.Id] = struct{}{}
 		logger.LogDebug(c, "channel #%d is rate limited or cooling down, selecting another channel", channel.Id)
 	}
 }
@@ -838,11 +839,12 @@ func RelayTask(c *gin.Context) {
 	}()
 
 	retryParam := &service.RetryParam{
-		Ctx:         c,
-		TokenGroup:  relayInfo.TokenGroup,
-		ModelName:   relayInfo.OriginModelName,
-		RequestPath: c.Request.URL.Path,
-		Retry:       common.GetPointer(0),
+		Ctx:           c,
+		TokenGroup:    relayInfo.TokenGroup,
+		ModelName:     relayInfo.OriginModelName,
+		RequestPath:   c.Request.URL.Path,
+		Retry:         common.GetPointer(0),
+		AllowedGroups: relayInfo.SubscriptionProviderGroups,
 	}
 
 	for {
@@ -929,9 +931,13 @@ func RelayTask(c *gin.Context) {
 		if shouldContinueAfterTaskUpstreamRateLimit(c, taskErr) {
 			continue
 		}
+		if len(retryParam.AllowedGroups) == 0 && len(relayInfo.SubscriptionProviderGroups) > 0 {
+			retryParam.AllowedGroups = append([]string(nil), relayInfo.SubscriptionProviderGroups...)
+		}
 		if !shouldRetryTaskRelay(c, channel.Id, taskErr, common.RetryTimes-retryParam.GetRetry()) {
 			break
 		}
+		service.PrepareRetryAfterChannelFailure(retryParam, channel)
 		retryParam.IncreaseRetry()
 	}
 

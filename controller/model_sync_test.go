@@ -16,7 +16,7 @@ import (
 func setupModelSyncControllerOfficialPricingDB(t *testing.T) {
 	t.Helper()
 	db := setupModelListControllerTestDB(t)
-	require.NoError(t, db.AutoMigrate(&model.OfficialModelPrice{}, &model.OfficialPricingSnapshot{}))
+	require.NoError(t, db.AutoMigrate(&model.OfficialModelPrice{}, &model.OfficialPricingSnapshot{}, &model.ModelPricingOverride{}, &model.Option{}))
 	require.NoError(t, db.Exec("DELETE FROM official_model_prices").Error)
 	require.NoError(t, db.Exec("DELETE FROM official_pricing_snapshots").Error)
 }
