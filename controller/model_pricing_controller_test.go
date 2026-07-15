@@ -9,6 +9,7 @@ import (
 
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
+	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
@@ -365,4 +366,91 @@ func TestDeleteModelMetaRemovesManualOverrideBeforeSameNameRecreation(t *testing
 	detailResponse := parseModelPricingControllerResponse(t, detailRecorder)
 	assert.True(t, detailResponse.Success)
 	assert.NotEqual(t, model.AuthorityLevelManual, detailResponse.Data.PricingAuthority)
+}
+
+func TestModelPricingConflictAcknowledgementAPIFlow(t *testing.T) {
+	setupModelPricingControllerTestDB(t)
+	modelName := "controller-pricing-conflict"
+	seedModelPricingControllerOfficialPrice(t, modelName, 1, 2)
+
+	marshalBody := func(value any) *bytes.Reader {
+		t.Helper()
+		payload, err := common.Marshal(value)
+		require.NoError(t, err)
+		return bytes.NewReader(payload)
+	}
+	listPricing := func() []service.ModelPricingView {
+		t.Helper()
+		recorder := invokeModelPricingController(t, http.MethodGet, "/api/model-pricing", nil, nil, ListModelPricing)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		var response struct {
+			Success bool                       `json:"success"`
+			Message string                     `json:"message"`
+			Data    []service.ModelPricingView `json:"data"`
+		}
+		require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &response))
+		require.True(t, response.Success, response.Message)
+		return response.Data
+	}
+	findPricing := func(items []service.ModelPricingView) service.ModelPricingView {
+		t.Helper()
+		for _, item := range items {
+			if item.ModelName == modelName {
+				return item
+			}
+		}
+		require.FailNow(t, "pricing view not found")
+		return service.ModelPricingView{}
+	}
+
+	manualRatio := 4.0
+	manualCompletionRatio := 8.0
+	upsertRecorder := invokeModelPricingController(t, http.MethodPut, "/api/model-pricing", marshalBody(map[string]any{
+		"upserts": []service.ModelPricingMutation{{
+			ModelName: modelName,
+			Config: model.ModelPricingConfig{
+				Mode:            model.ModelPricingModePerToken,
+				Ratio:           &manualRatio,
+				CompletionRatio: &manualCompletionRatio,
+			},
+		}},
+	}), nil, SaveModelPricing)
+	require.Equal(t, http.StatusOK, upsertRecorder.Code)
+
+	require.NoError(t, model.DB.Model(&model.OfficialModelPrice{}).Where("model_name = ?", modelName).Update("model_ratio", 3).Error)
+	view := findPricing(listPricing())
+	require.True(t, view.PricingConflict)
+	require.NotEmpty(t, view.OfficialConfigHash)
+	require.NotNil(t, view.EffectiveConfig.Ratio)
+	assert.Equal(t, manualRatio, *view.EffectiveConfig.Ratio)
+
+	acknowledgeRecorder := invokeModelPricingController(t, http.MethodPut, "/api/model-pricing", marshalBody(map[string]any{
+		"acknowledge": []map[string]any{{
+			"model_name":           modelName,
+			"official_config_hash": view.OfficialConfigHash,
+		}},
+	}), nil, SaveModelPricing)
+	require.Equal(t, http.StatusOK, acknowledgeRecorder.Code)
+	var acknowledgeResponse struct {
+		Success bool                            `json:"success"`
+		Message string                          `json:"message"`
+		Data    service.ModelPricingBatchResult `json:"data"`
+	}
+	require.NoError(t, common.Unmarshal(acknowledgeRecorder.Body.Bytes(), &acknowledgeResponse))
+	require.True(t, acknowledgeResponse.Success, acknowledgeResponse.Message)
+	assert.Equal(t, 1, acknowledgeResponse.Data.Acknowledged)
+	assert.False(t, findPricing(listPricing()).PricingConflict)
+
+	require.NoError(t, model.DB.Model(&model.OfficialModelPrice{}).Where("model_name = ?", modelName).Update("model_ratio", 5).Error)
+	assert.True(t, findPricing(listPricing()).PricingConflict)
+
+	restoreRecorder := invokeModelPricingController(t, http.MethodPut, "/api/model-pricing", marshalBody(map[string]any{
+		"restore": []string{modelName},
+	}), nil, SaveModelPricing)
+	require.Equal(t, http.StatusOK, restoreRecorder.Code)
+	view = findPricing(listPricing())
+	assert.Equal(t, model.AuthorityLevelOfficial, view.Authority)
+	assert.False(t, view.PricingConflict)
+	require.NotNil(t, view.EffectiveConfig.Ratio)
+	assert.Equal(t, 5.0, *view.EffectiveConfig.Ratio)
 }

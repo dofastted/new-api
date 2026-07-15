@@ -29,12 +29,14 @@ var loadedPricingRuntimeRevision atomic.Int64
 // ModelPricingOverride is the single persisted source of manual model pricing.
 // The row's existence means official pricing must not change this model's price.
 type ModelPricingOverride struct {
-	ID            int64  `json:"id" gorm:"primary_key"`
-	ModelName     string `json:"model_name" gorm:"type:varchar(191);uniqueIndex"`
-	PricingConfig string `json:"pricing_config" gorm:"type:text"`
-	Origin        string `json:"origin" gorm:"type:varchar(32);index"`
-	CreatedAt     int64  `json:"created_at" gorm:"bigint;index"`
-	UpdatedAt     int64  `json:"updated_at" gorm:"bigint;index"`
+	ID                   int64  `json:"id" gorm:"primary_key"`
+	ModelName            string `json:"model_name" gorm:"type:varchar(191);uniqueIndex"`
+	PricingConfig        string `json:"pricing_config" gorm:"type:text"`
+	Origin               string `json:"origin" gorm:"type:varchar(32);index"`
+	ReviewedOfficialHash string `json:"reviewed_official_hash" gorm:"type:varchar(64);index"`
+	ReviewedOfficialAt   int64  `json:"reviewed_official_at" gorm:"bigint;index"`
+	CreatedAt            int64  `json:"created_at" gorm:"bigint;index"`
+	UpdatedAt            int64  `json:"updated_at" gorm:"bigint;index"`
 }
 
 func (item *ModelPricingOverride) BeforeCreate(_ *gorm.DB) error {
@@ -89,20 +91,39 @@ func UpsertModelPricingOverrideTx(tx *gorm.DB, modelName string, cfg ModelPricin
 	}
 	now := common.GetTimestamp()
 	item := ModelPricingOverride{
-		ModelName:     modelName,
-		PricingConfig: string(payload),
-		Origin:        origin,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ModelName:            modelName,
+		PricingConfig:        string(payload),
+		Origin:               origin,
+		ReviewedOfficialHash: "",
+		ReviewedOfficialAt:   0,
+		CreatedAt:            now,
+		UpdatedAt:            now,
 	}
 	return tx.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "model_name"}},
 		DoUpdates: clause.Assignments(map[string]any{
-			"pricing_config": item.PricingConfig,
-			"origin":         item.Origin,
-			"updated_at":     now,
+			"pricing_config":         item.PricingConfig,
+			"origin":                 item.Origin,
+			"reviewed_official_hash": "",
+			"reviewed_official_at":   0,
+			"updated_at":             now,
 		}),
 	}).Create(&item).Error
+}
+
+func ReviewModelPricingOverrideTx(tx *gorm.DB, modelName string, officialHash string) error {
+	modelName = strings.TrimSpace(modelName)
+	officialHash = strings.TrimSpace(officialHash)
+	if modelName == "" || officialHash == "" {
+		return fmt.Errorf("model name and official pricing hash are required")
+	}
+	return tx.Model(&ModelPricingOverride{}).
+		Where("model_name = ?", modelName).
+		Updates(map[string]any{
+			"reviewed_official_hash": officialHash,
+			"reviewed_official_at":   common.GetTimestamp(),
+			"updated_at":             common.GetTimestamp(),
+		}).Error
 }
 
 func DeleteModelPricingOverridesTx(tx *gorm.DB, modelNames []string) (int64, error) {

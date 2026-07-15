@@ -22,8 +22,10 @@ type ModelPricingView struct {
 	ManualConfig            *model.ModelPricingConfig `json:"manual_config,omitempty"`
 	ManualOrigin            string                    `json:"manual_origin,omitempty"`
 	OfficialConfig          *model.ModelPricingConfig `json:"official_config,omitempty"`
+	OfficialConfigHash      string                    `json:"official_config_hash,omitempty"`
 	OfficialStale           bool                      `json:"official_stale"`
 	OfficialLastConfirmedAt int64                     `json:"official_last_confirmed_at"`
+	PricingConflict         bool                      `json:"pricing_conflict"`
 }
 
 type ModelPricingMutation struct {
@@ -31,15 +33,22 @@ type ModelPricingMutation struct {
 	Config    model.ModelPricingConfig `json:"config"`
 }
 
+type ModelPricingAcknowledgement struct {
+	ModelName          string `json:"model_name"`
+	OfficialConfigHash string `json:"official_config_hash"`
+}
+
 type ModelPricingBatchRequest struct {
-	Upserts []ModelPricingMutation `json:"upserts"`
-	Restore []string               `json:"restore"`
+	Upserts     []ModelPricingMutation        `json:"upserts"`
+	Restore     []string                      `json:"restore"`
+	Acknowledge []ModelPricingAcknowledgement `json:"acknowledge"`
 }
 
 type ModelPricingBatchResult struct {
-	Updated  int   `json:"updated"`
-	Restored int   `json:"restored"`
-	Revision int64 `json:"revision"`
+	Updated      int   `json:"updated"`
+	Restored     int   `json:"restored"`
+	Acknowledged int   `json:"acknowledged"`
+	Revision     int64 `json:"revision"`
 }
 
 func expandPricingAliases[T any](values map[string]T, names map[string]struct{}) {
@@ -114,10 +123,15 @@ func ListModelPricing(_ context.Context) ([]ModelPricingView, error) {
 		view := ModelPricingView{ModelName: modelName, Authority: model.AuthorityLevelFallback, AuthorityModelName: modelName}
 		if row, ok := lookupPricingValue(modelName, officialByName); ok {
 			cfg := model.ModelPricingConfigFromOfficialPrice(row)
+			officialHash, err := model.ModelPricingConfigHash(cfg)
+			if err != nil {
+				return nil, fmt.Errorf("hash official pricing for %s: %w", row.ModelName, err)
+			}
 			view.Authority = model.AuthorityLevelOfficial
 			view.AuthorityModelName = row.ModelName
 			view.EffectiveConfig = cfg
 			view.OfficialConfig = &cfg
+			view.OfficialConfigHash = officialHash
 			view.OfficialStale = row.Stale
 			view.OfficialLastConfirmedAt = row.LastConfirmedAt
 		} else if cfg, ok := lookupPricingValue(modelName, fallbackConfigs); ok {
@@ -134,6 +148,10 @@ func ListModelPricing(_ context.Context) ([]ModelPricingView, error) {
 				view.AuthorityModelName = item.ModelName
 				view.ManualConfig = &cfg
 				view.ManualOrigin = item.Origin
+				view.PricingConflict = item.ModelName == modelName &&
+					view.OfficialConfig != nil &&
+					!model.ModelPricingConfigsEqual(cfg, *view.OfficialConfig) &&
+					item.ReviewedOfficialHash != view.OfficialConfigHash
 			}
 		}
 		views = append(views, view)
@@ -161,26 +179,46 @@ func SaveModelPricingBatch(_ context.Context, request ModelPricingBatchRequest) 
 }
 
 func SaveModelPricingBatchTx(tx *gorm.DB, request ModelPricingBatchRequest) (*ModelPricingBatchResult, error) {
-	if len(request.Upserts)+len(request.Restore) > maxModelPricingMutations {
+	if len(request.Upserts)+len(request.Restore)+len(request.Acknowledge) > maxModelPricingMutations {
 		return nil, fmt.Errorf("too many model pricing mutations")
 	}
 
-	upsertNames := make(map[string]struct{}, len(request.Upserts))
+	operationNames := make(map[string]struct{}, len(request.Upserts)+len(request.Restore)+len(request.Acknowledge))
 	for i := range request.Upserts {
 		request.Upserts[i].ModelName = strings.TrimSpace(request.Upserts[i].ModelName)
-		if request.Upserts[i].ModelName == "" {
-			return nil, fmt.Errorf("model name is required")
+		if err := addPricingOperationName(operationNames, request.Upserts[i].ModelName); err != nil {
+			return nil, err
 		}
-		if _, exists := upsertNames[request.Upserts[i].ModelName]; exists {
-			return nil, fmt.Errorf("duplicate model pricing mutation: %s", request.Upserts[i].ModelName)
-		}
-		upsertNames[request.Upserts[i].ModelName] = struct{}{}
 	}
 	request.Restore = normalizePricingModelNames(request.Restore)
 	for _, modelName := range request.Restore {
-		if _, exists := upsertNames[modelName]; exists {
-			return nil, fmt.Errorf("model cannot be updated and restored together: %s", modelName)
+		if err := addPricingOperationName(operationNames, modelName); err != nil {
+			return nil, err
 		}
+	}
+	for i := range request.Acknowledge {
+		request.Acknowledge[i].ModelName = strings.TrimSpace(request.Acknowledge[i].ModelName)
+		request.Acknowledge[i].OfficialConfigHash = strings.TrimSpace(request.Acknowledge[i].OfficialConfigHash)
+		if request.Acknowledge[i].OfficialConfigHash == "" {
+			return nil, fmt.Errorf("official pricing hash is required for %s", request.Acknowledge[i].ModelName)
+		}
+		if err := addPricingOperationName(operationNames, request.Acknowledge[i].ModelName); err != nil {
+			return nil, err
+		}
+	}
+
+	officialByName := make(map[string]model.ModelPricingConfig)
+	if len(request.Upserts) > 0 || len(request.Acknowledge) > 0 {
+		var officialRows []model.OfficialModelPrice
+		if err := tx.Where("active = ?", true).Find(&officialRows).Error; err != nil {
+			return nil, err
+		}
+		names := make(map[string]struct{}, len(officialRows))
+		for _, row := range officialRows {
+			officialByName[row.ModelName] = model.ModelPricingConfigFromOfficialPrice(row)
+			names[row.ModelName] = struct{}{}
+		}
+		expandPricingAliases(officialByName, names)
 	}
 
 	result := &ModelPricingBatchResult{}
@@ -192,8 +230,46 @@ func SaveModelPricingBatchTx(tx *gorm.DB, request ModelPricingBatchRequest) (*Mo
 		if err := model.UpsertModelPricingOverrideTx(tx, mutation.ModelName, cfg, model.ModelPricingOverrideOriginAdmin); err != nil {
 			return nil, err
 		}
+		if officialCfg, ok := lookupPricingValue(mutation.ModelName, officialByName); ok {
+			officialHash, err := model.ModelPricingConfigHash(officialCfg)
+			if err != nil {
+				return nil, err
+			}
+			if err := model.ReviewModelPricingOverrideTx(tx, mutation.ModelName, officialHash); err != nil {
+				return nil, err
+			}
+		}
 		result.Updated++
 	}
+
+	for _, acknowledgement := range request.Acknowledge {
+		var override model.ModelPricingOverride
+		if err := tx.Where("model_name = ?", acknowledgement.ModelName).First(&override).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil, fmt.Errorf("manual pricing override not found for %s", acknowledgement.ModelName)
+			}
+			return nil, err
+		}
+		officialCfg, ok := lookupPricingValue(acknowledgement.ModelName, officialByName)
+		if !ok {
+			return nil, fmt.Errorf("official pricing not found for %s", acknowledgement.ModelName)
+		}
+		currentHash, err := model.ModelPricingConfigHash(officialCfg)
+		if err != nil {
+			return nil, err
+		}
+		if currentHash != acknowledgement.OfficialConfigHash {
+			return nil, fmt.Errorf("official pricing changed for %s; refresh and review the latest price", acknowledgement.ModelName)
+		}
+		if override.ReviewedOfficialHash == currentHash {
+			continue
+		}
+		if err := model.ReviewModelPricingOverrideTx(tx, acknowledgement.ModelName, currentHash); err != nil {
+			return nil, err
+		}
+		result.Acknowledged++
+	}
+
 	restored, err := model.DeleteModelPricingOverridesTx(tx, request.Restore)
 	if err != nil {
 		return nil, err
@@ -208,6 +284,17 @@ func SaveModelPricingBatchTx(tx *gorm.DB, request ModelPricingBatchRequest) (*Mo
 	}
 	result.Revision = revision
 	return result, nil
+}
+
+func addPricingOperationName(names map[string]struct{}, modelName string) error {
+	if modelName == "" {
+		return fmt.Errorf("model name is required")
+	}
+	if _, exists := names[modelName]; exists {
+		return fmt.Errorf("duplicate model pricing operation: %s", modelName)
+	}
+	names[modelName] = struct{}{}
+	return nil
 }
 
 func RefreshModelPricingRuntime() error {

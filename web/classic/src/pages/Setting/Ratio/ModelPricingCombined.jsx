@@ -28,6 +28,7 @@ import {
 } from '@douyinfe/semi-ui';
 import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
+import OfficialPricingConflictReview from './OfficialPricingConflictReview';
 import ModelRatioSettings from './ModelRatioSettings';
 import {
   buildCanonicalPricingOptions,
@@ -62,6 +63,10 @@ export default function ModelPricingCombined({ options, refresh }) {
     () => buildCanonicalPricingOptions(pricingViews || [], options),
     [options, pricingViews],
   );
+  const pricingConflicts = useMemo(
+    () => (pricingViews || []).filter((view) => view.pricing_conflict),
+    [pricingViews],
+  );
 
   const refreshPricing = useCallback(async () => {
     await Promise.all([loadPricing(), refresh?.()]);
@@ -82,6 +87,10 @@ export default function ModelPricingCombined({ options, refresh }) {
   return (
     <Spin spinning={loading}>
       <div>
+        <OfficialPricingConflictReview
+          conflicts={pricingConflicts}
+          refresh={refreshPricing}
+        />
         <div style={{ marginTop: 12, marginBottom: 16 }}>
           <RadioGroup
             type='button'

@@ -62,8 +62,10 @@ export type ModelPricingView = {
   manual_config?: ModelPricingConfig;
   manual_origin?: string;
   official_config?: ModelPricingConfig;
+  official_config_hash?: string;
   official_stale: boolean;
   official_last_confirmed_at: number;
+  pricing_conflict: boolean;
 };
 
 export type ModelPricingListResponse = {
@@ -77,9 +79,15 @@ export type ModelPricingMutation = {
   config: ModelPricingConfig;
 };
 
+export type ModelPricingAcknowledgement = {
+  model_name: string;
+  official_config_hash: string;
+};
+
 export type ModelPricingBatchRequest = {
   upserts: ModelPricingMutation[];
   restore: string[];
+  acknowledge?: ModelPricingAcknowledgement[];
 };
 
 export type ModelPricingBatchResponse = {
@@ -88,6 +96,7 @@ export type ModelPricingBatchResponse = {
   data: {
     updated: number;
     restored: number;
+    acknowledged: number;
     revision: number;
   };
 };

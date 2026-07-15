@@ -193,3 +193,31 @@ func TestMigrateManualMetadataWithoutOfficialSnapshotDefersLegacyOptions(t *test
 	err := DB.Where("key = ?", modelPricingOverrideMigrationVersionKey).First(&migrationVersion).Error
 	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
+
+func TestModelPricingConfigHashUsesNormalizedCompleteConfig(t *testing.T) {
+	zero := 0.0
+	left := ModelPricingConfig{
+		Mode:        " tiered_expr ",
+		BillingExpr: "  p * 2 + c * 4  ",
+		CacheRatio:  &zero,
+	}
+	right := ModelPricingConfig{
+		Mode:        ModelPricingModeTieredExpr,
+		BillingExpr: "p * 2 + c * 4",
+		CacheRatio:  &zero,
+	}
+
+	leftHash, err := ModelPricingConfigHash(left)
+	require.NoError(t, err)
+	rightHash, err := ModelPricingConfigHash(right)
+	require.NoError(t, err)
+	assert.Equal(t, leftHash, rightHash)
+	assert.True(t, ModelPricingConfigsEqual(left, right))
+
+	withoutExplicitZero := right
+	withoutExplicitZero.CacheRatio = nil
+	withoutZeroHash, err := ModelPricingConfigHash(withoutExplicitZero)
+	require.NoError(t, err)
+	assert.NotEqual(t, rightHash, withoutZeroHash)
+	assert.False(t, ModelPricingConfigsEqual(right, withoutExplicitZero))
+}

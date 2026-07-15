@@ -569,3 +569,119 @@ func TestSaveModelPricingBatchReportsCommittedOverrideWhenRuntimeRefreshFails(t 
 	require.True(t, valid)
 	assert.Equal(t, committedConfig, savedConfig)
 }
+
+func TestModelPricingConflictAcknowledgementFlow(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+	modelName := "gpt-pricing-conflict"
+
+	replaceOfficial := func(snapshotID string, ratio float64) {
+		t.Helper()
+		require.NoError(t, model.ReplaceActiveOfficialPricing(snapshotID, "test", []model.OfficialModelPrice{{
+			Provider:        OfficialPricingProviderOpenAI,
+			ModelName:       modelName,
+			ModelRatio:      ratio,
+			CompletionRatio: 2,
+		}}))
+	}
+	findView := func() ModelPricingView {
+		t.Helper()
+		views, err := ListModelPricing(context.Background())
+		require.NoError(t, err)
+		for _, view := range views {
+			if view.ModelName == modelName {
+				return view
+			}
+		}
+		require.FailNow(t, "pricing view not found")
+		return ModelPricingView{}
+	}
+
+	replaceOfficial("pricing-conflict-initial", 1)
+	_, err := SaveModelPricingBatch(context.Background(), ModelPricingBatchRequest{Upserts: []ModelPricingMutation{{
+		ModelName: modelName,
+		Config: model.ModelPricingConfig{
+			Mode:            model.ModelPricingModePerToken,
+			Ratio:           pricingFloat(4),
+			CompletionRatio: pricingFloat(8),
+		},
+	}}})
+	require.NoError(t, err)
+
+	view := findView()
+	assert.Equal(t, model.AuthorityLevelManual, view.Authority)
+	assert.False(t, view.PricingConflict, "saving manual pricing acknowledges the current official config")
+	require.NotEmpty(t, view.OfficialConfigHash)
+
+	replaceOfficial("pricing-conflict-same-price", 1)
+	view = findView()
+	assert.False(t, view.PricingConflict, "a new snapshot with the same price must not prompt again")
+
+	replaceOfficial("pricing-conflict-changed", 3)
+	view = findView()
+	assert.True(t, view.PricingConflict)
+	require.NotNil(t, view.EffectiveConfig.Ratio)
+	assert.Equal(t, 4.0, *view.EffectiveConfig.Ratio, "manual pricing remains effective during conflict")
+	changedOfficialHash := view.OfficialConfigHash
+
+	_, err = SaveModelPricingBatch(context.Background(), ModelPricingBatchRequest{Acknowledge: []ModelPricingAcknowledgement{{
+		ModelName:          modelName,
+		OfficialConfigHash: "stale-official-hash",
+	}}})
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "official pricing changed")
+	assert.True(t, findView().PricingConflict, "stale acknowledgement must not update review state")
+
+	acknowledged, err := SaveModelPricingBatch(context.Background(), ModelPricingBatchRequest{Acknowledge: []ModelPricingAcknowledgement{{
+		ModelName:          modelName,
+		OfficialConfigHash: changedOfficialHash,
+	}}})
+	require.NoError(t, err)
+	assert.Equal(t, 1, acknowledged.Acknowledged)
+	assert.False(t, findView().PricingConflict)
+
+	replaceOfficial("pricing-conflict-changed-again", 5)
+	assert.True(t, findView().PricingConflict, "a later official price change must prompt again")
+
+	_, err = SaveModelPricingBatch(context.Background(), ModelPricingBatchRequest{Restore: []string{modelName}})
+	require.NoError(t, err)
+	view = findView()
+	assert.Equal(t, model.AuthorityLevelOfficial, view.Authority)
+	assert.False(t, view.PricingConflict)
+	require.NotNil(t, view.EffectiveConfig.Ratio)
+	assert.Equal(t, 5.0, *view.EffectiveConfig.Ratio)
+}
+
+func TestModelPricingConflictDoesNotRepeatForExpandedAliases(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+	modelName := "gemini-2.5-flash"
+	require.NoError(t, model.ReplaceActiveOfficialPricing("pricing-conflict-alias-initial", "test", []model.OfficialModelPrice{{
+		Provider:        OfficialPricingProviderGemini,
+		ModelName:       modelName,
+		ModelRatio:      1,
+		CompletionRatio: 2,
+	}}))
+	_, err := SaveModelPricingBatch(context.Background(), ModelPricingBatchRequest{Upserts: []ModelPricingMutation{{
+		ModelName: modelName,
+		Config: model.ModelPricingConfig{
+			Mode:  model.ModelPricingModePerToken,
+			Ratio: pricingFloat(4),
+		},
+	}}})
+	require.NoError(t, err)
+	require.NoError(t, model.ReplaceActiveOfficialPricing("pricing-conflict-alias-changed", "test", []model.OfficialModelPrice{{
+		Provider:        OfficialPricingProviderGemini,
+		ModelName:       modelName,
+		ModelRatio:      2,
+		CompletionRatio: 2,
+	}}))
+
+	views, err := ListModelPricing(context.Background())
+	require.NoError(t, err)
+	conflicts := make([]string, 0)
+	for _, view := range views {
+		if view.PricingConflict {
+			conflicts = append(conflicts, view.ModelName)
+		}
+	}
+	assert.Equal(t, []string{modelName}, conflicts)
+}

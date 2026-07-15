@@ -36,7 +36,7 @@ import {
 import { SettingsPageTitleStatusPortal } from "../components/settings-page-context";
 import { SettingsSection } from "../components/settings-section";
 import { useUpdateOption } from "../hooks/use-update-option";
-import type { ModelPricingBatchRequest } from "../types";
+import type { ModelPricingBatchRequest, ModelPricingView } from "../types";
 import { GroupRatioForm } from "./group-ratio-form";
 import {
   buildModelPricingFormValues,
@@ -46,6 +46,7 @@ import {
   snapshotToModelPricingConfig,
 } from "./model-pricing-snapshots";
 import { ModelRatioForm } from "./model-ratio-form";
+import { OfficialPricingConflictReview } from "./official-pricing-conflict-review";
 import { ToolPriceSettings } from "./tool-price-settings";
 import { UpstreamRatioSync } from "./upstream-ratio-sync";
 import {
@@ -266,6 +267,43 @@ export function RatioSettingsCard({
       toast.error(error.message || t("Failed to calibrate model prices"));
     },
   });
+  const pricingConflicts = useMemo(
+    () => pricingViews?.filter((view) => view.pricing_conflict) ?? [],
+    [pricingViews],
+  );
+  const keepManualPricing = useCallback(
+    async (view: ModelPricingView) => {
+      if (!view.official_config_hash) {
+        const message = t("Official price is unavailable");
+        toast.error(message);
+        throw new Error(message);
+      }
+      await pricingMutation.mutateAsync({
+        upserts: [],
+        restore: [],
+        acknowledge: [
+          {
+            model_name: view.authority_model_name,
+            official_config_hash: view.official_config_hash,
+          },
+        ],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["model-pricing"] });
+      toast.success(t("Manual price kept"));
+    },
+    [pricingMutation, queryClient, t],
+  );
+  const useOfficialPricing = useCallback(
+    async (view: ModelPricingView) => {
+      await pricingMutation.mutateAsync({
+        upserts: [],
+        restore: [view.authority_model_name],
+      });
+      await queryClient.invalidateQueries({ queryKey: ["model-pricing"] });
+      toast.success(t("Official price restored"));
+    },
+    [pricingMutation, queryClient, t],
+  );
 
   const modelNormalizedDefaults = useRef(
     normalizeModelFormValues(modelDefaults),
@@ -528,15 +566,22 @@ export function RatioSettingsCard({
     }
     if (tab === "models") {
       return (
-        <ModelRatioForm
-          form={modelForm}
-          savedValues={savedModelValues}
-          pricingSources={pricingSources}
-          onSave={saveModelRatios}
-          onReset={handleResetRatios}
-          isSaving={updateOption.isPending || pricingMutation.isPending}
-          isResetting={resetMutation.isPending}
-        />
+        <div className="space-y-4">
+          <OfficialPricingConflictReview
+            conflicts={pricingConflicts}
+            onKeepManual={keepManualPricing}
+            onUseOfficial={useOfficialPricing}
+          />
+          <ModelRatioForm
+            form={modelForm}
+            savedValues={savedModelValues}
+            pricingSources={pricingSources}
+            onSave={saveModelRatios}
+            onReset={handleResetRatios}
+            isSaving={updateOption.isPending || pricingMutation.isPending}
+            isResetting={resetMutation.isPending}
+          />
+        </div>
       );
     }
     if (tab === "groups") {

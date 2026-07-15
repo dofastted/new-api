@@ -1,6 +1,7 @@
 package model
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"math"
 	"sort"
@@ -61,7 +62,7 @@ func ParseModelPricingConfig(raw string) (ModelPricingConfig, bool, error) {
 	if cfg.Mode == ModelPricingModeTieredExpr && strings.TrimSpace(cfg.BillingExpr) == "" {
 		return ModelPricingConfig{}, false, fmt.Errorf("tiered_expr pricing requires billing_expr")
 	}
-	return cfg, true, nil
+	return normalizeModelPricingConfig(cfg), true, nil
 }
 
 func ValidateModelPricingConfig(raw string) error {
@@ -93,6 +94,46 @@ func isSupportedModelPricingMode(mode string) bool {
 
 func (cfg ModelPricingConfig) isEmpty() bool {
 	return cfg.Price == nil && cfg.Ratio == nil && cfg.CompletionRatio == nil && cfg.CacheRatio == nil && cfg.CreateCacheRatio == nil && cfg.ImageRatio == nil && cfg.AudioRatio == nil && cfg.AudioCompletionRatio == nil && strings.TrimSpace(cfg.BillingExpr) == ""
+}
+
+func normalizeModelPricingConfig(cfg ModelPricingConfig) ModelPricingConfig {
+	cfg.Mode = strings.TrimSpace(cfg.Mode)
+	if cfg.Mode == "" {
+		cfg.Mode = inferModelPricingMode(cfg)
+	}
+	cfg.BillingExpr = strings.TrimSpace(cfg.BillingExpr)
+	return cfg
+}
+
+func ModelPricingConfigsEqual(left ModelPricingConfig, right ModelPricingConfig) bool {
+	left = normalizeModelPricingConfig(left)
+	right = normalizeModelPricingConfig(right)
+	return left.Mode == right.Mode &&
+		equalModelPricingFloat(left.Price, right.Price) &&
+		equalModelPricingFloat(left.Ratio, right.Ratio) &&
+		equalModelPricingFloat(left.CompletionRatio, right.CompletionRatio) &&
+		equalModelPricingFloat(left.CacheRatio, right.CacheRatio) &&
+		equalModelPricingFloat(left.CreateCacheRatio, right.CreateCacheRatio) &&
+		equalModelPricingFloat(left.ImageRatio, right.ImageRatio) &&
+		equalModelPricingFloat(left.AudioRatio, right.AudioRatio) &&
+		equalModelPricingFloat(left.AudioCompletionRatio, right.AudioCompletionRatio) &&
+		left.BillingExpr == right.BillingExpr
+}
+
+func ModelPricingConfigHash(cfg ModelPricingConfig) (string, error) {
+	payload, err := common.Marshal(normalizeModelPricingConfig(cfg))
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(payload)
+	return fmt.Sprintf("%x", sum), nil
+}
+
+func equalModelPricingFloat(left *float64, right *float64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func validateModelPricingNumbers(cfg ModelPricingConfig) error {
