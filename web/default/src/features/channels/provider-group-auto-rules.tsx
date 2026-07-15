@@ -18,7 +18,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowDown, ArrowUp, GitBranch, Plus, Save, Trash2 } from 'lucide-react'
+import { ArrowDown, ArrowUp, GitBranch, Save, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -33,7 +33,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
+import { Combobox } from '@/components/ui/combobox'
 import {
   PROVIDER_GROUP_STATUS,
   PROVIDER_ROUTE_TYPES,
@@ -44,6 +44,7 @@ import {
   type ProviderGroupAutoRule,
   type ProviderRouteType,
 } from '@/features/channels/provider-group-api'
+import { FormNavigationGuard } from '@/features/system-settings/components/form-navigation-guard'
 
 const ROUTE_TYPE_LABELS: Record<ProviderRouteType, string> = {
   completions: '/v1/chat/completions',
@@ -76,7 +77,48 @@ function buildAutoRulesState(rules: ProviderGroupAutoRule[]): AutoRulesState {
   return state
 }
 
-export function ProviderGroupAutoRules() {
+function serializeAutoRulesState(
+  rules: AutoRulesState
+): ProviderGroupAutoRule[] {
+  const items: ProviderGroupAutoRule[] = []
+  for (const routeType of PROVIDER_ROUTE_TYPES) {
+    rules[routeType].forEach((candidate, index) => {
+      items.push({
+        route_type: routeType,
+        candidate_group: candidate,
+        sort_order: index,
+        enabled: true,
+      })
+    })
+  }
+  return items
+}
+
+function autoRulesEqual(a: AutoRulesState, b: AutoRulesState): boolean {
+  return PROVIDER_ROUTE_TYPES.every(
+    (routeType) =>
+      a[routeType].length === b[routeType].length &&
+      a[routeType].every((value, index) => value === b[routeType][index])
+  )
+}
+
+type AutoRulesEditorProps = {
+  /** Compact layout for embedding inside the groups page. */
+  compact?: boolean
+  /** Hide the outer page chrome when embedded. */
+  embedded?: boolean
+  onDirtyChange?: (dirty: boolean) => void
+}
+
+/**
+ * Editable Auto route-type candidate lists.
+ * Used both on `/providers/auto` and inline when the Auto group is selected.
+ */
+export function AutoRulesEditor({
+  compact = false,
+  embedded = false,
+  onDirtyChange,
+}: AutoRulesEditorProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
@@ -96,7 +138,10 @@ export function ProviderGroupAutoRules() {
           (group) =>
             !group.is_auto && group.status === PROVIDER_GROUP_STATUS.enabled
         )
-        .map((group) => group.name),
+        .map((group) => ({
+          name: group.name,
+          label: group.display_name || group.name,
+        })),
     [groupsQuery.data]
   )
 
@@ -106,32 +151,39 @@ export function ProviderGroupAutoRules() {
     messages: [],
     other: [],
   })
-  const [dirty, setDirty] = useState(false)
+  const [baseline, setBaseline] = useState<AutoRulesState>({
+    completions: [],
+    responses: [],
+    messages: [],
+    other: [],
+  })
 
   useEffect(() => {
-    if (dirty) return
-    setRules(buildAutoRulesState(rulesQuery.data?.data ?? []))
-  }, [rulesQuery.data, dirty])
+    if (rulesQuery.data?.data === undefined) return
+    const next = buildAutoRulesState(rulesQuery.data.data)
+    setBaseline(next)
+    setRules(next)
+  }, [rulesQuery.data])
+
+  const dirty = !autoRulesEqual(rules, baseline)
+
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
   const updateRouteType = (routeType: ProviderRouteType, next: string[]) => {
-    setDirty(true)
     setRules((current) => ({ ...current, [routeType]: next }))
+  }
+
+  const discard = () => {
+    setRules(baseline)
   }
 
   const saveMutation = useMutation({
     mutationFn: async () => {
-      const items: ProviderGroupAutoRule[] = []
-      for (const routeType of PROVIDER_ROUTE_TYPES) {
-        rules[routeType].forEach((candidate, index) => {
-          items.push({
-            route_type: routeType,
-            candidate_group: candidate,
-            sort_order: index,
-            enabled: true,
-          })
-        })
-      }
-      const response = await updateProviderGroupAutoRules(items)
+      const response = await updateProviderGroupAutoRules(
+        serializeAutoRulesState(rules)
+      )
       if (!response.success) {
         throw new Error(
           response.message || t('Failed to save auto routing rules')
@@ -140,7 +192,7 @@ export function ProviderGroupAutoRules() {
     },
     onSuccess: () => {
       toast.success(t('Auto routing rules saved'))
-      setDirty(false)
+      setBaseline(rules)
       queryClient.invalidateQueries({
         queryKey: providerGroupQueryKeys.autoRules(),
       })
@@ -149,6 +201,78 @@ export function ProviderGroupAutoRules() {
       toast.error(error.message)
     },
   })
+
+  const editor = (
+    <div className={compact ? 'space-y-3' : 'space-y-4'}>
+      {!embedded && (
+        <Card className='border-primary/20 bg-primary/5'>
+          <CardHeader>
+            <CardTitle>{t('Auto provider group routing')}</CardTitle>
+            <CardDescription>
+              {t(
+                'Auto is a provider group an API key can select. When a key uses auto, requests are routed to the candidate provider groups below, in order, based on the request route type. Candidates are configured globally by admins; users cannot customize auto candidates per key.'
+              )}
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      )}
+
+      {embedded && (
+        <p className='text-muted-foreground text-xs'>
+          {t(
+            'Configure candidate provider groups for each route type. Candidates are tried from top to bottom.'
+          )}
+        </p>
+      )}
+
+      <div
+        className={
+          compact ? 'space-y-2' : 'grid min-h-0 flex-1 gap-4 lg:grid-cols-2'
+        }
+      >
+        {PROVIDER_ROUTE_TYPES.map((routeType) => (
+          <AutoRouteTypeRow
+            key={routeType}
+            routeType={routeType}
+            candidates={rules[routeType]}
+            availableGroups={candidateGroups}
+            compact={compact}
+            onChange={(next) => updateRouteType(routeType, next)}
+          />
+        ))}
+      </div>
+
+      {embedded && (
+        <div className='flex flex-wrap items-center justify-end gap-2'>
+          <Button
+            variant='outline'
+            size='sm'
+            onClick={discard}
+            disabled={!dirty || saveMutation.isPending}
+          >
+            {t('Discard')}
+          </Button>
+          <Button
+            size='sm'
+            onClick={() => saveMutation.mutate()}
+            disabled={saveMutation.isPending || !dirty}
+          >
+            <Save className='size-4' aria-hidden='true' />
+            {saveMutation.isPending ? t('Saving...') : t('Save changes')}
+          </Button>
+        </div>
+      )}
+    </div>
+  )
+
+  if (embedded) {
+    return (
+      <>
+        <FormNavigationGuard when={dirty} />
+        {editor}
+      </>
+    )
+  }
 
   return (
     <SectionPageLayout fixedContent>
@@ -161,6 +285,13 @@ export function ProviderGroupAutoRules() {
           {t('Provider groups')}
         </Button>
         <Button
+          variant='outline'
+          onClick={discard}
+          disabled={!dirty || saveMutation.isPending}
+        >
+          {t('Discard')}
+        </Button>
+        <Button
           onClick={() => saveMutation.mutate()}
           disabled={saveMutation.isPending || !dirty}
         >
@@ -171,52 +302,41 @@ export function ProviderGroupAutoRules() {
         </Button>
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='flex h-full min-h-0 flex-col gap-4'>
-          <Card className='border-primary/20 bg-primary/5'>
-            <CardHeader>
-              <CardTitle>{t('Auto provider group routing')}</CardTitle>
-              <CardDescription>
-                {t(
-                  'Auto is a provider group an API key can select. When a key uses auto, requests are routed to the candidate provider groups below, in order, based on the request route type. Candidates are configured globally by admins; users cannot customize auto candidates per key.'
-                )}
-              </CardDescription>
-            </CardHeader>
-          </Card>
-
-          <div className='grid min-h-0 flex-1 gap-4 lg:grid-cols-2'>
-            {PROVIDER_ROUTE_TYPES.map((routeType) => (
-              <AutoRouteTypeCard
-                key={routeType}
-                routeType={routeType}
-                candidates={rules[routeType]}
-                availableGroups={candidateGroups}
-                onChange={(next) => updateRouteType(routeType, next)}
-              />
-            ))}
-          </div>
+        <FormNavigationGuard when={dirty} />
+        <div className='flex h-full min-h-0 flex-col gap-4 overflow-y-auto'>
+          {editor}
         </div>
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }
 
-function AutoRouteTypeCard({
+export function ProviderGroupAutoRules() {
+  return <AutoRulesEditor />
+}
+
+function AutoRouteTypeRow({
   routeType,
   candidates,
   availableGroups,
+  compact,
   onChange,
 }: {
   routeType: ProviderRouteType
   candidates: string[]
-  availableGroups: string[]
+  availableGroups: Array<{ name: string; label: string }>
+  compact: boolean
   onChange: (next: string[]) => void
 }) {
   const { t } = useTranslation()
-  const [pendingGroup, setPendingGroup] = useState('')
 
   const selectable = availableGroups.filter(
-    (group) => !candidates.includes(group)
+    (group) => !candidates.includes(group.name)
   )
+  const comboboxOptions = selectable.map((group) => ({
+    value: group.name,
+    label: `${group.label} (${group.name})`,
+  }))
 
   const move = (index: number, direction: -1 | 1) => {
     const target = index + direction
@@ -231,10 +351,92 @@ function AutoRouteTypeCard({
     onChange(candidates.filter((item) => item !== group))
   }
 
-  const add = () => {
-    if (!pendingGroup) return
-    onChange([...candidates, pendingGroup])
-    setPendingGroup('')
+  const add = (groupName: string | null) => {
+    if (!groupName) return
+    if (candidates.includes(groupName)) return
+    onChange([...candidates, groupName])
+  }
+
+  const content = (
+    <>
+      {candidates.length === 0 ? (
+        <p className='text-muted-foreground rounded-lg border border-dashed p-2 text-xs'>
+          {t(
+            'No candidates. Auto requests for this route type fall back to legacy auto behavior.'
+          )}
+        </p>
+      ) : (
+        <ol className='space-y-1.5'>
+          {candidates.map((group, index) => (
+            <li
+              key={group}
+              className='flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5'
+            >
+              <div className='flex min-w-0 items-center gap-2'>
+                <StatusBadge
+                  label={String(index + 1)}
+                  variant='info'
+                  size='sm'
+                  copyable={false}
+                />
+                <span className='truncate text-sm font-medium'>{group}</span>
+              </div>
+              <div className='flex shrink-0 items-center gap-0.5'>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label={t('Move up')}
+                  disabled={index === 0}
+                  onClick={() => move(index, -1)}
+                >
+                  <ArrowUp className='size-4' aria-hidden='true' />
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label={t('Move down')}
+                  disabled={index === candidates.length - 1}
+                  onClick={() => move(index, 1)}
+                >
+                  <ArrowDown className='size-4' aria-hidden='true' />
+                </Button>
+                <Button
+                  variant='ghost'
+                  size='icon-sm'
+                  aria-label={t('Remove')}
+                  onClick={() => remove(group)}
+                >
+                  <Trash2 className='size-4' aria-hidden='true' />
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+      <Combobox
+        options={comboboxOptions}
+        value=''
+        onValueChange={add}
+        placeholder={t('Add candidate provider group...')}
+        searchPlaceholder={t('Search provider groups...')}
+        emptyText={t('No provider groups available.')}
+        className='w-full'
+      />
+    </>
+  )
+
+  if (compact) {
+    return (
+      <div className='space-y-2 rounded-lg border p-3'>
+        <div className='flex flex-wrap items-baseline justify-between gap-2'>
+          <div className='text-sm font-medium'>{routeType}</div>
+          <div className='text-muted-foreground text-[11px]'>
+            {ROUTE_TYPE_LABELS[routeType]}
+          </div>
+        </div>
+        {content}
+      </div>
+    )
   }
 
   return (
@@ -243,88 +445,7 @@ function AutoRouteTypeCard({
         <CardTitle className='text-base'>{routeType}</CardTitle>
         <CardDescription>{ROUTE_TYPE_LABELS[routeType]}</CardDescription>
       </CardHeader>
-      <CardContent className='space-y-3'>
-        {candidates.length === 0 ? (
-          <p className='text-muted-foreground rounded-lg border border-dashed p-3 text-xs'>
-            {t(
-              'No candidates. Auto requests for this route type fall back to legacy auto behavior.'
-            )}
-          </p>
-        ) : (
-          <ol className='space-y-2'>
-            {candidates.map((group, index) => (
-              <li
-                key={group}
-                className='flex items-center justify-between gap-2 rounded-lg border p-2'
-              >
-                <div className='flex items-center gap-2'>
-                  <StatusBadge
-                    label={String(index + 1)}
-                    variant='info'
-                    size='sm'
-                    copyable={false}
-                  />
-                  <span className='text-sm font-medium'>{group}</span>
-                </div>
-                <div className='flex items-center gap-1'>
-                  <Button
-                    variant='ghost'
-                    size='icon-sm'
-                    aria-label={t('Move up')}
-                    disabled={index === 0}
-                    onClick={() => move(index, -1)}
-                  >
-                    <ArrowUp className='size-4' aria-hidden='true' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon-sm'
-                    aria-label={t('Move down')}
-                    disabled={index === candidates.length - 1}
-                    onClick={() => move(index, 1)}
-                  >
-                    <ArrowDown className='size-4' aria-hidden='true' />
-                  </Button>
-                  <Button
-                    variant='ghost'
-                    size='icon-sm'
-                    aria-label={t('Remove')}
-                    onClick={() => remove(group)}
-                  >
-                    <Trash2 className='size-4' aria-hidden='true' />
-                  </Button>
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
-        <div className='flex items-center gap-2'>
-          <NativeSelect
-            className='w-full'
-            value={pendingGroup}
-            disabled={selectable.length === 0}
-            onChange={(event) => setPendingGroup(event.target.value)}
-          >
-            <NativeSelectOption value=''>
-              {t('Add candidate provider group...')}
-            </NativeSelectOption>
-            {selectable.map((group) => (
-              <NativeSelectOption key={group} value={group}>
-                {group}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
-          <Button
-            variant='outline'
-            size='sm'
-            onClick={add}
-            disabled={!pendingGroup}
-          >
-            <Plus className='size-4' aria-hidden='true' />
-            {t('Add')}
-          </Button>
-        </div>
-      </CardContent>
+      <CardContent className='space-y-3'>{content}</CardContent>
     </Card>
   )
 }

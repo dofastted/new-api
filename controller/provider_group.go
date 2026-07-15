@@ -78,13 +78,14 @@ func UpdateProviderGroup(c *gin.Context) {
 		return
 	}
 	updates := map[string]interface{}{
-		"display_name": input.DisplayName,
-		"description":  input.Description,
-		"status":       input.Status,
-		"usage_ratio":  input.UsageRatio,
-		"is_auto":      input.IsAuto,
-		"sort_order":   input.SortOrder,
-		"updated_time": common.GetTimestamp(),
+		"display_name":           input.DisplayName,
+		"description":            input.Description,
+		"status":                 input.Status,
+		"usage_ratio":            input.UsageRatio,
+		"required_client_family": input.RequiredClientFamily,
+		"is_auto":                input.IsAuto,
+		"sort_order":             input.SortOrder,
+		"updated_time":           common.GetTimestamp(),
 	}
 	if input.UsageRatio == 0 {
 		updates["usage_ratio"] = 1
@@ -111,6 +112,23 @@ func DeleteProviderGroup(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效分组 ID")
 		return
 	}
+	var group model.ProviderGroup
+	if err := model.DB.First(&group, id).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	// Auto is a system routing entity; deleting it would orphan auto rules.
+	if group.IsAuto || group.Name == "auto" {
+		common.ApiErrorMsg(c, "Auto 分组不可删除")
+		return
+	}
+	var affectedChannelIDs []int
+	if err := model.DB.Model(&model.ProviderGroupChannel{}).
+		Where("provider_group_id = ?", id).
+		Pluck("channel_id", &affectedChannelIDs).Error; err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	if err := model.DB.Delete(&model.ProviderGroup{}, id).Error; err != nil {
 		common.ApiError(c, err)
 		return
@@ -129,8 +147,8 @@ func GetProviderGroupChannels(c *gin.Context) {
 		common.ApiErrorMsg(c, "无效分组 ID")
 		return
 	}
-	var items []model.ProviderGroupChannel
-	if err := model.DB.Where("provider_group_id = ?", id).Order("sort_order ASC, id ASC").Find(&items).Error; err != nil {
+	items, err := model.ListProviderGroupChannelDetails(id)
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
@@ -148,62 +166,37 @@ func UpdateProviderGroupChannels(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
-	var group model.ProviderGroup
-	if err := model.DB.First(&group, id).Error; err != nil {
+	// Keep the legacy members-only endpoint as a thin wrapper over the
+	// transactional configuration save so partial-update semantics stay shared.
+	result, err := model.ApplyProviderGroupConfiguration(id, model.ProviderGroupConfigurationUpdate{
+		Members: &req.Items,
+	})
+	if err != nil {
 		common.ApiError(c, err)
 		return
 	}
-	now := common.GetTimestamp()
-	channelIDs := make([]int, 0, len(req.Items))
-	for _, item := range req.Items {
-		channelIDs = append(channelIDs, item.ChannelId)
-	}
-	channelsByID := make(map[int]model.Channel, len(channelIDs))
-	if len(channelIDs) > 0 {
-		var channels []model.Channel
-		if err := model.DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
-			common.ApiError(c, err)
-			return
-		}
-		for _, channel := range channels {
-			channelsByID[channel.Id] = channel
-		}
-	}
-	for i := range req.Items {
-		req.Items[i].ProviderGroupId = id
-		req.Items[i].GroupName = group.Name
-		if channel, ok := channelsByID[req.Items[i].ChannelId]; ok {
-			req.Items[i].RouteTypes = model.ProviderRouteTypesForChannel(channel)
-		} else {
-			req.Items[i].RouteTypes = ""
-		}
-		req.Items[i].UpdatedTime = now
-		if req.Items[i].CreatedTime == 0 {
-			req.Items[i].CreatedTime = now
-		}
-	}
-	if err := replaceProviderGroupChannels(id, req.Items); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	if err := model.RebuildAbilitiesFromProviderGroups(); err != nil {
-		common.ApiError(c, err)
-		return
-	}
-	model.InitChannelCache()
-	common.ApiSuccess(c, req.Items)
+	common.ApiSuccess(c, result.Members)
 }
 
-func replaceProviderGroupChannels(groupID int, items []model.ProviderGroupChannel) error {
-	return model.DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("provider_group_id = ?", groupID).Delete(&model.ProviderGroupChannel{}).Error; err != nil {
-			return err
-		}
-		if len(items) == 0 {
-			return nil
-		}
-		return tx.Create(&items).Error
-	})
+// UpdateProviderGroupConfiguration applies metadata and/or membership changes
+// as a single transactional operation used by the unified groups-page save.
+func UpdateProviderGroupConfiguration(c *gin.Context) {
+	id, err := strconv.Atoi(c.Param("id"))
+	if err != nil || id <= 0 {
+		common.ApiErrorMsg(c, "无效分组 ID")
+		return
+	}
+	var req model.ProviderGroupConfigurationUpdate
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	result, err := model.ApplyProviderGroupConfiguration(id, req)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
+	common.ApiSuccess(c, result)
 }
 
 func GetProviderGroupAutoRules(c *gin.Context) {

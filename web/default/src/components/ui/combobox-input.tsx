@@ -33,22 +33,26 @@ interface ComboboxInputProps {
   options: ComboboxInputOption[]
   value?: string
   onValueChange: (value: string) => void
+  onSearchValueChange?: (value: string) => void
   placeholder?: string
   emptyText?: string
   className?: string
   id?: string
   allowCustomValue?: boolean
+  shouldFilter?: boolean
 }
 
 export function ComboboxInput({
   options,
   value = '',
   onValueChange,
+  onSearchValueChange,
   placeholder = 'Select or type...',
   emptyText = 'No option found.',
   className,
   id,
   allowCustomValue = false,
+  shouldFilter = true,
 }: ComboboxInputProps) {
   const { t } = useTranslation()
   const [open, setOpen] = React.useState(false)
@@ -64,19 +68,27 @@ export function ComboboxInput({
   const displayValue = open ? searchValue : (selectedOption?.label ?? value)
 
   const filteredOptions = React.useMemo(() => {
-    if (!searchValue.trim()) return options
+    if (!shouldFilter || !searchValue.trim()) return options
     const search = searchValue.toLowerCase().trim()
     return options.filter(
       (option) =>
         option.label.toLowerCase().includes(search) ||
         option.value.toLowerCase().includes(search)
     )
-  }, [options, searchValue])
+  }, [options, searchValue, shouldFilter])
 
   // Reset highlight when filtered options change
   React.useEffect(() => {
     setHighlightedIndex(-1)
   }, [filteredOptions])
+
+  const updateSearchValue = React.useCallback(
+    (nextValue: string) => {
+      setSearchValue(nextValue)
+      onSearchValueChange?.(nextValue)
+    },
+    [onSearchValueChange]
+  )
 
   // Handle click outside to close
   React.useEffect(() => {
@@ -88,18 +100,18 @@ export function ComboboxInput({
         !containerRef.current.contains(e.target as Node)
       ) {
         setOpen(false)
-        setSearchValue('')
+        updateSearchValue('')
       }
     }
 
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [open])
+  }, [open, updateSearchValue])
 
   const handleSelect = (selectedValue: string) => {
     onValueChange(selectedValue)
     setOpen(false)
-    setSearchValue('')
+    updateSearchValue('')
     inputRef.current?.focus()
   }
 
@@ -133,13 +145,13 @@ export function ComboboxInput({
         } else {
           // No highlighted option, just close the dropdown and keep current value
           setOpen(false)
-          setSearchValue('')
+          updateSearchValue('')
         }
         break
       case 'Escape':
         e.preventDefault()
         setOpen(false)
-        setSearchValue('')
+        updateSearchValue('')
         break
     }
   }
@@ -170,14 +182,15 @@ export function ComboboxInput({
         value={displayValue}
         onChange={(e) => {
           const nextValue = e.target.value
-          setSearchValue(nextValue)
+          updateSearchValue(nextValue)
           if (allowCustomValue) {
             onValueChange(nextValue)
           }
           if (!open) setOpen(true)
         }}
         onFocus={() => {
-          setSearchValue(allowCustomValue && !selectedOption ? value : '')
+          const nextValue = allowCustomValue && !selectedOption ? value : ''
+          updateSearchValue(nextValue)
           setOpen(true)
         }}
         onKeyDown={handleKeyDown}

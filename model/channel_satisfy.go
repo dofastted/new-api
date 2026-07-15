@@ -16,16 +16,16 @@ func IsChannelEnabledForGroupModel(group string, modelName string, channelID int
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
-	if group2model2channels == nil {
+	if group2model2abilities == nil {
 		return false
 	}
 
-	if isChannelIDInList(group2model2channels[group][modelName], channelID) {
+	if isChannelIDInAbilities(group2model2abilities[group][modelName], channelID) {
 		return true
 	}
 	normalized := ratio_setting.FormatMatchingModelName(modelName)
 	if normalized != "" && normalized != modelName {
-		return isChannelIDInList(group2model2channels[group][normalized], channelID)
+		return isChannelIDInAbilities(group2model2abilities[group][normalized], channelID)
 	}
 	return false
 }
@@ -61,9 +61,9 @@ func isChannelEnabledForGroupModelDB(group string, modelName string, channelID i
 	return err == nil && count > 0
 }
 
-func isChannelIDInList(list []int, channelID int) bool {
-	for _, id := range list {
-		if id == channelID {
+func isChannelIDInAbilities(abilities []cachedAbility, channelID int) bool {
+	for _, ability := range abilities {
+		if ability.channelID == channelID {
 			return true
 		}
 	}

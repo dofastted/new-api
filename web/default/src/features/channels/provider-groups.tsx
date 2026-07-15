@@ -17,25 +17,23 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Link } from '@tanstack/react-router'
 import {
   ArrowDown,
   ArrowUp,
+  ChevronDown,
   GitBranch,
   GripVertical,
-  Info,
+  MoreHorizontal,
   Plus,
-  Route,
   Save,
   Search,
   Trash2,
 } from 'lucide-react'
-import { useEffect, useMemo, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { ConfirmDialog } from '@/components/confirm-dialog'
-import { StaticDataTable, type StaticDataTableColumn } from '@/components/data-table'
 import { SectionPageLayout } from '@/components/layout'
 import { StatusBadge } from '@/components/status-badge'
 import { Button } from '@/components/ui/button'
@@ -47,6 +45,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible'
+import { Combobox } from '@/components/ui/combobox'
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -54,18 +58,18 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
-import { TableRow, TableCell } from '@/components/ui/table'
-import { getChannels } from '@/features/channels/api'
+import { getChannels, searchChannels } from '@/features/channels/api'
+import { NumericSpinnerInput } from '@/features/channels/components/numeric-spinner-input'
 import { CHANNEL_TYPES } from '@/features/channels/constants'
-import { channelsQueryKeys } from '@/features/channels/lib'
-import {
-  getAdvancedCustomIncomingPathLabel,
-  parseAdvancedCustomConfig,
-} from '@/features/channels/lib/advanced-custom'
 import {
   PROVIDER_GROUP_STATUS,
   createProviderGroup,
@@ -73,19 +77,23 @@ import {
   getProviderGroupChannels,
   getProviderGroups,
   providerGroupQueryKeys,
-  updateProviderGroup,
-  updateProviderGroupChannels,
+  updateProviderGroupConfiguration,
   type ProviderGroup,
   type ProviderGroupChannel,
+  type ProviderGroupChannelDetail,
+  type ProviderGroupChannelInfo,
 } from '@/features/channels/provider-group-api'
-import type { Channel } from '@/features/channels/types'
-
-const PROVIDER_GROUP_CHANNEL_PAGE_SIZE = 10000
+import { AutoRulesEditor } from '@/features/channels/provider-group-auto-rules'
+import { FormNavigationGuard } from '@/features/system-settings/components/form-navigation-guard'
+import { useDebounce } from '@/hooks'
+import { cn } from '@/lib/utils'
 
 type MembershipState = {
   enabled: boolean
   priority: number
+  weight: number
   sortOrder: number
+  channel: ProviderGroupChannelInfo
 }
 
 type MetadataDraft = {
@@ -95,6 +103,8 @@ type MetadataDraft = {
   status: number
 }
 
+type PendingNavigation = { type: 'select'; id: number } | { type: 'create' }
+
 function parseModelCount(value: string | null | undefined): number {
   if (!value) return 0
   return value
@@ -103,77 +113,108 @@ function parseModelCount(value: string | null | undefined): number {
     .filter(Boolean).length
 }
 
-function getChannelRouteLabels(channel: Channel): string[] {
-  const advancedCustom = parseAdvancedCustomConfig(channel.settings)
-  const routes = advancedCustom?.advanced_routes || []
-  if (routes.length === 0) return ['All routes']
-  return [
-    ...new Set(
-      routes
-        .map((route) => route.incoming_path?.trim())
-        .filter((route): route is string => Boolean(route))
-        .map(getAdvancedCustomIncomingPathLabel)
-    ),
-  ]
-}
-
-function getChannelTypeLabel(channel: Channel): string {
+function getChannelTypeLabel(channel: ProviderGroupChannelInfo): string {
   return (
     CHANNEL_TYPES[channel.type as keyof typeof CHANNEL_TYPES] ||
     `#${channel.type}`
   )
 }
 
-function buildProviderGroupUpdatePayload(
-  group: ProviderGroup,
-  patch: Partial<ProviderGroup> = {}
-): Partial<ProviderGroup> {
+function buildMetadataDraft(group: ProviderGroup): MetadataDraft {
   return {
     display_name: group.display_name || group.name,
-    description: group.description,
+    description: group.description || '',
     usage_ratio: group.usage_ratio || 1,
     status: group.status,
-    is_auto: group.is_auto,
-    sort_order: group.sort_order,
-    ...patch,
   }
 }
-function buildMembershipState(
-  channels: Channel[],
-  memberships: ProviderGroupChannel[]
-): Record<number, MembershipState> {
-  const membershipByChannel = new Map(
-    memberships.map((item) => [item.channel_id, item])
+
+function metadataEqual(a: MetadataDraft, b: MetadataDraft): boolean {
+  return (
+    a.display_name === b.display_name &&
+    a.description === b.description &&
+    a.usage_ratio === b.usage_ratio &&
+    a.status === b.status
   )
-  // Stable ordering by sort_order so the member list reflects the saved
-  // drag order; ties fall back to channel id for deterministic output.
+}
+
+function buildMembershipState(
+  memberships: ProviderGroupChannelDetail[]
+): Record<number, MembershipState> {
+  // Routing authority: higher priority first; sort_order is the stable tie-breaker.
   const ordered = [...memberships].sort(
-    (a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.channel_id - b.channel_id
+    (a, b) =>
+      (b.priority ?? 0) - (a.priority ?? 0) ||
+      (a.sort_order ?? 0) - (b.sort_order ?? 0) ||
+      a.channel_id - b.channel_id
   )
   const state: Record<number, MembershipState> = {}
-  for (const channel of channels) {
-    const membership = membershipByChannel.get(channel.id)
-    state[channel.id] = membership
-      ? {
-          enabled: membership.enabled,
-          priority: membership.priority ?? channel.priority ?? 0,
-          sortOrder: membership.sort_order ?? 0,
-        }
-      : {
-          enabled: false,
-          priority: channel.priority ?? 0,
-          sortOrder: 0,
-        }
-  }
-  // Assign sequential sort_order to enabled members based on saved order so
-  // the member list renders in the persisted drag order.
-  let nextOrder = 0
-  for (const m of ordered) {
-    if (state[m.channel_id]?.enabled) {
-      state[m.channel_id].sortOrder = nextOrder++
+  ordered.forEach((member, index) => {
+    state[member.channel_id] = {
+      enabled: member.enabled,
+      priority: member.priority ?? 0,
+      weight: member.weight ?? 0,
+      sortOrder: index,
+      channel: member.channel,
     }
-  }
+  })
   return state
+}
+
+function membershipSnapshot(
+  membership: Record<number, MembershipState>
+): string {
+  const enabled = Object.entries(membership)
+    .filter(([, value]) => value.enabled)
+    .map(([id, value]) => ({
+      id: Number(id),
+      priority: value.priority,
+      weight: value.weight,
+      sortOrder: value.sortOrder,
+    }))
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id - b.id)
+  return JSON.stringify(enabled)
+}
+
+function usesDefaultListPriorities(
+  orderedIds: number[],
+  membership: Record<number, MembershipState>
+): boolean {
+  return orderedIds.every(
+    (id, index) => membership[id]?.priority === orderedIds.length - index
+  )
+}
+
+function applyListOrder(
+  orderedIds: number[],
+  current: Record<number, MembershipState>
+): Record<number, MembershipState> {
+  const next = { ...current }
+  orderedIds.forEach((id, index) => {
+    next[id] = {
+      ...next[id],
+      enabled: true,
+      sortOrder: index,
+    }
+  })
+  return next
+}
+
+function applyListOrderPriorities(
+  orderedIds: number[],
+  current: Record<number, MembershipState>
+): Record<number, MembershipState> {
+  const next = { ...current }
+  orderedIds.forEach((id, index) => {
+    next[id] = {
+      ...next[id],
+      enabled: true,
+      sortOrder: index,
+      // Top of the list is tried first: higher priority for earlier items.
+      priority: orderedIds.length - index,
+    }
+  })
+  return next
 }
 
 export function ProviderGroups() {
@@ -184,67 +225,37 @@ export function ProviderGroups() {
     queryKey: providerGroupQueryKeys.list(),
     queryFn: getProviderGroups,
   })
-  const channelsQuery = useQuery({
-    queryKey: channelsQueryKeys.list({
-      scope: 'provider-groups',
-      page_size: PROVIDER_GROUP_CHANNEL_PAGE_SIZE,
-    }),
-    queryFn: () => getChannels({ page_size: PROVIDER_GROUP_CHANNEL_PAGE_SIZE }),
-  })
 
   const groups = useMemo<ProviderGroup[]>(
     () => groupsQuery.data?.data ?? [],
     [groupsQuery.data]
   )
-  const channels = useMemo<Channel[]>(
-    () => channelsQuery.data?.data?.items ?? [],
-    [channelsQuery.data]
-  )
 
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [groupFilter, setGroupFilter] = useState('')
+  const [detailDirty, setDetailDirty] = useState(false)
+  const [detailVersion, setDetailVersion] = useState(0)
+  const [createOpen, setCreateOpen] = useState(false)
+  const [pendingNavigation, setPendingNavigation] =
+    useState<PendingNavigation | null>(null)
+  const addProviderFocusRequest = useRef(0)
+
   const selectedGroup = groups.find((group) => group.id === selectedId) ?? null
 
-  const orderMutation = useMutation({
-    mutationFn: async (
-      updates: Array<{ group: ProviderGroup; sortOrder: number }>
-    ) => {
-      await Promise.all(
-        updates.map(async (update) => {
-          const response = await updateProviderGroup(
-            update.group.id,
-            buildProviderGroupUpdatePayload(update.group, {
-              sort_order: update.sortOrder,
-            })
-          )
-          if (!response.success) {
-            throw new Error(
-              response.message || t('Failed to update provider group')
-            )
-          }
-        })
-      )
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: providerGroupQueryKeys.list(),
-      })
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-  })
+  const filteredGroups = useMemo(() => {
+    const keyword = groupFilter.trim().toLowerCase()
+    if (!keyword) return groups
+    return groups.filter((group) =>
+      [group.display_name, group.name, group.description]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+        .includes(keyword)
+    )
+  }, [groups, groupFilter])
 
-  const moveGroup = (index: number, direction: -1 | 1) => {
-    const target = index + direction
-    if (target < 0 || target >= groups.length) return
-    const currentGroup = groups[index]
-    const targetGroup = groups[target]
-    if (!currentGroup || !targetGroup) return
-    orderMutation.mutate([
-      { group: currentGroup, sortOrder: targetGroup.sort_order },
-      { group: targetGroup, sortOrder: currentGroup.sort_order },
-    ])
-  }
+  const autoGroups = filteredGroups.filter((group) => group.is_auto)
+  const ordinaryGroups = filteredGroups.filter((group) => !group.is_auto)
 
   useEffect(() => {
     if (groups.length === 0) {
@@ -259,189 +270,251 @@ export function ProviderGroups() {
     })
   }, [groups])
 
+  const requestSelect = (id: number) => {
+    if (id === selectedId) return
+    if (detailDirty) {
+      setPendingNavigation({ type: 'select', id })
+      return
+    }
+    setSelectedId(id)
+  }
+
+  const requestCreate = () => {
+    if (detailDirty) {
+      setPendingNavigation({ type: 'create' })
+      return
+    }
+    setCreateOpen(true)
+  }
+
+  const confirmPendingNavigation = () => {
+    if (!pendingNavigation) return
+    if (pendingNavigation.type === 'select') {
+      setSelectedId(pendingNavigation.id)
+    } else {
+      setDetailVersion((version) => version + 1)
+      setCreateOpen(true)
+    }
+    setPendingNavigation(null)
+    setDetailDirty(false)
+  }
+
   return (
     <SectionPageLayout fixedContent>
       <SectionPageLayout.Title>{t('Provider groups')}</SectionPageLayout.Title>
       <SectionPageLayout.Actions>
-        <Button variant='outline' render={<Link to='/providers/auto' />}>
-          <Route className='size-4' aria-hidden='true' />
-          {t('Auto routing rules')}
-        </Button>
         <CreateProviderGroupButton
           existingNames={groups.map((group) => group.name)}
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onRequestOpen={requestCreate}
           onCreated={(group) => {
             queryClient.invalidateQueries({
               queryKey: providerGroupQueryKeys.list(),
             })
             setSelectedId(group.id)
+            setDetailDirty(false)
+            addProviderFocusRequest.current += 1
           }}
         />
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
-        <div className='flex h-full min-h-0 flex-col gap-4'>
-          <Card className='border-primary/20 bg-primary/5'>
-            <CardHeader>
-              <CardTitle>{t('Provider routing groups')}</CardTitle>
-              <CardDescription>
-                {t(
-                  'Provider groups are the routing targets API keys select. User level groups such as default, vip, and premium stay in billing settings and are not shown here.'
-                )}
-              </CardDescription>
+        <FormNavigationGuard when={detailDirty} />
+        <div className='grid min-h-0 flex-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1 lg:overflow-hidden'>
+          <Card size='sm' className='min-h-[320px] lg:h-full lg:min-h-0'>
+            <CardHeader className='shrink-0 space-y-3 border-b'>
+              <div className='flex items-center justify-between gap-3'>
+                <div>
+                  <CardTitle>{t('Provider groups')}</CardTitle>
+                  <CardDescription>
+                    {t('Select a group to manage providers and settings.')}
+                  </CardDescription>
+                </div>
+                <span className='bg-muted text-muted-foreground rounded-md px-2 py-1 text-xs font-medium tabular-nums'>
+                  {groups.length}
+                </span>
+              </div>
+              <div className='relative'>
+                <Search className='text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2' />
+                <Input
+                  value={groupFilter}
+                  onChange={(event) => setGroupFilter(event.target.value)}
+                  placeholder={t('Search groups...')}
+                  className='pl-9'
+                  aria-label={t('Search groups')}
+                />
+              </div>
             </CardHeader>
+            <CardContent className='min-h-0 flex-1 space-y-3 overflow-y-auto px-2 py-3'>
+              {autoGroups.length > 0 && (
+                <div className='space-y-1'>
+                  <div className='text-muted-foreground px-2 text-[11px] font-medium tracking-wide uppercase'>
+                    {t('Auto')}
+                  </div>
+                  {autoGroups.map((group) => (
+                    <GroupNavItem
+                      key={group.id}
+                      group={group}
+                      selected={group.id === selectedId}
+                      onSelect={() => requestSelect(group.id)}
+                    />
+                  ))}
+                </div>
+              )}
+              <div className='space-y-1'>
+                {autoGroups.length > 0 && (
+                  <div className='text-muted-foreground px-2 text-[11px] font-medium tracking-wide uppercase'>
+                    {t('Groups')}
+                  </div>
+                )}
+                {ordinaryGroups.length === 0 && autoGroups.length === 0 && (
+                  <p className='text-muted-foreground px-2 py-6 text-center text-sm'>
+                    {t('No provider groups yet.')}
+                  </p>
+                )}
+                {ordinaryGroups.length === 0 && autoGroups.length > 0 && (
+                  <p className='text-muted-foreground px-2 py-3 text-sm'>
+                    {t('No matching groups.')}
+                  </p>
+                )}
+                {ordinaryGroups.map((group) => (
+                  <GroupNavItem
+                    key={group.id}
+                    group={group}
+                    selected={group.id === selectedId}
+                    onSelect={() => requestSelect(group.id)}
+                  />
+                ))}
+              </div>
+            </CardContent>
           </Card>
 
-          <div className='grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(340px,420px)_minmax(0,1fr)]'>
-            <Card className='min-h-0'>
-              <CardHeader>
-                <CardTitle>{t('Provider groups')}</CardTitle>
-                <CardDescription>
-                  {t('Online groups can be selected by API keys.')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <StaticDataTable
-                  data={groups}
-                  getRowKey={(row) => row.id}
-                  emptyContent={t('No provider groups yet.')}
-                  getRowClassName={(row) =>
-                    row.id === selectedId ? 'bg-primary/5' : undefined
-                  }
-                  columns={[
-                    {
-                      id: 'name',
-                      header: t('Provider group'),
-                      className: 'min-w-44',
-                      cell: (row, index) => (
-                        <div className='flex items-start gap-2'>
-                          <div className='flex flex-col gap-1 pt-0.5'>
-                            <Button
-                              variant='ghost'
-                              size='icon-xs'
-                              aria-label={t('Move up')}
-                              disabled={index === 0 || orderMutation.isPending}
-                              onClick={() => moveGroup(index, -1)}
-                            >
-                              <ArrowUp className='size-3' aria-hidden='true' />
-                            </Button>
-                            <Button
-                              variant='ghost'
-                              size='icon-xs'
-                              aria-label={t('Move down')}
-                              disabled={
-                                index === groups.length - 1 ||
-                                orderMutation.isPending
-                              }
-                              onClick={() => moveGroup(index, 1)}
-                            >
-                              <ArrowDown
-                                className='size-3'
-                                aria-hidden='true'
-                              />
-                            </Button>
-                          </div>
-                          <button
-                            type='button'
-                            className='focus-visible:ring-ring/50 flex min-w-0 flex-1 flex-col gap-1 rounded-md text-left outline-none focus-visible:ring-3'
-                            onClick={() => setSelectedId(row.id)}
-                          >
-                            <span className='flex items-center gap-2 font-medium'>
-                              {row.display_name || row.name}
-                              {row.is_auto && (
-                                <StatusBadge
-                                  label='auto'
-                                  variant='success'
-                                  size='sm'
-                                  copyable={false}
-                                />
-                              )}
-                            </span>
-                            <span className='text-muted-foreground text-xs'>
-                              {row.name}
-                            </span>
-                          </button>
-                        </div>
-                      ),
-                    },
-                    {
-                      id: 'ratio',
-                      header: t('Usage ratio'),
-                      className: 'w-24',
-                      cell: (row) => (
-                        <span className='text-sm tabular-nums'>
-                          {row.usage_ratio}x
-                        </span>
-                      ),
-                    },
-                    {
-                      id: 'status',
-                      header: t('Status'),
-                      className: 'w-24',
-                      cell: (row) =>
-                        row.status === PROVIDER_GROUP_STATUS.enabled ? (
-                          <StatusBadge
-                            label={t('Online')}
-                            variant='success'
-                            size='sm'
-                            copyable={false}
-                          />
-                        ) : (
-                          <StatusBadge
-                            label={t('Offline')}
-                            variant='neutral'
-                            size='sm'
-                            copyable={false}
-                          />
-                        ),
-                    },
-                  ]}
-                />
+          {selectedGroup ? (
+            <ProviderGroupDetail
+              key={`${selectedGroup.id}:${detailVersion}`}
+              group={selectedGroup}
+              focusAddProviderToken={addProviderFocusRequest.current}
+              onDirtyChange={setDetailDirty}
+              onChanged={() => {
+                queryClient.invalidateQueries({
+                  queryKey: providerGroupQueryKeys.list(),
+                })
+              }}
+              onDeleted={() => {
+                queryClient.invalidateQueries({
+                  queryKey: providerGroupQueryKeys.list(),
+                })
+                setSelectedId(null)
+                setDetailDirty(false)
+              }}
+            />
+          ) : (
+            <Card size='sm' className='min-h-[320px] lg:h-full lg:min-h-0'>
+              <CardContent className='text-muted-foreground flex h-full min-h-64 items-center justify-center text-sm'>
+                <GitBranch className='mr-2 size-4' aria-hidden='true' />
+                {t('Create or select a provider group to begin.')}
               </CardContent>
             </Card>
-
-            {selectedGroup ? (
-              <ProviderGroupDetail
-                key={selectedGroup.id}
-                group={selectedGroup}
-                channels={channels}
-                onChanged={() => {
-                  queryClient.invalidateQueries({
-                    queryKey: providerGroupQueryKeys.list(),
-                  })
-                }}
-                onDeleted={() => {
-                  queryClient.invalidateQueries({
-                    queryKey: providerGroupQueryKeys.list(),
-                  })
-                  setSelectedId(null)
-                }}
-              />
-            ) : (
-              <Card className='min-h-0'>
-                <CardContent className='text-muted-foreground flex h-40 items-center justify-center rounded-lg border border-dashed text-sm'>
-                  <GitBranch className='mr-2 size-4' aria-hidden='true' />
-                  {t('Create or select a provider group to begin.')}
-                </CardContent>
-              </Card>
-            )}
-          </div>
+          )}
         </div>
+
+        <ConfirmDialog
+          open={pendingNavigation !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingNavigation(null)
+          }}
+          title={t('Unsaved changes')}
+          desc={t(
+            'You have unsaved changes. Discard them and continue, or stay on this group.'
+          )}
+          confirmText={t('Discard changes')}
+          cancelBtnText={t('Stay here')}
+          destructive
+          handleConfirm={confirmPendingNavigation}
+        />
       </SectionPageLayout.Content>
     </SectionPageLayout>
   )
 }
 
+function GroupNavItem({
+  group,
+  selected,
+  onSelect,
+}: {
+  group: ProviderGroup
+  selected: boolean
+  onSelect: () => void
+}) {
+  const { t } = useTranslation()
+  const routingEnabled = group.status === PROVIDER_GROUP_STATUS.enabled
+
+  return (
+    <button
+      type='button'
+      onClick={onSelect}
+      className={cn(
+        'focus-visible:ring-ring/50 flex w-full cursor-pointer flex-col gap-1 rounded-lg border px-3 py-2 text-left outline-none transition-colors focus-visible:ring-3',
+        selected
+          ? 'border-primary/30 bg-primary/8'
+          : 'hover:bg-muted/50 border-transparent'
+      )}
+    >
+      <div className='flex min-w-0 items-center gap-1.5'>
+        <span className='truncate text-sm font-medium'>
+          {group.display_name || group.name}
+        </span>
+        {group.is_auto && (
+          <StatusBadge
+            label={t('Auto')}
+            variant='success'
+            size='sm'
+            copyable={false}
+          />
+        )}
+      </div>
+      <div className='flex min-w-0 items-center justify-between gap-2'>
+        <span className='text-muted-foreground truncate font-mono text-[11px]'>
+          {group.name}
+        </span>
+        <StatusBadge
+          label={routingEnabled ? t('Routing enabled') : t('Routing disabled')}
+          variant={routingEnabled ? 'success' : 'neutral'}
+          size='sm'
+          copyable={false}
+        />
+      </div>
+    </button>
+  )
+}
+
 function CreateProviderGroupButton({
   existingNames,
+  open,
+  onOpenChange,
+  onRequestOpen,
   onCreated,
 }: {
   existingNames: string[]
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  onRequestOpen: () => void
   onCreated: (group: ProviderGroup) => void
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
   const [name, setName] = useState('')
   const [displayName, setDisplayName] = useState('')
   const [ratio, setRatio] = useState('1')
+  const [description, setDescription] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
+
+  const reset = () => {
+    setName('')
+    setDisplayName('')
+    setRatio('1')
+    setDescription('')
+    setShowAdvanced(false)
+  }
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -456,6 +529,7 @@ function CreateProviderGroupButton({
         name: trimmed,
         display_name: displayName.trim() || trimmed,
         usage_ratio: Number.parseFloat(ratio) || 1,
+        description: description.trim(),
         status: PROVIDER_GROUP_STATUS.enabled,
       })
       if (!response.success || !response.data) {
@@ -467,10 +541,8 @@ function CreateProviderGroupButton({
     },
     onSuccess: (group) => {
       toast.success(t('Provider group created'))
-      setOpen(false)
-      setName('')
-      setDisplayName('')
-      setRatio('1')
+      onOpenChange(false)
+      reset()
       onCreated(group)
     },
     onError: (error: Error) => {
@@ -480,23 +552,29 @@ function CreateProviderGroupButton({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)}>
+      <Button aria-label={t('New provider group')} onClick={onRequestOpen}>
         <Plus className='size-4' aria-hidden='true' />
-        {t('Add provider group')}
+        <span className='hidden sm:inline'>{t('New provider group')}</span>
       </Button>
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          onOpenChange(next)
+          if (!next) reset()
+        }}
+      >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('Add provider group')}</DialogTitle>
+            <DialogTitle>{t('New provider group')}</DialogTitle>
             <DialogDescription>
               {t(
-                'The name is the stable identifier used by API keys and logs. It cannot be changed later.'
+                'The group ID is the stable identifier used by API keys and logs. It cannot be changed later.'
               )}
             </DialogDescription>
           </DialogHeader>
           <div className='space-y-4'>
             <label className='block space-y-1.5 text-sm'>
-              <span className='font-medium'>{t('Provider group name')}</span>
+              <span className='font-medium'>{t('Group ID')}</span>
               <Input
                 value={name}
                 placeholder='gpt'
@@ -504,25 +582,54 @@ function CreateProviderGroupButton({
               />
             </label>
             <label className='block space-y-1.5 text-sm'>
-              <span className='font-medium'>{t('Display name')}</span>
+              <span className='font-medium'>
+                {t('Display name')}{' '}
+                <span className='text-muted-foreground font-normal'>
+                  ({t('optional')})
+                </span>
+              </span>
               <Input
                 value={displayName}
                 onChange={(event) => setDisplayName(event.target.value)}
               />
             </label>
-            <label className='block space-y-1.5 text-sm'>
-              <span className='font-medium'>{t('Usage ratio')}</span>
-              <Input
-                type='number'
-                step='0.01'
-                min='0'
-                value={ratio}
-                onChange={(event) => setRatio(event.target.value)}
-              />
-            </label>
+            <Collapsible open={showAdvanced} onOpenChange={setShowAdvanced}>
+              <CollapsibleTrigger
+                render={<Button variant='ghost' size='sm' className='px-0' />}
+              >
+                <ChevronDown
+                  className={cn(
+                    'size-4 transition-transform',
+                    showAdvanced && 'rotate-180'
+                  )}
+                  aria-hidden='true'
+                />
+                {t('Advanced settings')}
+              </CollapsibleTrigger>
+              <CollapsibleContent className='mt-3 space-y-3'>
+                <label className='block space-y-1.5 text-sm'>
+                  <span className='font-medium'>{t('Billing multiplier')}</span>
+                  <Input
+                    type='number'
+                    step='0.01'
+                    min='0'
+                    value={ratio}
+                    onChange={(event) => setRatio(event.target.value)}
+                  />
+                </label>
+                <label className='block space-y-1.5 text-sm'>
+                  <span className='font-medium'>{t('Description')}</span>
+                  <Textarea
+                    rows={2}
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                  />
+                </label>
+              </CollapsibleContent>
+            </Collapsible>
           </div>
           <DialogFooter>
-            <Button variant='outline' onClick={() => setOpen(false)}>
+            <Button variant='outline' onClick={() => onOpenChange(false)}>
               {t('Cancel')}
             </Button>
             <Button
@@ -540,37 +647,39 @@ function CreateProviderGroupButton({
 
 function ProviderGroupDetail({
   group,
-  channels,
+  focusAddProviderToken,
+  onDirtyChange,
   onChanged,
   onDeleted,
 }: {
   group: ProviderGroup
-  channels: Channel[]
+  focusAddProviderToken: number
+  onDirtyChange: (dirty: boolean) => void
   onChanged: () => void
   onDeleted: () => void
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const addProviderInputRef = useRef<HTMLDivElement>(null)
 
-  const [metadata, setMetadata] = useState<MetadataDraft>({
-    display_name: group.display_name,
-    description: group.description,
-    usage_ratio: group.usage_ratio,
-    status: group.status,
-  })
-  const [confirmDelete, setConfirmDelete] = useState(false)
-
-  const membershipQuery = useQuery({
-    queryKey: providerGroupQueryKeys.channels(group.id),
-    queryFn: () => getProviderGroupChannels(group.id),
-  })
-
+  const [metadata, setMetadata] = useState<MetadataDraft>(() =>
+    buildMetadataDraft(group)
+  )
+  const [baselineMetadata, setBaselineMetadata] = useState<MetadataDraft>(() =>
+    buildMetadataDraft(group)
+  )
   const [membership, setMembership] = useState<Record<number, MembershipState>>(
     {}
   )
-  const [membershipDirty, setMembershipDirty] = useState(false)
-  const [providerFilter, setProviderFilter] = useState('')
-  const [pendingProviderId, setPendingProviderId] = useState('')
+  const [baselineMembership, setBaselineMembership] = useState<
+    Record<number, MembershipState>
+  >({})
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [advancedTiersOpen, setAdvancedTiersOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmDisableRouting, setConfirmDisableRouting] = useState(false)
+  const [confirmClearMembers, setConfirmClearMembers] = useState(false)
+  const [pendingStatus, setPendingStatus] = useState<number | null>(null)
   const [draggedChannelId, setDraggedChannelId] = useState<number | null>(null)
   const [dragOverChannelId, setDragOverChannelId] = useState<number | null>(
     null
@@ -578,67 +687,168 @@ function ProviderGroupDetail({
   const [dragOverPosition, setDragOverPosition] = useState<'before' | 'after'>(
     'before'
   )
+  const [providerComboboxKey, setProviderComboboxKey] = useState(0)
+  const [providerSearch, setProviderSearch] = useState('')
+  const debouncedProviderSearch = useDebounce(providerSearch.trim(), 300)
 
-  useEffect(() => {
-    if (membershipDirty) return
-    setMembership(
-      buildMembershipState(channels, membershipQuery.data?.data ?? [])
-    )
-  }, [channels, membershipQuery.data, membershipDirty])
-
-  const metadataMutation = useMutation({
-    mutationFn: async () => {
-      const response = await updateProviderGroup(
-        group.id,
-        buildProviderGroupUpdatePayload(group, {
-          display_name: metadata.display_name.trim() || group.name,
-          description: metadata.description,
-          usage_ratio: metadata.usage_ratio,
-          status: metadata.status,
-        })
-      )
-      if (!response.success) {
-        throw new Error(
-          response.message || t('Failed to update provider group')
-        )
-      }
-    },
-    onSuccess: () => {
-      toast.success(t('Provider group updated'))
-      onChanged()
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
+  const membershipQuery = useQuery({
+    queryKey: providerGroupQueryKeys.channels(group.id),
+    queryFn: () => getProviderGroupChannels(group.id),
+    enabled: !group.is_auto,
+  })
+  const providerSearchQuery = useQuery({
+    queryKey: ['channels', 'provider-group-search', debouncedProviderSearch],
+    queryFn: () =>
+      debouncedProviderSearch
+        ? searchChannels({
+            keyword: debouncedProviderSearch,
+            p: 1,
+            page_size: 20,
+            sort_by: 'id',
+            sort_order: 'asc',
+          })
+        : getChannels({
+            p: 1,
+            page_size: 20,
+            sort_by: 'id',
+            sort_order: 'asc',
+          }),
+    enabled: !group.is_auto,
   })
 
-  const membershipMutation = useMutation({
+  useEffect(() => {
+    const draft = buildMetadataDraft(group)
+    setMetadata(draft)
+    setBaselineMetadata(draft)
+  }, [group])
+
+  useEffect(() => {
+    if (group.is_auto) {
+      setMembership({})
+      setBaselineMembership({})
+      return
+    }
+    if (membershipQuery.data?.data === undefined) return
+    const next = buildMembershipState(membershipQuery.data.data)
+    setMembership(next)
+    setBaselineMembership(next)
+  }, [group.is_auto, membershipQuery.data])
+
+  const metadataDirty = !metadataEqual(metadata, baselineMetadata)
+  const membershipDirty =
+    !group.is_auto &&
+    membershipSnapshot(membership) !== membershipSnapshot(baselineMembership)
+  const dirty = metadataDirty || membershipDirty
+
+  // Auto owns its own draft via AutoRulesEditor; only report ordinary-group dirty here.
+  useEffect(() => {
+    if (group.is_auto) return
+    onDirtyChange(dirty)
+  }, [dirty, group.is_auto, onDirtyChange])
+
+  useEffect(() => {
+    if (!focusAddProviderToken || group.is_auto) return
+    const input = addProviderInputRef.current?.querySelector('input')
+    input?.focus()
+  }, [focusAddProviderToken, group.is_auto])
+
+  const selectedChannels = useMemo(() => {
+    return Object.values(membership)
+      .filter((item) => item.enabled)
+      .sort((a, b) => a.sortOrder - b.sortOrder || a.channel.id - b.channel.id)
+      .map((item) => item.channel)
+  }, [membership])
+
+  const defaultListPriorities = useMemo(
+    () =>
+      usesDefaultListPriorities(
+        selectedChannels.map((channel) => channel.id),
+        membership
+      ),
+    [membership, selectedChannels]
+  )
+
+  const providerCandidates = useMemo(
+    () => providerSearchQuery.data?.data?.items ?? [],
+    [providerSearchQuery.data?.data?.items]
+  )
+  const availableChannelOptions = useMemo(() => {
+    const selectedIds = new Set(selectedChannels.map((channel) => channel.id))
+    return providerCandidates
+      .filter((channel) => !selectedIds.has(channel.id))
+      .map((channel) => ({
+        value: String(channel.id),
+        label: `#${channel.id} · ${channel.name} · ${getChannelTypeLabel(channel)}`,
+      }))
+  }, [providerCandidates, selectedChannels])
+
+  const discard = () => {
+    setMetadata(baselineMetadata)
+    setMembership(baselineMembership)
+  }
+
+  const saveMutation = useMutation({
     mutationFn: async () => {
-      const items: ProviderGroupChannel[] = selectedChannels.map(
-        (channel, index) => {
+      const payload: {
+        metadata?: {
+          display_name: string
+          description: string
+          status: number
+          usage_ratio: number
+        }
+        members?: ProviderGroupChannel[]
+      } = {}
+      if (metadataDirty) {
+        payload.metadata = {
+          display_name: metadata.display_name.trim() || group.name,
+          description: metadata.description,
+          status: metadata.status,
+          usage_ratio: metadata.usage_ratio || 1,
+        }
+      }
+      if (membershipDirty) {
+        payload.members = selectedChannels.map((channel, index) => {
+          const state = membership[channel.id]
+          const weightValue = state?.weight ?? 0
           return {
             provider_group_id: group.id,
             channel_id: channel.id,
-            // Drag order IS priority: top of list = highest priority.
-            priority: selectedChannels.length - index,
-            weight: null,
+            priority: state?.priority ?? selectedChannels.length - index,
+            // 0 means "use channel default weight" — keep null so routing
+            // falls back to the channel weight instead of forcing zero.
+            weight: weightValue > 0 ? weightValue : null,
             route_types: '',
             enabled: true,
             sort_order: index,
           }
-        }
-      )
-      const response = await updateProviderGroupChannels(group.id, items)
-      if (!response.success) {
-        throw new Error(response.message || t('Failed to update members'))
+        })
       }
+      const response = await updateProviderGroupConfiguration(group.id, payload)
+      if (!response.success || !response.data) {
+        throw new Error(
+          response.message || t('Failed to save provider group configuration')
+        )
+      }
+      return response.data
     },
-    onSuccess: () => {
-      toast.success(t('Provider group members saved'))
-      setMembershipDirty(false)
+    onSuccess: (result) => {
+      toast.success(t('Changes saved'))
+      const nextMetadata = buildMetadataDraft(result.group)
+      setMetadata(nextMetadata)
+      setBaselineMetadata(nextMetadata)
+      if (result.members) {
+        const nextMembership = buildMembershipState(result.members)
+        setMembership(nextMembership)
+        setBaselineMembership(nextMembership)
+      } else if (membershipDirty === false) {
+        // metadata-only save
+      } else {
+        setBaselineMembership(membership)
+      }
       queryClient.invalidateQueries({
         queryKey: providerGroupQueryKeys.channels(group.id),
       })
+      onChanged()
     },
     onError: (error: Error) => {
       toast.error(error.message)
@@ -664,33 +874,124 @@ function ProviderGroupDetail({
     },
   })
 
+  const requestSave = () => {
+    if (
+      membershipDirty &&
+      selectedChannels.length === 0 &&
+      Object.values(baselineMembership).some((item) => item.enabled)
+    ) {
+      setConfirmClearMembers(true)
+      return
+    }
+    saveMutation.mutate()
+  }
+
   const updateMembership = (
     channelId: number,
     patch: Partial<MembershipState>
   ) => {
-    setMembershipDirty(true)
     setMembership((current) => ({
       ...current,
       [channelId]: { ...current[channelId], ...patch },
     }))
   }
 
-  const reorderMember = (sourceId: number, targetId: number, position: 'before' | 'after') => {
-    const ordered = [...selectedChannels]
-    const sourceIndex = ordered.findIndex((c) => c.id === sourceId)
-    const targetIndex = ordered.findIndex((c) => c.id === targetId)
-    if (sourceIndex === -1 || targetIndex === -1 || sourceIndex === targetIndex) return
-    const [moved] = ordered.splice(sourceIndex, 1)
-    let insertAt = ordered.findIndex((c) => c.id === targetId)
+  const reorderByIds = (orderedIds: number[]) => {
+    if (!defaultListPriorities) return
+    setMembership((current) => applyListOrderPriorities(orderedIds, current))
+  }
+
+  const reorderMember = (
+    sourceId: number,
+    targetId: number,
+    position: 'before' | 'after'
+  ) => {
+    const ordered = selectedChannels.map((channel) => channel.id)
+    const sourceIndex = ordered.indexOf(sourceId)
+    const targetIndex = ordered.indexOf(targetId)
+    if (
+      sourceIndex === -1 ||
+      targetIndex === -1 ||
+      sourceIndex === targetIndex
+    ) {
+      return
+    }
+    const next = [...ordered]
+    const [moved] = next.splice(sourceIndex, 1)
+    let insertAt = next.indexOf(targetId)
     if (position === 'after') insertAt += 1
-    ordered.splice(insertAt, 0, moved)
-    setMembershipDirty(true)
+    next.splice(insertAt, 0, moved)
+    reorderByIds(next)
+  }
+
+  const moveMember = (index: number, direction: -1 | 1) => {
+    const target = index + direction
+    if (target < 0 || target >= selectedChannels.length) return
+    const ordered = selectedChannels.map((channel) => channel.id)
+    const [moved] = ordered.splice(index, 1)
+    ordered.splice(target, 0, moved)
+    reorderByIds(ordered)
+  }
+
+  const addProvider = (value: string | null) => {
+    if (!value) return
+    const channelId = Number.parseInt(value, 10)
+    const channel = providerCandidates.find((item) => item.id === channelId)
+    if (!channelId || !channel || membership[channelId]?.enabled) return
+    const orderedIds = [
+      ...selectedChannels.map((selected) => selected.id),
+      channelId,
+    ]
     setMembership((current) => {
-      const next = { ...current }
-      ordered.forEach((channel, index) => {
-        next[channel.id] = { ...next[channel.id], sortOrder: index }
-      })
-      return next
+      const currentIds = orderedIds.slice(0, -1)
+      const usesDefaultPriorities = usesDefaultListPriorities(
+        currentIds,
+        current
+      )
+      const lastChannelId = currentIds.at(-1)
+      const appendPriority =
+        lastChannelId === undefined
+          ? 1
+          : (current[lastChannelId]?.priority ?? 1)
+      const withEnabled = {
+        ...current,
+        [channelId]: {
+          enabled: true,
+          priority: appendPriority,
+          weight: current[channelId]?.weight ?? 0,
+          sortOrder: orderedIds.length - 1,
+          channel: {
+            id: channel.id,
+            type: channel.type,
+            status: channel.status,
+            name: channel.name,
+            models: channel.models,
+          },
+        },
+      }
+      return usesDefaultPriorities
+        ? applyListOrderPriorities(orderedIds, withEnabled)
+        : applyListOrder(orderedIds, withEnabled)
+    })
+    setProviderComboboxKey((key) => key + 1)
+  }
+
+  const removeProvider = (channelId: number) => {
+    const remaining = selectedChannels
+      .filter((channel) => channel.id !== channelId)
+      .map((channel) => channel.id)
+    setMembership((current) => {
+      const next = {
+        ...current,
+        [channelId]: {
+          ...current[channelId],
+          enabled: false,
+          sortOrder: 0,
+        },
+      }
+      return defaultListPriorities
+        ? applyListOrderPriorities(remaining, next)
+        : applyListOrder(remaining, next)
     })
   }
 
@@ -723,317 +1024,402 @@ function ProviderGroupDetail({
       draggedChannelId ??
       Number.parseInt(event.dataTransfer.getData('text/plain'), 10)
     if (sourceId && channelId && sourceId !== channelId) {
-      const position = dragOverChannelId === channelId ? dragOverPosition : 'before'
+      const position =
+        dragOverChannelId === channelId ? dragOverPosition : 'before'
       reorderMember(sourceId, channelId, position)
     }
     resetDragState()
   }
 
-  const memberCount = channels.filter(
-    (channel) => membership[channel.id]?.enabled
-  ).length
-
-  const selectedChannels = channels
-    .filter((channel) => membership[channel.id]?.enabled)
-    .sort(
-      (a, b) =>
-        (membership[a.id]?.sortOrder ?? 0) - (membership[b.id]?.sortOrder ?? 0)
-    )
-  const selectedChannelIds = new Set(
-    selectedChannels.map((channel) => channel.id)
-  )
-  const providerKeyword = providerFilter.trim().toLowerCase()
-  const availableChannels = channels.filter((channel) => {
-    if (selectedChannelIds.has(channel.id)) return false
-    if (!providerKeyword) return true
-    return [
-      channel.name,
-      String(channel.id),
-      getChannelTypeLabel(channel),
-      channel.models,
-    ]
-      .join(' ')
-      .toLowerCase()
-      .includes(providerKeyword)
-  })
-
-  const addPendingProvider = () => {
-    const channelId = Number.parseInt(pendingProviderId, 10)
-    if (!channelId) return
-    updateMembership(channelId, {
-      enabled: true,
-      sortOrder: selectedChannels.length,
-    })
-    setPendingProviderId('')
+  const handleRoutingToggle = (checked: boolean) => {
+    if (!checked && metadata.status === PROVIDER_GROUP_STATUS.enabled) {
+      setPendingStatus(PROVIDER_GROUP_STATUS.disabled)
+      setConfirmDisableRouting(true)
+      return
+    }
+    setMetadata((current) => ({
+      ...current,
+      status: checked
+        ? PROVIDER_GROUP_STATUS.enabled
+        : PROVIDER_GROUP_STATUS.disabled,
+    }))
   }
 
-  const removeProvider = (channelId: number) => {
-    updateMembership(channelId, { enabled: false })
-    // Reindex remaining members so sort_order stays contiguous.
-    const remaining = selectedChannels
-      .filter((channel) => channel.id !== channelId)
-    setMembershipDirty(true)
-    setMembership((current) => {
-      const next = { ...current }
-      remaining.forEach((channel, index) => {
-        next[channel.id] = { ...next[channel.id], sortOrder: index }
-      })
-      return next
-    })
-  }
-  const getDragRowClassName = (channelId: number) => {
-    if (dragOverChannelId !== channelId) return undefined
-    return dragOverPosition === 'before'
-      ? 'border-t-2 border-primary'
-      : 'border-b-2 border-primary'
-  }
-
-  const memberColumns: StaticDataTableColumn<Channel>[] = [
-    { id: 'drag', header: '', className: 'w-10' },
-    { id: 'provider', header: t('Provider'), className: 'min-w-64' },
-    {
-      id: 'routes',
-      header: t('Auto-detected routes'),
-      className: 'min-w-64',
-    },
-    { id: 'priority', header: t('Priority'), className: 'w-28' },
-    { id: 'actions', header: t('Actions'), className: 'w-24' },
-  ]
+  const routingEnabled = metadata.status === PROVIDER_GROUP_STATUS.enabled
 
   return (
-    <Card className='min-h-0'>
-      <CardHeader>
+    <Card size='sm' className='min-h-[480px] lg:h-full lg:min-h-0'>
+      <CardHeader className='shrink-0 border-b'>
         <div className='flex flex-wrap items-start justify-between gap-3'>
-          <div>
-            <CardTitle>{group.display_name || group.name}</CardTitle>
-            <CardDescription>{group.name}</CardDescription>
-          </div>
-          <Button
-            variant='outline'
-            size='sm'
-            className='text-destructive'
-            onClick={() => setConfirmDelete(true)}
-          >
-            <Trash2 className='size-4' aria-hidden='true' />
-            {t('Delete')}
-          </Button>
-        </div>
-      </CardHeader>
-      <CardContent className='space-y-6'>
-        <div className='grid gap-3 lg:grid-cols-[minmax(0,1fr)_140px]'>
-          <label className='space-y-1.5 text-sm'>
-            <span className='font-medium'>{t('Display name')}</span>
-            <Input
-              value={metadata.display_name}
-              onChange={(event) =>
-                setMetadata((current) => ({
-                  ...current,
-                  display_name: event.target.value,
-                }))
-              }
-            />
-          </label>
-          <label className='space-y-1.5 text-sm'>
-            <span className='font-medium'>{t('Usage ratio')}</span>
-            <Input
-              type='number'
-              step='0.01'
-              min='0'
-              value={metadata.usage_ratio}
-              onChange={(event) =>
-                setMetadata((current) => ({
-                  ...current,
-                  usage_ratio: Number.parseFloat(event.target.value) || 0,
-                }))
-              }
-            />
-          </label>
-        </div>
-        <label className='block space-y-1.5 text-sm'>
-          <span className='font-medium'>{t('Description')}</span>
-          <Textarea
-            rows={2}
-            value={metadata.description}
-            onChange={(event) =>
-              setMetadata((current) => ({
-                ...current,
-                description: event.target.value,
-              }))
-            }
-          />
-        </label>
-        <div className='flex items-center justify-between rounded-lg border p-3'>
-          <div className='space-y-0.5'>
-            <div className='text-sm font-medium'>{t('Online')}</div>
-            <p className='text-muted-foreground text-xs'>
-              {t(
-                'Offline groups are hidden from API key selection. Keys already bound to an offline group fail with "分组已下线".'
-              )}
-            </p>
-          </div>
-          <Switch
-            checked={metadata.status === PROVIDER_GROUP_STATUS.enabled}
-            onCheckedChange={(checked) =>
-              setMetadata((current) => ({
-                ...current,
-                status: checked
-                  ? PROVIDER_GROUP_STATUS.enabled
-                  : PROVIDER_GROUP_STATUS.disabled,
-              }))
-            }
-          />
-        </div>
-        <div className='flex justify-end'>
-          <Button
-            onClick={() => metadataMutation.mutate()}
-            disabled={metadataMutation.isPending}
-          >
-            <Save className='size-4' aria-hidden='true' />
-            {metadataMutation.isPending ? t('Saving...') : t('Save details')}
-          </Button>
-        </div>
-
-        {group.is_auto ? (
-          <div className='text-muted-foreground flex items-start gap-2 rounded-lg border border-dashed p-3 text-sm'>
-            <Info className='mt-0.5 size-4 shrink-0' aria-hidden='true' />
-            <span>
-              {t(
-                'The auto group has no direct providers. Its routing candidates are configured per route type on the Auto routing rules page.'
-              )}
-            </span>
-          </div>
-        ) : (
-          <div className='space-y-3'>
-            <div className='flex flex-wrap items-center justify-between gap-2'>
-              <div>
-                <div className='text-sm font-medium'>{t('Providers')}</div>
-                <p className='text-muted-foreground text-xs'>
-                  {t(
-                    'Add providers to this group and drag to set routing priority — top of the list is tried first. Enabled status and order here are the final routing source of truth.'
-                  )}{' '}
-                  {t('{{count}} provider(s) selected', { count: memberCount })}
-                </p>
-              </div>
-              <Button
+          <div className='min-w-0 space-y-1.5'>
+            <CardTitle className='truncate'>
+              {metadata.display_name || group.name}
+            </CardTitle>
+            <div className='flex flex-wrap items-center gap-1.5'>
+              <span className='bg-muted text-muted-foreground rounded px-1.5 py-0.5 font-mono text-[11px]'>
+                {group.name}
+              </span>
+              <StatusBadge
+                label={
+                  routingEnabled ? t('Routing enabled') : t('Routing disabled')
+                }
+                variant={routingEnabled ? 'success' : 'neutral'}
                 size='sm'
-                onClick={() => membershipMutation.mutate()}
-                disabled={membershipMutation.isPending || !membershipDirty}
-              >
-                <Save className='size-4' aria-hidden='true' />
-                {membershipMutation.isPending
-                  ? t('Saving...')
-                  : t('Save members')}
-              </Button>
+                copyable={false}
+              />
+              {dirty && (
+                <StatusBadge
+                  label={t('Unsaved')}
+                  variant='warning'
+                  size='sm'
+                  copyable={false}
+                />
+              )}
             </div>
-            <div className='bg-muted/20 grid gap-3 rounded-lg border p-3 lg:grid-cols-[minmax(0,1fr)_220px_auto]'>
-              <div className='relative'>
-                <Search className='text-muted-foreground absolute top-1/2 left-3 size-4 -translate-y-1/2' />
-                <Input
-                  value={providerFilter}
-                  placeholder={t(
-                    'Search providers by name, ID, type, or model...'
-                  )}
-                  className='pl-9'
-                  onChange={(event) => setProviderFilter(event.target.value)}
+          </div>
+          <div className='flex flex-wrap items-center gap-2'>
+            {!group.is_auto && (
+              <div className='flex items-center gap-2 rounded-lg border px-2 py-1'>
+                <span className='text-xs font-medium'>
+                  {t('Routing enabled')}
+                </span>
+                <Switch
+                  aria-label={t('Routing enabled')}
+                  checked={routingEnabled}
+                  onCheckedChange={handleRoutingToggle}
                 />
               </div>
-              <NativeSelect
-                value={pendingProviderId}
-                onChange={(event) => setPendingProviderId(event.target.value)}
-              >
-                <NativeSelectOption value=''>
-                  {t('Choose a provider to add')}
-                </NativeSelectOption>
-                {availableChannels.map((channel) => (
-                  <NativeSelectOption
-                    key={channel.id}
-                    value={String(channel.id)}
-                  >
-                    #{channel.id} · {channel.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-              <Button
-                variant='outline'
-                onClick={addPendingProvider}
-                disabled={!pendingProviderId}
-              >
-                <Plus className='size-4' aria-hidden='true' />
-                {t('Add provider')}
-              </Button>
-            </div>
-            <StaticDataTable
-              data={selectedChannels}
-              getRowKey={(row) => row.id}
-              emptyContent={t('No providers selected yet. Add one above.')}
-              columns={memberColumns}
-              renderRow={(row, index) => (
-                <TableRow
-                  key={row.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, row.id)}
-                  onDragOver={(e) => handleDragOver(e, row.id)}
-                  onDrop={(e) => handleDrop(e, row.id)}
-                  onDragEnd={resetDragState}
-                  className={getDragRowClassName(row.id)}
+            )}
+            {!group.is_auto && (
+              <>
+                <Button
+                  variant='outline'
+                  size='sm'
+                  onClick={discard}
+                  disabled={!dirty || saveMutation.isPending}
                 >
-                  <TableCell className='w-10'>
-                    <GripVertical
-                      className='text-muted-foreground size-4 cursor-grab active:cursor-grabbing'
-                      aria-label={t('Drag to reorder')}
-                    />
-                  </TableCell>
-                  <TableCell className='min-w-64'>
-                    <div className='space-y-1'>
-                      <div className='flex flex-wrap items-center gap-2'>
-                        <span className='font-medium'>{row.name}</span>
-                        <StatusBadge
-                          label={getChannelTypeLabel(row)}
-                          variant='info'
-                          size='sm'
-                          copyable={false}
-                        />
-                      </div>
-                      <div className='text-muted-foreground text-xs'>
-                        ID {row.id} · {parseModelCount(row.models)}{' '}
-                        {t('model(s)')}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell className='min-w-64'>
-                    <div className='flex flex-wrap gap-1.5'>
-                      {getChannelRouteLabels(row).map((route) => (
-                        <StatusBadge
-                          key={route}
-                          label={t(route)}
-                          variant='neutral'
-                          size='sm'
-                          copyable={false}
-                        />
-                      ))}
-                    </div>
-                  </TableCell>
-                  <TableCell className='w-28 text-sm tabular-nums'>
-                    {selectedChannels.length - index}
-                    <span className='text-muted-foreground ml-1 text-xs'>
-                      ({t('by order')})
-                    </span>
-                  </TableCell>
-                  <TableCell className='w-24'>
+                  {t('Discard')}
+                </Button>
+                <Button
+                  size='sm'
+                  onClick={requestSave}
+                  disabled={!dirty || saveMutation.isPending}
+                >
+                  <Save className='size-4' aria-hidden='true' />
+                  {saveMutation.isPending ? t('Saving...') : t('Save changes')}
+                </Button>
+              </>
+            )}
+            {!group.is_auto && (
+              <DropdownMenu>
+                <DropdownMenuTrigger
+                  render={
                     <Button
-                      variant='ghost'
-                      size='sm'
-                      className='text-destructive'
-                      onClick={() => removeProvider(row.id)}
-                    >
-                      <Trash2 className='size-4' aria-hidden='true' />
-                      {t('Remove')}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              )}
-            />
+                      variant='outline'
+                      size='icon-sm'
+                      aria-label={t('More actions')}
+                    />
+                  }
+                >
+                  <MoreHorizontal className='size-4' aria-hidden='true' />
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align='end'>
+                  <DropdownMenuItem
+                    variant='destructive'
+                    onClick={() => setConfirmDelete(true)}
+                  >
+                    <Trash2 className='size-4' aria-hidden='true' />
+                    {t('Delete provider group')}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
           </div>
+        </div>
+      </CardHeader>
+
+      <CardContent className='min-h-0 flex-1 space-y-4 overflow-y-auto'>
+        {group.is_auto ? (
+          <section className='space-y-3'>
+            <div>
+              <div className='text-sm font-medium'>
+                {t('Auto routing rules')}
+              </div>
+              <p className='text-muted-foreground text-xs'>
+                {t(
+                  'Providers are not attached directly to Auto. Configure candidate groups per route type instead.'
+                )}
+              </p>
+            </div>
+            <AutoRulesEditor embedded compact onDirtyChange={onDirtyChange} />
+          </section>
+        ) : (
+          <>
+            <section className='space-y-3'>
+              <div>
+                <div className='text-sm font-medium'>
+                  {t('Providers in this group')}
+                </div>
+                <p className='text-muted-foreground text-xs'>
+                  {defaultListPriorities
+                    ? t('Providers are tried from top to bottom.')
+                    : t('Routing follows the configured priority tiers.')}{' '}
+                  ·{' '}
+                  {t('{{count}} provider(s) selected', {
+                    count: selectedChannels.length,
+                  })}
+                </p>
+              </div>
+
+              <div ref={addProviderInputRef}>
+                <Combobox
+                  key={providerComboboxKey}
+                  options={availableChannelOptions}
+                  value=''
+                  onValueChange={addProvider}
+                  onSearchValueChange={setProviderSearch}
+                  shouldFilter={false}
+                  placeholder={t('Search and add a provider...')}
+                  searchPlaceholder={t(
+                    'Search providers by name, ID, or type...'
+                  )}
+                  emptyText={t('No providers available to add.')}
+                  className='w-full'
+                />
+              </div>
+
+              {selectedChannels.length === 0 ? (
+                <p className='text-muted-foreground rounded-lg border border-dashed p-4 text-center text-sm'>
+                  {t('No providers selected yet. Add one above.')}
+                </p>
+              ) : (
+                <ul className='space-y-2'>
+                  {selectedChannels.map((channel, index) => {
+                    const isDragOver = dragOverChannelId === channel.id
+                    return (
+                      <li
+                        key={channel.id}
+                        draggable={defaultListPriorities}
+                        onDragStart={(event) =>
+                          handleDragStart(event, channel.id)
+                        }
+                        onDragOver={(event) =>
+                          handleDragOver(event, channel.id)
+                        }
+                        onDrop={(event) => handleDrop(event, channel.id)}
+                        onDragEnd={resetDragState}
+                        className={cn(
+                          'flex flex-wrap items-center gap-2 rounded-lg border p-2',
+                          isDragOver &&
+                            dragOverPosition === 'before' &&
+                            'border-t-primary border-t-2',
+                          isDragOver &&
+                            dragOverPosition === 'after' &&
+                            'border-b-primary border-b-2'
+                        )}
+                      >
+                        <div className='text-muted-foreground flex items-center gap-1'>
+                          <GripVertical
+                            className={cn(
+                              'size-4',
+                              defaultListPriorities
+                                ? 'cursor-grab active:cursor-grabbing'
+                                : 'cursor-not-allowed opacity-40'
+                            )}
+                            aria-label={t('Drag to reorder')}
+                          />
+                          <StatusBadge
+                            label={String(index + 1)}
+                            variant='info'
+                            size='sm'
+                            copyable={false}
+                          />
+                        </div>
+                        <div className='min-w-0 flex-1'>
+                          <div className='truncate text-sm font-medium'>
+                            {channel.name}
+                          </div>
+                          <div className='text-muted-foreground truncate text-[11px]'>
+                            ID {channel.id} · {getChannelTypeLabel(channel)} ·{' '}
+                            {parseModelCount(channel.models)} {t('model(s)')}
+                          </div>
+                        </div>
+                        {advancedTiersOpen && (
+                          <div className='flex flex-wrap items-center gap-2'>
+                            <label className='flex items-center gap-1 text-[11px]'>
+                              <span className='text-muted-foreground'>
+                                {t('Priority')}
+                              </span>
+                              <NumericSpinnerInput
+                                value={membership[channel.id]?.priority ?? 0}
+                                onChange={(priority) =>
+                                  updateMembership(channel.id, { priority })
+                                }
+                                min={-999}
+                              />
+                            </label>
+                            <label className='flex items-center gap-1 text-[11px]'>
+                              <span className='text-muted-foreground'>
+                                {t('Weight')}
+                              </span>
+                              <NumericSpinnerInput
+                                value={membership[channel.id]?.weight ?? 0}
+                                onChange={(weight) =>
+                                  updateMembership(channel.id, { weight })
+                                }
+                                min={0}
+                              />
+                            </label>
+                          </div>
+                        )}
+                        <div className='flex items-center gap-0.5'>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            aria-label={t('Move up')}
+                            disabled={!defaultListPriorities || index === 0}
+                            onClick={() => moveMember(index, -1)}
+                          >
+                            <ArrowUp className='size-4' aria-hidden='true' />
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            aria-label={t('Move down')}
+                            disabled={
+                              !defaultListPriorities ||
+                              index === selectedChannels.length - 1
+                            }
+                            onClick={() => moveMember(index, 1)}
+                          >
+                            <ArrowDown className='size-4' aria-hidden='true' />
+                          </Button>
+                          <Button
+                            variant='ghost'
+                            size='icon-sm'
+                            aria-label={t('Remove')}
+                            className='text-destructive'
+                            onClick={() => removeProvider(channel.id)}
+                          >
+                            <Trash2 className='size-4' aria-hidden='true' />
+                          </Button>
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+
+              {!defaultListPriorities && selectedChannels.length > 1 && (
+                <p className='text-muted-foreground text-xs'>
+                  {t(
+                    'Reordering is disabled while custom priority tiers are configured.'
+                  )}
+                </p>
+              )}
+
+              <Collapsible
+                open={advancedTiersOpen}
+                onOpenChange={setAdvancedTiersOpen}
+              >
+                <CollapsibleTrigger
+                  render={<Button variant='ghost' size='sm' className='px-0' />}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'size-4 transition-transform',
+                      advancedTiersOpen && 'rotate-180'
+                    )}
+                    aria-hidden='true'
+                  />
+                  {t('Advanced routing tiers')}
+                </CollapsibleTrigger>
+                <CollapsibleContent className='text-muted-foreground mt-2 text-xs'>
+                  {t(
+                    'Priority and weight control equal-tier load balancing. By default, list order sets fallback order and assigns decreasing priority from top to bottom. Providers with the same priority share a tier and use weight for distribution.'
+                  )}
+                </CollapsibleContent>
+              </Collapsible>
+            </section>
+
+            <Collapsible open={settingsOpen} onOpenChange={setSettingsOpen}>
+              <div className='rounded-lg border'>
+                <CollapsibleTrigger
+                  render={
+                    <button
+                      type='button'
+                      className='hover:bg-muted/40 flex w-full items-center justify-between gap-2 px-3 py-2 text-left'
+                    />
+                  }
+                >
+                  <div>
+                    <div className='text-sm font-medium'>
+                      {t('Group settings')}
+                    </div>
+                    <div className='text-muted-foreground text-xs'>
+                      {t(
+                        'Display name, billing multiplier, description, and routing status.'
+                      )}
+                    </div>
+                  </div>
+                  <ChevronDown
+                    className={cn(
+                      'text-muted-foreground size-4 shrink-0 transition-transform',
+                      settingsOpen && 'rotate-180'
+                    )}
+                    aria-hidden='true'
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent className='space-y-3 border-t px-3 py-3'>
+                  <div className='grid gap-3 md:grid-cols-2'>
+                    <label className='space-y-1 text-xs'>
+                      <span className='font-medium'>{t('Display name')}</span>
+                      <Input
+                        value={metadata.display_name}
+                        onChange={(event) =>
+                          setMetadata((current) => ({
+                            ...current,
+                            display_name: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className='space-y-1 text-xs'>
+                      <span className='font-medium'>
+                        {t('Billing multiplier')}
+                      </span>
+                      <Input
+                        type='number'
+                        step='0.01'
+                        min='0'
+                        value={metadata.usage_ratio}
+                        onChange={(event) =>
+                          setMetadata((current) => ({
+                            ...current,
+                            usage_ratio:
+                              Number.parseFloat(event.target.value) || 0,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className='space-y-1 text-xs md:col-span-2'>
+                      <span className='font-medium'>{t('Description')}</span>
+                      <Textarea
+                        rows={2}
+                        value={metadata.description}
+                        onChange={(event) =>
+                          setMetadata((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                  </div>
+                </CollapsibleContent>
+              </div>
+            </Collapsible>
+          </>
         )}
       </CardContent>
 
@@ -1048,6 +1434,41 @@ function ProviderGroupDetail({
         confirmText={t('Delete')}
         isLoading={deleteMutation.isPending}
         handleConfirm={() => deleteMutation.mutate()}
+      />
+      <ConfirmDialog
+        open={confirmDisableRouting}
+        onOpenChange={(open) => {
+          setConfirmDisableRouting(open)
+          if (!open) setPendingStatus(null)
+        }}
+        title={t('Disable routing for this group?')}
+        desc={t(
+          'Turning routing off removes this group from live provider selection. API keys still bound to it will fail with "分组已下线" until routing is enabled again or keys are moved.'
+        )}
+        confirmText={t('Disable routing')}
+        destructive
+        handleConfirm={() => {
+          if (pendingStatus !== null) {
+            setMetadata((current) => ({ ...current, status: pendingStatus }))
+          }
+          setConfirmDisableRouting(false)
+          setPendingStatus(null)
+        }}
+      />
+      <ConfirmDialog
+        open={confirmClearMembers}
+        onOpenChange={setConfirmClearMembers}
+        title={t('Remove all providers?')}
+        desc={t(
+          'Saving with no providers means this group cannot route any traffic until providers are added again.'
+        )}
+        confirmText={t('Save without providers')}
+        destructive
+        isLoading={saveMutation.isPending}
+        handleConfirm={() => {
+          setConfirmClearMembers(false)
+          saveMutation.mutate()
+        }}
       />
     </Card>
   )
