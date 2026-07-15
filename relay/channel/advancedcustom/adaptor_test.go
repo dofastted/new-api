@@ -161,7 +161,7 @@ func TestAdaptorSetupRequestHeaderAddsClaudeDefaultHeaders(t *testing.T) {
 	assert.Equal(t, "2023-06-01", header.Get("anthropic-version"))
 }
 
-func TestAdaptorReturnsErrorWhenNoRouteMatchesPath(t *testing.T) {
+func TestAdaptorUsesAnthropicToOpenAIRouteForOpenAIChatRequests(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{
 		Routes: []dto.AdvancedCustomRoute{
@@ -169,6 +169,28 @@ func TestAdaptorReturnsErrorWhenNoRouteMatchesPath(t *testing.T) {
 				IncomingPath: "/v1/messages",
 				UpstreamPath: "https://upstream.example/v1/chat/completions",
 				Converter:    dto.AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions,
+			},
+		},
+	})
+	info.RequestURLPath = "/v1/chat/completions"
+
+	requestURL, err := adaptor.GetRequestURL(info)
+	require.NoError(t, err)
+	assert.Equal(t, "https://upstream.example/v1/chat/completions", requestURL)
+
+	converted, err := adaptor.ConvertOpenAIRequest(advancedCustomGinContext("/v1/chat/completions"), info, &dto.GeneralOpenAIRequest{Model: "claude-haiku-4-5-20251001"})
+	require.NoError(t, err)
+	assert.NotNil(t, converted)
+}
+
+func TestAdaptorReturnsErrorWhenNoRouteMatchesPath(t *testing.T) {
+	adaptor := &Adaptor{}
+	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{
+		Routes: []dto.AdvancedCustomRoute{
+			{
+				IncomingPath: "/v1/messages",
+				UpstreamPath: "https://upstream.example/v1/messages",
+				Converter:    dto.AdvancedCustomConverterNone,
 			},
 		},
 	})

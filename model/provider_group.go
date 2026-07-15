@@ -281,6 +281,9 @@ func ProviderRouteTypesForChannelValue(channel Channel) []string {
 	for _, route := range settings.AdvancedCustom.Routes {
 		routeType := ProviderRouteTypeForPath(route.IncomingPath)
 		seen[routeType] = struct{}{}
+		if route.SupportsOpenAIChatCompletionsInput() {
+			seen[ProviderRouteTypeCompletions] = struct{}{}
+		}
 	}
 	ordered := []string{ProviderRouteTypeCompletions, ProviderRouteTypeResponses, ProviderRouteTypeMessages, ProviderRouteTypeOther}
 	result := make([]string, 0, len(seen))
@@ -989,13 +992,35 @@ func ProviderGroupChannelSupportsPath(groupName string, channelID int, requestPa
 		return true
 	}
 	if strings.TrimSpace(member.RouteTypes) != "" {
-		return providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeForPath(requestPath))
+		if providerRouteTypesContain(member.RouteTypes, ProviderRouteTypeForPath(requestPath)) {
+			return true
+		}
+		return advancedCustomSupportsOpenAIChatCompletionsInput(channelID, requestPath)
 	}
 	var channel Channel
 	if err := DB.First(&channel, channelID).Error; err != nil {
 		return true
 	}
 	return providerRouteTypesContain(ProviderRouteTypesForChannel(channel), ProviderRouteTypeForPath(requestPath))
+}
+
+func advancedCustomSupportsOpenAIChatCompletionsInput(channelID int, requestPath string) bool {
+	if ProviderRouteTypeForPath(requestPath) != ProviderRouteTypeCompletions {
+		return false
+	}
+	var channel Channel
+	if err := DB.First(&channel, channelID).Error; err != nil {
+		return false
+	}
+	if channel.Type != constant.ChannelTypeAdvancedCustom {
+		return false
+	}
+	settings := channel.GetOtherSettings()
+	if settings.AdvancedCustom == nil {
+		return false
+	}
+	route, ok := settings.AdvancedCustom.MatchPath(requestPath)
+	return ok && route.SupportsOpenAIChatCompletionsInput()
 }
 
 func providerRouteTypesContain(routeTypesJSON string, routeType string) bool {

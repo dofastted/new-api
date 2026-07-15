@@ -122,6 +122,13 @@ func (c *AdvancedCustomConfig) MatchPath(requestPath string) (AdvancedCustomRout
 			return route, true
 		}
 	}
+	if isOpenAIChatCompletionsPath(requestPath) {
+		for _, route := range c.Routes {
+			if route.SupportsOpenAIChatCompletionsInput() {
+				return route, true
+			}
+		}
+	}
 	return AdvancedCustomRoute{}, false
 }
 
@@ -129,6 +136,20 @@ func (c *AdvancedCustomConfig) MatchPath(requestPath string) (AdvancedCustomRout
 func (c *AdvancedCustomConfig) SupportsPath(requestPath string) bool {
 	_, ok := c.MatchPath(requestPath)
 	return ok
+}
+
+func (r AdvancedCustomRoute) SupportsOpenAIChatCompletionsInput() bool {
+	switch strings.TrimSpace(r.Converter) {
+	case AdvancedCustomConverterAnthropicMessagesToOpenAIChatCompletions,
+		AdvancedCustomConverterGeminiGenerateContentToOpenAIChatCompletions:
+		return true
+	default:
+		return false
+	}
+}
+
+func isOpenAIChatCompletionsPath(requestPath string) bool {
+	return requestPath == "/v1/chat/completions" || strings.HasPrefix(requestPath, "/v1/chat/completions/")
 }
 
 func matchAdvancedCustomIncomingPath(configuredPath string, requestPath string) bool {
