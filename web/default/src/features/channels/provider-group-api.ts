@@ -59,6 +59,18 @@ export type ProviderGroupChannel = {
   updated_time?: number
 }
 
+export type ProviderGroupChannelInfo = {
+  id: number
+  type: number
+  status: number
+  name: string
+  models: string
+}
+
+export type ProviderGroupChannelDetail = ProviderGroupChannel & {
+  channel: ProviderGroupChannelInfo
+}
+
 export type ProviderGroupAutoRule = {
   id?: number
   route_type: ProviderRouteType
@@ -143,7 +155,7 @@ export async function deleteProviderGroup(
 
 export async function getProviderGroupChannels(
   id: number
-): Promise<ProviderGroupApiResponse<ProviderGroupChannel[]>> {
+): Promise<ProviderGroupApiResponse<ProviderGroupChannelDetail[]>> {
   const res = await api.get(`/api/provider-group/${id}/channels`)
   return res.data
 }
@@ -153,6 +165,34 @@ export async function updateProviderGroupChannels(
   items: ProviderGroupChannel[]
 ): Promise<ProviderGroupApiResponse<ProviderGroupChannel[]>> {
   const res = await api.put(`/api/provider-group/${id}/channels`, { items })
+  return res.data
+}
+
+export type ProviderGroupMetadataUpdate = {
+  display_name: string
+  description: string
+  status: number
+  usage_ratio: number
+  required_client_family?: string
+  sort_order?: number
+}
+
+export type ProviderGroupConfigurationUpdate = {
+  metadata?: ProviderGroupMetadataUpdate
+  members?: ProviderGroupChannel[]
+}
+
+export type ProviderGroupConfigurationResult = {
+  group: ProviderGroup
+  members?: ProviderGroupChannelDetail[]
+}
+
+/** Atomically save group metadata and/or membership in one request. */
+export async function updateProviderGroupConfiguration(
+  id: number,
+  payload: ProviderGroupConfigurationUpdate
+): Promise<ProviderGroupApiResponse<ProviderGroupConfigurationResult>> {
+  const res = await api.put(`/api/provider-group/${id}/configuration`, payload)
   return res.data
 }
 
