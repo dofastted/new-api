@@ -371,6 +371,7 @@ func SetApiRouter(router *gin.Engine) {
 			providerGroupRoute.GET("/auto-rules", controller.GetProviderGroupAutoRules)
 			providerGroupRoute.PUT("/auto-rules", controller.UpdateProviderGroupAutoRules)
 			providerGroupRoute.PUT("/:id", controller.UpdateProviderGroup)
+			providerGroupRoute.PUT("/:id/configuration", controller.UpdateProviderGroupConfiguration)
 			providerGroupRoute.DELETE("/:id", controller.DeleteProviderGroup)
 			providerGroupRoute.GET("/:id/channels", controller.GetProviderGroupChannels)
 			providerGroupRoute.PUT("/:id/channels", controller.UpdateProviderGroupChannels)

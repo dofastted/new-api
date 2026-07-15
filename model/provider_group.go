@@ -1,6 +1,7 @@
 package model
 
 import (
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -405,7 +406,267 @@ func inferProviderGroupRequiredClientFamily(name string) (string, bool) {
 }
 
 func RebuildAbilitiesFromProviderGroups() error {
-	return rebuildAbilitiesFromProviderGroups()
+	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) {
+		return nil
+	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return rebuildAbilitiesFromProviderGroups(tx)
+	})
+}
+
+// ProviderGroupMetadataUpdate is the metadata half of a unified group save.
+// Fields map 1:1 to the editable provider-group detail form.
+type ProviderGroupMetadataUpdate struct {
+	DisplayName          string  `json:"display_name"`
+	Description          string  `json:"description"`
+	Status               int     `json:"status"`
+	UsageRatio           float64 `json:"usage_ratio"`
+	RequiredClientFamily string  `json:"required_client_family,omitempty"`
+	SortOrder            *int    `json:"sort_order,omitempty"`
+}
+
+// ProviderGroupConfigurationUpdate is the transactional save payload for the
+// groups page. Omitting Metadata or Members leaves that side unchanged;
+// Members set to an empty slice clears all providers in the group.
+type ProviderGroupConfigurationUpdate struct {
+	Metadata *ProviderGroupMetadataUpdate `json:"metadata,omitempty"`
+	Members  *[]ProviderGroupChannel      `json:"members,omitempty"`
+}
+
+// ProviderGroupChannelInfo contains only the channel fields required by the
+// provider-group membership editor.
+type ProviderGroupChannelInfo struct {
+	Id     int    `json:"id"`
+	Type   int    `json:"type"`
+	Status int    `json:"status"`
+	Name   string `json:"name"`
+	Models string `json:"models"`
+}
+
+// ProviderGroupChannelDetail keeps membership routing state and its display
+// metadata together so the editor never depends on a truncated channel page.
+type ProviderGroupChannelDetail struct {
+	ProviderGroupChannel
+	Channel ProviderGroupChannelInfo `json:"channel"`
+}
+
+// ProviderGroupConfigurationResult is returned after a successful unified save.
+type ProviderGroupConfigurationResult struct {
+	Group   ProviderGroup                `json:"group"`
+	Members []ProviderGroupChannelDetail `json:"members,omitempty"`
+}
+
+func ListProviderGroupChannelDetails(id int) ([]ProviderGroupChannelDetail, error) {
+	return listProviderGroupChannelDetails(DB, id)
+}
+
+func listProviderGroupChannelDetails(tx *gorm.DB, id int) ([]ProviderGroupChannelDetail, error) {
+	var members []ProviderGroupChannel
+	if err := tx.Where("provider_group_id = ?", id).
+		Order("sort_order ASC, id ASC").
+		Find(&members).Error; err != nil {
+		return nil, err
+	}
+	if len(members) == 0 {
+		return []ProviderGroupChannelDetail{}, nil
+	}
+
+	channelIDs := make([]int, 0, len(members))
+	for _, member := range members {
+		channelIDs = append(channelIDs, member.ChannelId)
+	}
+	var channels []ProviderGroupChannelInfo
+	if err := tx.Model(&Channel{}).
+		Select("id", "type", "status", "name", "models").
+		Where("id IN ?", channelIDs).
+		Scan(&channels).Error; err != nil {
+		return nil, err
+	}
+	channelByID := make(map[int]ProviderGroupChannelInfo, len(channels))
+	for _, channel := range channels {
+		channelByID[channel.Id] = channel
+	}
+
+	details := make([]ProviderGroupChannelDetail, 0, len(members))
+	for _, member := range members {
+		channel, ok := channelByID[member.ChannelId]
+		if !ok {
+			return nil, fmt.Errorf("channel %d not found", member.ChannelId)
+		}
+		details = append(details, ProviderGroupChannelDetail{
+			ProviderGroupChannel: member,
+			Channel:              channel,
+		})
+	}
+	return details, nil
+}
+
+// ApplyProviderGroupConfiguration updates metadata, memberships, and derived
+// database routing state in one transaction. The in-memory cache refreshes
+// only after the transaction commits. Either side may be omitted.
+func ApplyProviderGroupConfiguration(id int, update ProviderGroupConfigurationUpdate) (*ProviderGroupConfigurationResult, error) {
+	if id <= 0 {
+		return nil, fmt.Errorf("invalid provider group id")
+	}
+	if update.Metadata == nil && update.Members == nil {
+		return nil, fmt.Errorf("no configuration changes provided")
+	}
+
+	var group ProviderGroup
+	if err := DB.First(&group, id).Error; err != nil {
+		return nil, err
+	}
+
+	// Snapshot channels that currently belong to this group so removals still
+	// get their legacy channels.group field resynced after the transaction.
+	var previousChannelIDs []int
+	if err := DB.Model(&ProviderGroupChannel{}).
+		Where("provider_group_id = ?", id).
+		Pluck("channel_id", &previousChannelIDs).Error; err != nil {
+		return nil, err
+	}
+
+	membersChanged := update.Members != nil
+	now := common.GetTimestamp()
+	var preparedMembers []ProviderGroupChannel
+	affectedChannelIDs := append([]int{}, previousChannelIDs...)
+
+	// Precompute metadata fields outside the transaction so a rolled-back
+	// write never leaves statusChanged=true for a post-commit rebuild.
+	var metadataUpdates map[string]interface{}
+	statusChanged := false
+	if update.Metadata != nil {
+		displayName := strings.TrimSpace(update.Metadata.DisplayName)
+		if displayName == "" {
+			displayName = group.Name
+		}
+		usageRatio := update.Metadata.UsageRatio
+		if usageRatio == 0 {
+			usageRatio = 1
+		}
+		status := update.Metadata.Status
+		if status != ProviderGroupStatusEnabled && status != ProviderGroupStatusDisabled {
+			return nil, fmt.Errorf("invalid provider group status")
+		}
+		statusChanged = status != group.Status
+		metadataUpdates = map[string]interface{}{
+			"display_name":           displayName,
+			"description":            update.Metadata.Description,
+			"status":                 status,
+			"usage_ratio":            usageRatio,
+			"required_client_family": update.Metadata.RequiredClientFamily,
+			"updated_time":           now,
+		}
+		if update.Metadata.SortOrder != nil {
+			metadataUpdates["sort_order"] = *update.Metadata.SortOrder
+		}
+	}
+
+	if update.Members != nil {
+		channelIDs := make([]int, 0, len(*update.Members))
+		seenChannel := make(map[int]struct{}, len(*update.Members))
+		for _, item := range *update.Members {
+			if item.ChannelId <= 0 {
+				return nil, fmt.Errorf("invalid channel id in membership")
+			}
+			if _, exists := seenChannel[item.ChannelId]; exists {
+				return nil, fmt.Errorf("duplicate channel id in membership: %d", item.ChannelId)
+			}
+			seenChannel[item.ChannelId] = struct{}{}
+			channelIDs = append(channelIDs, item.ChannelId)
+			affectedChannelIDs = append(affectedChannelIDs, item.ChannelId)
+		}
+
+		channelsByID := make(map[int]Channel, len(channelIDs))
+		if len(channelIDs) > 0 {
+			var channels []Channel
+			if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+				return nil, err
+			}
+			for _, channel := range channels {
+				channelsByID[channel.Id] = channel
+			}
+			for _, channelID := range channelIDs {
+				if _, ok := channelsByID[channelID]; !ok {
+					return nil, fmt.Errorf("channel %d not found", channelID)
+				}
+			}
+		}
+
+		preparedMembers = make([]ProviderGroupChannel, 0, len(*update.Members))
+		for index, item := range *update.Members {
+			member := item
+			member.Id = 0
+			member.ProviderGroupId = id
+			member.GroupName = group.Name
+			if channel, ok := channelsByID[member.ChannelId]; ok {
+				member.RouteTypes = ProviderRouteTypesForChannel(channel)
+			} else {
+				member.RouteTypes = ""
+			}
+			if member.Priority == nil {
+				priority := int64(len(*update.Members) - index)
+				member.Priority = &priority
+			}
+			member.SortOrder = index
+			member.Enabled = true
+			member.UpdatedTime = now
+			if member.CreatedTime == 0 {
+				member.CreatedTime = now
+			}
+			preparedMembers = append(preparedMembers, member)
+		}
+	}
+
+	result := &ProviderGroupConfigurationResult{}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		if metadataUpdates != nil {
+			if err := tx.Model(&ProviderGroup{}).Where("id = ?", id).Updates(metadataUpdates).Error; err != nil {
+				return err
+			}
+		}
+
+		if update.Members != nil {
+			if err := tx.Where("provider_group_id = ?", id).Delete(&ProviderGroupChannel{}).Error; err != nil {
+				return err
+			}
+			if len(preparedMembers) > 0 {
+				if err := tx.Create(&preparedMembers).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		if statusChanged || membersChanged {
+			if err := rebuildAbilitiesFromProviderGroups(tx); err != nil {
+				return err
+			}
+			if membersChanged {
+				if err := syncChannelGroupsFromProviderGroupChannels(tx, affectedChannelIDs); err != nil {
+					return err
+				}
+			}
+		}
+
+		if err := tx.First(&result.Group, id).Error; err != nil {
+			return err
+		}
+		if update.Members != nil {
+			members, err := listProviderGroupChannelDetails(tx, id)
+			if err != nil {
+				return err
+			}
+			result.Members = members
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if statusChanged || membersChanged {
+		InitChannelCache()
+	}
+	return result, nil
 }
 
 // SyncProviderGroupChannelsForChannel mirrors a channel's routing groups into
@@ -504,6 +765,12 @@ func SyncChannelGroupsFromProviderGroupChannels(channelIDs []int) error {
 	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) || len(channelIDs) == 0 {
 		return nil
 	}
+	return DB.Transaction(func(tx *gorm.DB) error {
+		return syncChannelGroupsFromProviderGroupChannels(tx, channelIDs)
+	})
+}
+
+func syncChannelGroupsFromProviderGroupChannels(tx *gorm.DB, channelIDs []int) error {
 	seenIDs := make(map[int]struct{}, len(channelIDs))
 	uniqueIDs := make([]int, 0, len(channelIDs))
 	for _, id := range channelIDs {
@@ -521,7 +788,7 @@ func SyncChannelGroupsFromProviderGroupChannels(channelIDs []int) error {
 	}
 
 	var members []ProviderGroupChannel
-	if err := DB.Table("provider_group_channels").
+	if err := tx.Table("provider_group_channels").
 		Select("provider_group_channels.*").
 		Joins("JOIN provider_groups ON provider_groups.id = provider_group_channels.provider_group_id").
 		Where("provider_group_channels.channel_id IN ? AND provider_groups.deleted_at IS NULL", uniqueIDs).
@@ -545,24 +812,22 @@ func SyncChannelGroupsFromProviderGroupChannels(channelIDs []int) error {
 		groupsByChannel[member.ChannelId] = append(groupsByChannel[member.ChannelId], groupName)
 	}
 
-	return DB.Transaction(func(tx *gorm.DB) error {
-		for _, channelID := range uniqueIDs {
-			groups := groupsByChannel[channelID]
-			sort.Strings(groups)
-			if err := tx.Model(&Channel{}).Where("id = ?", channelID).Update("group", strings.Join(groups, ",")).Error; err != nil {
-				return err
-			}
+	for _, channelID := range uniqueIDs {
+		groups := groupsByChannel[channelID]
+		sort.Strings(groups)
+		if err := tx.Model(&Channel{}).Where("id = ?", channelID).Update("group", strings.Join(groups, ",")).Error; err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
-func rebuildAbilitiesFromProviderGroups() error {
-	if DB == nil || !DB.Migrator().HasTable(&ProviderGroupChannel{}) {
+func rebuildAbilitiesFromProviderGroups(tx *gorm.DB) error {
+	if tx == nil || !tx.Migrator().HasTable(&ProviderGroupChannel{}) {
 		return nil
 	}
 	var members []ProviderGroupChannel
-	if err := DB.Table("provider_group_channels").
+	if err := tx.Table("provider_group_channels").
 		Select("provider_group_channels.*").
 		Joins("JOIN provider_groups ON provider_groups.id = provider_group_channels.provider_group_id").
 		Where("provider_group_channels.enabled = ? AND provider_groups.status = ? AND provider_groups.deleted_at IS NULL", true, ProviderGroupStatusEnabled).
@@ -576,60 +841,58 @@ func rebuildAbilitiesFromProviderGroups() error {
 		channelIDs = append(channelIDs, member.ChannelId)
 	}
 	var channels []Channel
-	if err := DB.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
+	if err := tx.Where("id IN ?", channelIDs).Find(&channels).Error; err != nil {
 		return err
 	}
 	channelByID := make(map[int]Channel, len(channels))
 	for _, channel := range channels {
 		channelByID[channel.Id] = channel
 	}
-	return DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("1 = 1").Delete(&Ability{}).Error; err != nil {
-			return err
+	if err := tx.Where("1 = 1").Delete(&Ability{}).Error; err != nil {
+		return err
+	}
+	abilitySet := make(map[string]struct{})
+	abilities := make([]Ability, 0)
+	for _, member := range members {
+		channel, ok := channelByID[member.ChannelId]
+		if !ok {
+			continue
 		}
-		abilitySet := make(map[string]struct{})
-		abilities := make([]Ability, 0)
-		for _, member := range members {
-			channel, ok := channelByID[member.ChannelId]
-			if !ok {
+		priority := int64(0)
+		if member.Priority != nil {
+			priority = *member.Priority
+		}
+		weight := uint(channel.GetWeight())
+		if member.Weight != nil {
+			weight = *member.Weight
+		}
+		for _, modelName := range strings.Split(channel.Models, ",") {
+			modelName = strings.TrimSpace(modelName)
+			if modelName == "" {
 				continue
 			}
-			priority := int64(0)
-			if member.Priority != nil {
-				priority = *member.Priority
+			key := member.GroupName + "|" + modelName + "|" + strconv.Itoa(channel.Id)
+			if _, exists := abilitySet[key]; exists {
+				continue
 			}
-			weight := uint(channel.GetWeight())
-			if member.Weight != nil {
-				weight = *member.Weight
-			}
-			for _, modelName := range strings.Split(channel.Models, ",") {
-				modelName = strings.TrimSpace(modelName)
-				if modelName == "" {
-					continue
-				}
-				key := member.GroupName + "|" + modelName + "|" + strconv.Itoa(channel.Id)
-				if _, exists := abilitySet[key]; exists {
-					continue
-				}
-				abilitySet[key] = struct{}{}
-				abilities = append(abilities, Ability{
-					Group:     member.GroupName,
-					Model:     modelName,
-					ChannelId: channel.Id,
-					Enabled:   channel.Status == common.ChannelStatusEnabled && member.Enabled,
-					Priority:  &priority,
-					Weight:    weight,
-					Tag:       channel.Tag,
-				})
-			}
+			abilitySet[key] = struct{}{}
+			abilities = append(abilities, Ability{
+				Group:     member.GroupName,
+				Model:     modelName,
+				ChannelId: channel.Id,
+				Enabled:   channel.Status == common.ChannelStatusEnabled && member.Enabled,
+				Priority:  &priority,
+				Weight:    weight,
+				Tag:       channel.Tag,
+			})
 		}
-		for _, chunk := range chunkAbilities(abilities, 50) {
-			if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&chunk).Error; err != nil {
-				return err
-			}
+	}
+	for _, chunk := range chunkAbilities(abilities, 50) {
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&chunk).Error; err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func chunkAbilities(items []Ability, size int) [][]Ability {

@@ -370,7 +370,7 @@ func FixAbility() (int, int, error) {
 	defer fixLock.Unlock()
 
 	if providerGroupTableReady(&ProviderGroupChannel{}) {
-		if err := rebuildAbilitiesFromProviderGroups(); err != nil {
+		if err := RebuildAbilitiesFromProviderGroups(); err != nil {
 			return 0, 0, err
 		}
 		InitChannelCache()
