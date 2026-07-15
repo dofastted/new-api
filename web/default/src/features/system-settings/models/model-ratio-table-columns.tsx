@@ -16,12 +16,12 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef } from "@tanstack/react-table";
 
-import { DataTableColumnHeader } from '@/components/data-table/core/column-header'
-import { StaticRowActions } from '@/components/data-table/static/static-row-actions'
-import { StatusBadge } from '@/components/status-badge'
-import { Checkbox } from '@/components/ui/checkbox'
+import { DataTableColumnHeader } from "@/components/data-table/core/column-header";
+import { StaticRowActions } from "@/components/data-table/static/static-row-actions";
+import { StatusBadge } from "@/components/status-badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import {
   getModeLabel,
@@ -29,21 +29,39 @@ import {
   getPriceDetail,
   getPriceSummary,
   type ModelRow,
-} from './model-pricing-snapshots'
+} from "./model-pricing-snapshots";
+
+const AUTHORITY_LABEL: Record<
+  NonNullable<ModelRow["pricingSource"]>,
+  string
+> = {
+  manual: "Manual",
+  official: "Official",
+  fallback: "Fallback",
+};
+
+const AUTHORITY_VARIANT: Record<
+  NonNullable<ModelRow["pricingSource"]>,
+  "warning" | "success" | "info"
+> = {
+  manual: "warning",
+  official: "success",
+  fallback: "info",
+};
 
 const filterBySelectedValues = (
   rowValue: unknown,
-  filterValue: unknown
+  filterValue: unknown,
 ): boolean => {
-  if (!Array.isArray(filterValue) || filterValue.length === 0) return true
-  return filterValue.includes(String(rowValue))
-}
+  if (!Array.isArray(filterValue) || filterValue.length === 0) return true;
+  return filterValue.includes(String(rowValue));
+};
 
 type BuildModelRatioColumnsOptions = {
-  onDelete: (name: string) => void
-  onEdit: (model: ModelRow) => void
-  t: (key: string) => string
-}
+  onDelete: (name: string) => void;
+  onEdit: (model: ModelRow) => void;
+  t: (key: string) => string;
+};
 
 export function buildModelRatioColumns({
   onDelete,
@@ -52,22 +70,22 @@ export function buildModelRatioColumns({
 }: BuildModelRatioColumnsOptions): ColumnDef<ModelRow>[] {
   return [
     {
-      id: 'select',
+      id: "select",
       header: ({ table }) => (
         <Checkbox
           checked={table.getIsAllPageRowsSelected()}
           indeterminate={table.getIsSomePageRowsSelected()}
           onCheckedChange={(value) => table.toggleAllPageRowsSelected(!!value)}
-          aria-label={t('Select all')}
-          className='translate-y-[2px]'
+          aria-label={t("Select all")}
+          className="translate-y-[2px]"
         />
       ),
       cell: ({ row }) => (
         <Checkbox
           checked={row.getIsSelected()}
           onCheckedChange={(value) => row.toggleSelected(!!value)}
-          aria-label={t('Select row')}
-          className='translate-y-[2px]'
+          aria-label={t("Select row")}
+          className="translate-y-[2px]"
         />
       ),
       enableSorting: false,
@@ -75,27 +93,51 @@ export function buildModelRatioColumns({
       size: 40,
     },
     {
-      accessorKey: 'name',
+      accessorKey: "name",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Model name')} />
+        <DataTableColumnHeader column={column} title={t("Model name")} />
       ),
       cell: ({ row }) => (
-        <div className='flex min-w-0 items-center gap-2 font-medium'>
-          <span className='min-w-0 truncate'>{row.getValue('name')}</span>
-          {row.original.billingMode === 'tiered_expr' && (
+        <div className="flex min-w-0 items-center gap-2 font-medium">
+          <span className="min-w-0 truncate">{row.getValue("name")}</span>
+          {row.original.pricingSource && (
             <StatusBadge
-              label={t('Tiered')}
-              variant='info'
+              label={t(AUTHORITY_LABEL[row.original.pricingSource])}
+              variant={AUTHORITY_VARIANT[row.original.pricingSource]}
               copyable={false}
-              className='shrink-0'
+              className="shrink-0"
+            />
+          )}
+          {row.original.isOfficialStale && (
+            <span
+              title={
+                row.original.officialLastConfirmedAt
+                  ? `${t("Last confirmed")}: ${new Date(row.original.officialLastConfirmedAt * 1000).toLocaleString()}`
+                  : undefined
+              }
+            >
+              <StatusBadge
+                label={t("Stale")}
+                variant="warning"
+                copyable={false}
+                className="shrink-0"
+              />
+            </span>
+          )}
+          {row.original.billingMode === "tiered_expr" && (
+            <StatusBadge
+              label={t("Tiered")}
+              variant="info"
+              copyable={false}
+              className="shrink-0"
             />
           )}
           {row.original.hasConflict && (
             <StatusBadge
-              label={t('Conflict')}
-              variant='danger'
+              label={t("Conflict")}
+              variant="danger"
               copyable={false}
-              className='shrink-0'
+              className="shrink-0"
             />
           )}
         </div>
@@ -103,9 +145,9 @@ export function buildModelRatioColumns({
       enableHiding: false,
     },
     {
-      accessorKey: 'billingMode',
+      accessorKey: "billingMode",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Mode')} />
+        <DataTableColumnHeader column={column} title={t("Mode")} />
       ),
       cell: ({ row }) => (
         <StatusBadge
@@ -113,47 +155,57 @@ export function buildModelRatioColumns({
           variant={getModeVariant(row.original.billingMode)}
           copyable={false}
           showDot={false}
-          className='-ml-1.5 px-0'
+          className="-ml-1.5 px-0"
         />
       ),
       filterFn: (row, id, value) =>
         filterBySelectedValues(row.getValue(id), value),
-      meta: { label: t('Mode') },
+      meta: { label: t("Mode") },
     },
     {
-      id: 'priceSummary',
+      id: "priceSummary",
       header: ({ column }) => (
-        <DataTableColumnHeader column={column} title={t('Price summary')} />
+        <DataTableColumnHeader column={column} title={t("Price summary")} />
       ),
       cell: ({ row }) => (
-        <div className='flex min-w-0 flex-col gap-1'>
-          <span className='truncate font-medium'>
+        <div className="flex min-w-0 flex-col gap-1">
+          <span className="truncate font-medium">
             {getPriceSummary(row.original, t)}
           </span>
-          <span className='text-muted-foreground truncate text-xs'>
+          <span className="text-muted-foreground truncate text-xs">
             {getPriceDetail(row.original, t)}
           </span>
         </div>
       ),
       sortingFn: (rowA, rowB) =>
         getPriceSummary(rowA.original, t).localeCompare(
-          getPriceSummary(rowB.original, t)
+          getPriceSummary(rowB.original, t),
         ),
-      meta: { label: t('Price summary') },
     },
     {
-      id: 'actions',
-      header: () => <div>{t('Actions')}</div>,
+      id: "actions",
       cell: ({ row }) => (
         <StaticRowActions
-          editLabel={t('Edit')}
-          deleteLabel={t('Delete')}
-          menuLabel={t('Open menu')}
+          editLabel={t("Edit")}
+          deleteLabel={
+            row.original.pricingSource === "manual" &&
+            row.original.hasOfficialPricing
+              ? t("Restore official price")
+              : t("Delete")
+          }
+          menuLabel={t("Open menu")}
           onEdit={() => onEdit(row.original)}
-          onDelete={() => onDelete(row.original.name)}
+          onDelete={() =>
+            onDelete(
+              row.original.pricingAuthorityModelName ?? row.original.name,
+            )
+          }
+          deleteDisabled={
+            row.original.pricingSource !== "manual" && !row.original.isDraftNew
+          }
         />
       ),
       enableHiding: false,
     },
-  ]
+  ];
 }

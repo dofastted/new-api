@@ -32,10 +32,13 @@ func TestHandleGroupRatioUsesProviderGroupBeforeLegacyRatio(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&model.ProviderGroup{}))
 
 	oldGroupRatio := ratio_setting.GroupRatio2JSONString()
+	oldGroupGroupRatio := ratio_setting.GroupGroupRatio2JSONString()
 	t.Cleanup(func() {
 		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(oldGroupGroupRatio))
 	})
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"sync-ratio":9,"legacy-ratio":0.5}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"sync-ratio":8,"legacy-ratio":7}}`))
 	require.NoError(t, db.Create(&model.ProviderGroup{
 		Name:        "sync-ratio",
 		DisplayName: "sync-ratio",
@@ -44,9 +47,10 @@ func TestHandleGroupRatioUsesProviderGroupBeforeLegacyRatio(t *testing.T) {
 	}).Error)
 
 	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	providerInfo := &relaycommon.RelayInfo{UsingGroup: "sync-ratio"}
+	providerInfo := &relaycommon.RelayInfo{UserGroup: "default", UsingGroup: "sync-ratio"}
 	providerRatio := HandleGroupRatio(ctx, providerInfo)
 	require.Equal(t, 0.25, providerRatio.GroupRatio)
+	require.False(t, providerRatio.HasSpecialRatio)
 
 	legacyInfo := &relaycommon.RelayInfo{UsingGroup: "legacy-ratio"}
 	legacyRatio := HandleGroupRatio(ctx, legacyInfo)

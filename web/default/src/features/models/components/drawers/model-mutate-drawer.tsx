@@ -35,6 +35,7 @@ import {
 } from '@/components/drawer-layout'
 import { JsonEditor } from '@/components/json-editor'
 import { TagInput } from '@/components/tag-input'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Collapsible,
@@ -112,6 +113,15 @@ type ExtendedModelFormValues = z.infer<typeof extendedModelFormSchema>
 type PricingMode = 'per-token' | 'per-request' | 'tiered_expr'
 type PricingSubMode = 'ratio' | 'price'
 
+const PRICING_AUTHORITY_LABEL: Record<
+  NonNullable<Model['pricing_authority']>,
+  string
+> = {
+  manual: 'Manual',
+  official: 'Official',
+  fallback: 'Fallback',
+}
+
 type ModelMutateDrawerProps = {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -154,6 +164,8 @@ export function ModelMutateDrawer({
     },
     enabled: open && isEditing,
   })
+
+  const pricingAuthority = modelData?.data?.pricing_authority
 
   const form = useForm<ExtendedModelFormValues>({
     resolver: zodResolver(extendedModelFormSchema),
@@ -343,6 +355,7 @@ export function ModelMutateDrawer({
           )
           queryClient.invalidateQueries({ queryKey: modelsQueryKeys.lists() })
           queryClient.invalidateQueries({ queryKey: ['pricing'] })
+          queryClient.invalidateQueries({ queryKey: ['model-pricing'] })
           onOpenChange(false)
         } else {
           toast.error(response.message || 'Operation failed')
@@ -620,9 +633,26 @@ export function ModelMutateDrawer({
 
             {/* Pricing Configuration */}
             <SideDrawerSection>
-              <h3 className='text-sm font-semibold'>
-                {t('Pricing Configuration')}
-              </h3>
+              <div className='flex items-center justify-between gap-2'>
+                <h3 className='text-sm font-semibold'>
+                  {t('Pricing Configuration')}
+                </h3>
+                {pricingAuthority && (
+                  <div className='flex items-center gap-2'>
+                    <Badge variant='outline'>
+                      {t(PRICING_AUTHORITY_LABEL[pricingAuthority])}
+                    </Badge>
+                    {modelData?.data?.pricing_official_stale && (
+                      <Badge variant='secondary'>{t('Stale')}</Badge>
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className='text-muted-foreground text-sm'>
+                {t(
+                  'Official Sync controls model metadata only. Changing pricing here creates a manual price override.'
+                )}
+              </p>
 
               <div className='space-y-4'>
                 <Label>{t('Pricing mode')}</Label>

@@ -175,6 +175,29 @@ export function useSubscriptionsColumns(): ColumnDef<PlanRecord>[] {
         size: 150,
       },
       {
+        id: 'provider_groups',
+        header: t('Subscription Provider Groups'),
+        meta: { mobileHidden: true },
+        cell: ({ row }) => {
+          const groups = row.original.plan.provider_groups || []
+          if (groups.length === 0) {
+            return (
+              <span className='text-muted-foreground'>
+                {t('All Provider Groups')}
+              </span>
+            )
+          }
+          return (
+            <BadgeCell>
+              {groups.map((group) => (
+                <GroupBadge key={group} group={group} />
+              ))}
+            </BadgeCell>
+          )
+        },
+        size: 180,
+      },
+      {
         id: 'upgrade_group',
         header: t('Upgrade Group'),
         meta: { mobileHidden: true },

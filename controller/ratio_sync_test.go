@@ -14,15 +14,21 @@ import (
 func TestConvertOpenAIOfficialPricingToRatioData(t *testing.T) {
 	body := `
 <div data-content-switcher-pane data-value="standard">
-<TextTokenPricingTables tier="standard" rows={[
-  ["gpt-5.5 (<272K context length)", 5, 0.5, 30],
-  ["gpt-5.4-mini", 0.75, 0.075, 4.5],
+<TextTokenPricingTables
+  client:load
+  tier="standard"
+  rows={[
+  ["gpt-5.5 (<272K context length)", 5, 0.5, "-", 30],
+  ["gpt-5.4-mini", 0.75, 0.075, "-", 4.5],
+  ["gpt-5.6-sol", 5, 0.5, 6.25, 30],
+  ["gpt-5.6-terra", 2.5, 0.25, 3.125, 15],
+  ["gpt-5.6-luna", 1, 0.1, 1.25, 6],
   ["gpt-5-pro", 15, null, 120],
 ]} />
 </div>
 <div data-content-switcher-pane data-value="batch" hidden>
 <TextTokenPricingTables rows={[
-  ["gpt-5.5 (<272K context length)", 2.5, 0.25, 15],
+  ["gpt-5.5 (<272K context length)", 2.5, 0.25, "-", 15],
 ]} />
 </div>`
 
@@ -33,9 +39,16 @@ func TestConvertOpenAIOfficialPricingToRatioData(t *testing.T) {
 	cacheRatio := converted["cache_ratio"].(map[string]any)
 	require.Equal(t, 2.5, modelRatio["gpt-5.5"])
 	require.Equal(t, 0.375, modelRatio["gpt-5.4-mini"])
+	require.Equal(t, 2.5, modelRatio["gpt-5.6-sol"])
+	require.Equal(t, 1.25, modelRatio["gpt-5.6-terra"])
+	require.Equal(t, 0.5, modelRatio["gpt-5.6-luna"])
 	require.Equal(t, 7.5, modelRatio["gpt-5-pro"])
 	require.Equal(t, 6.0, completionRatio["gpt-5.5"])
+	require.Equal(t, 6.0, completionRatio["gpt-5.6-sol"])
+	require.Equal(t, 6.0, completionRatio["gpt-5.6-terra"])
+	require.Equal(t, 6.0, completionRatio["gpt-5.6-luna"])
 	require.Equal(t, 0.1, cacheRatio["gpt-5.5"])
+	require.Equal(t, 0.1, cacheRatio["gpt-5.6-sol"])
 	require.NotContains(t, modelRatio, "gpt-5.5 (<272K context length)")
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/model"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -721,4 +722,48 @@ func TestSettle_NonPerCallBilling_AppliesAdaptorAdjustment(t *testing.T) {
 	log := getLastLog(t)
 	require.NotNil(t, log)
 	assert.Equal(t, model.LogTypeRefund, log.Type)
+}
+
+func TestRecalculateTaskQuotaByTokensUsesBillingContextSnapshot(t *testing.T) {
+	truncate(t)
+	ctx := context.Background()
+
+	const userID, tokenID, channelID = 33, 33, 33
+	const initQuota, preConsumed = 10000, 10
+	const tokenRemain = 10000
+
+	oldModelRatio := ratio_setting.ModelRatio2JSONString()
+	oldGroupRatio := ratio_setting.GroupRatio2JSONString()
+	oldGroupGroupRatio := ratio_setting.GroupGroupRatio2JSONString()
+	t.Cleanup(func() {
+		require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(oldModelRatio))
+		require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(oldGroupRatio))
+		require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(oldGroupGroupRatio))
+		ratio_setting.ReplaceOfficialPricing(nil, false)
+	})
+	ratio_setting.ReplaceOfficialPricing(nil, false)
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"test-model":9}`))
+	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"provider-task":9,"default":1}`))
+	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"provider-task":{"provider-task":9}}`))
+
+	seedUser(t, userID, initQuota)
+	seedToken(t, tokenID, userID, "sk-task-snapshot", tokenRemain)
+	seedChannel(t, channelID)
+	task := makeTask(userID, channelID, preConsumed, tokenID, BillingSourceWallet, 0)
+	task.Group = "provider-task"
+	task.PrivateData.BillingContext.ModelRatio = 2
+	task.PrivateData.BillingContext.GroupRatio = 0.25
+	task.PrivateData.BillingContext.OtherRatios = map[string]float64{"duration": 2}
+
+	RecalculateTaskQuotaByTokens(ctx, task, 100)
+
+	const expectedActualQuota = 100
+	assert.Equal(t, expectedActualQuota, task.Quota)
+	assert.Equal(t, initQuota-(expectedActualQuota-preConsumed), getUserQuota(t, userID))
+	assert.Equal(t, tokenRemain-(expectedActualQuota-preConsumed), getTokenRemainQuota(t, tokenID))
+
+	log := getLastLog(t)
+	require.NotNil(t, log)
+	assert.Contains(t, log.Content, "modelRatio=2.00")
+	assert.Contains(t, log.Content, "groupRatio=0.25")
 }

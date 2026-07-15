@@ -207,22 +207,21 @@ func SyncOptions(frequency int) {
 		time.Sleep(time.Duration(frequency) * time.Second)
 		common.SysLog("syncing options from database")
 		loadOptionsFromDatabase()
+		if err := ReloadPricingRuntimeIfRevisionChanged(); err != nil {
+			common.SysError("failed to reload pricing runtime: " + err.Error())
+		}
 	}
 }
 
 func UpdateOption(key string, value string) error {
-	// Save to database first
-	option := Option{
-		Key: key,
+	option := Option{Key: key}
+	if err := DB.FirstOrCreate(&option, Option{Key: key}).Error; err != nil {
+		return err
 	}
-	// https://gorm.io/docs/update.html#Save-All-Fields
-	DB.FirstOrCreate(&option, Option{Key: key})
 	option.Value = value
-	// Save is a combination function.
-	// If save value does not contain primary key, it will execute Create,
-	// otherwise it will execute Update (with all fields).
-	DB.Save(&option)
-	// Update OptionMap
+	if err := DB.Save(&option).Error; err != nil {
+		return err
+	}
 	return updateOptionMap(key, value)
 }
 

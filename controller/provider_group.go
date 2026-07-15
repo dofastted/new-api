@@ -137,6 +137,10 @@ func DeleteProviderGroup(c *gin.Context) {
 		common.ApiError(c, err)
 		return
 	}
+	if err := model.SyncChannelGroupsFromProviderGroupChannels(affectedChannelIDs); err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	model.InitChannelCache()
 	common.ApiSuccess(c, nil)
 }

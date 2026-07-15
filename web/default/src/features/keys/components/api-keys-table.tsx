@@ -291,6 +291,7 @@ export function ApiKeysTable() {
       )}
       skeletonKeyPrefix='api-keys-skeleton'
       applyHeaderSize
+      className='min-h-0 flex-1'
       toolbarProps={{
         searchPlaceholder: t('Filter by name...'),
         additionalSearch: (

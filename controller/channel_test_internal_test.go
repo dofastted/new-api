@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -142,94 +143,73 @@ func resetChannelTestResultCacheForTest(t *testing.T) {
 	})
 }
 
-func TestChannelReturnsCachedClaudeChannelTest(t *testing.T) {
+func TestChannelRunsManualClaudeProbeDespiteCachedFailure(t *testing.T) {
 	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.ChannelEndpoint{}))
+	service.InitHttpClient()
 	resetChannelTestResultCacheForTest(t)
-	require.NoError(t, db.Create(&model.Channel{
-		Id:     101,
-		Type:   constant.ChannelTypeAnthropic,
-		Name:   "claude-cached",
-		Key:    "sk-test",
-		Models: "claude-sonnet-4-6",
-		Status: common.ChannelStatusEnabled,
-	}).Error)
+	oldLogConsumeEnabled := common.LogConsumeEnabled
+	common.LogConsumeEnabled = false
+	t.Cleanup(func() {
+		common.LogConsumeEnabled = oldLogConsumeEnabled
+	})
 
-	setCachedChannelTestResult(channelTestCacheKey(101, "", "", false), channelTestCachedResult{
-		Success:  true,
-		Message:  "",
-		Time:     1.25,
+	modelName := "grok-claude"
+	probeCalls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probeCalls++
+		require.Equal(t, "/v1/messages", r.URL.Path)
+		requestBody, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(requestBody), `"model":"grok-claude"`)
+		require.Contains(t, string(requestBody), `"content":"hi"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, err = w.Write([]byte(`{"id":"msg_test","type":"message","role":"assistant","model":"grok-claude","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+		require.NoError(t, err)
+	}))
+	t.Cleanup(upstream.Close)
+
+	require.NoError(t, db.Create(&model.User{
+		Id:       1,
+		Username: "root",
+		Password: "password123",
+		Role:     common.RoleRootUser,
+		Status:   common.UserStatusEnabled,
+		Group:    "default",
+		Setting:  `{"accept_unset_model_ratio_model":true}`,
+		Quota:    1000000,
+	}).Error)
+	require.NoError(t, db.Create(&model.Channel{
+		Id:      101,
+		Type:    constant.ChannelTypeAnthropic,
+		Name:    "grok-claude-manual",
+		Key:     "sk-test",
+		BaseURL: common.GetPointer(upstream.URL),
+		Models:  modelName,
+		Status:  common.ChannelStatusEnabled,
+	}).Error)
+	setCachedChannelTestResult(channelTestCacheKey(101, modelName, "", false), channelTestCachedResult{
+		Success:  false,
+		Message:  "cached stale failure",
+		Time:     9.99,
 		TestedAt: 12345,
 	})
+
 	recorder := httptest.NewRecorder()
 	ctx, _ := gin.CreateTestContext(recorder)
 	ctx.Params = gin.Params{{Key: "id", Value: "101"}}
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/101", nil)
+	ctx.Set("id", 1)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/101?model=grok-claude", nil)
 
 	TestChannel(ctx)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, 1, probeCalls)
 	var body map[string]any
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
 	require.Equal(t, true, body["success"])
-	require.Equal(t, true, body["cached"])
-	require.Equal(t, float64(12345), body["tested_at"])
-}
-
-func TestChannelReturnsScheduledCachedClaudeChannelTestForSpecificModel(t *testing.T) {
-	db := setupModelListControllerTestDB(t)
-	resetChannelTestResultCacheForTest(t)
-	require.NoError(t, db.Create(&model.Channel{
-		Id:     103,
-		Type:   constant.ChannelTypeAnthropic,
-		Name:   "claude-specific-model-cached",
-		Key:    "sk-test",
-		Models: "claude-sonnet-4-6",
-		Status: common.ChannelStatusEnabled,
-	}).Error)
-
-	setCachedChannelTestResult(channelTestCacheKey(103, "", "", false), channelTestCachedResult{
-		Success:  true,
-		Message:  "",
-		Time:     1.5,
-		TestedAt: 23456,
-	})
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "id", Value: "103"}}
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/103?model=claude-sonnet-4-6", nil)
-
-	TestChannel(ctx)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	var body map[string]any
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
-	require.Equal(t, true, body["success"])
-	require.Equal(t, true, body["cached"])
-	require.Equal(t, float64(23456), body["tested_at"])
-}
-
-func TestChannelBlocksUncachedClaudeChannelTest(t *testing.T) {
-	db := setupModelListControllerTestDB(t)
-	resetChannelTestResultCacheForTest(t)
-	require.NoError(t, db.Create(&model.Channel{
-		Id:     102,
-		Type:   constant.ChannelTypeAnthropic,
-		Name:   "claude-blocked",
-		Key:    "sk-test",
-		Models: "claude-sonnet-4-6",
-		Status: common.ChannelStatusEnabled,
-	}).Error)
-	recorder := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(recorder)
-	ctx.Params = gin.Params{{Key: "id", Value: "102"}}
-	ctx.Request = httptest.NewRequest(http.MethodGet, "/api/channel/test/102", nil)
-
-	TestChannel(ctx)
-
-	require.Equal(t, http.StatusOK, recorder.Code)
-	var body map[string]any
-	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &body))
-	require.Equal(t, false, body["success"])
 	require.Equal(t, false, body["cached"])
-	require.Contains(t, body["message"], "Claude channel health probe is disabled")
+	cached, found := service.GetCachedChannelTestResult(channelTestCacheKey(101, modelName, "", false))
+	require.True(t, found)
+	require.True(t, cached.Success)
 }

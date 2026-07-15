@@ -22,6 +22,9 @@ import type {
   ConfirmPaymentComplianceResponse,
   FetchUpstreamRatiosRequest,
   LogCleanupTask,
+  ModelPricingBatchRequest,
+  ModelPricingBatchResponse,
+  ModelPricingListResponse,
   SystemOptionsResponse,
   SystemTaskListResponse,
   SystemTaskResponse,
@@ -38,6 +41,24 @@ export async function getSystemOptions() {
 
 export async function updateSystemOption(request: UpdateOptionRequest) {
   const res = await api.put<UpdateOptionResponse>('/api/option/', request)
+  return res.data
+}
+
+export async function getModelPricing() {
+  const res = await api.get<ModelPricingListResponse>('/api/model-pricing/')
+  return res.data
+}
+
+export async function saveModelPricing(request: ModelPricingBatchRequest) {
+  const res = await api.put<ModelPricingBatchResponse>(
+    '/api/model-pricing/',
+    request
+  )
+  return res.data
+}
+
+export async function calibrateModelPricing() {
+  const res = await api.post<SystemTaskResponse>('/api/model-pricing/calibrate')
   return res.data
 }
 
@@ -81,13 +102,6 @@ export async function listSystemTasks(limit = 20) {
   const res = await api.get<SystemTaskListResponse>('/api/system-task/list', {
     params: { limit },
   })
-  return res.data
-}
-
-export async function resetModelRatios() {
-  const res = await api.post<UpdateOptionResponse>(
-    '/api/option/rest_model_ratio'
-  )
   return res.data
 }
 

@@ -80,43 +80,55 @@ func initDefaultVendorMapping(metaMap map[string]*Model, vendorMap map[int]*Vend
 		modelLower := strings.ToLower(modelName)
 		for pattern, vendorName := range defaultVendorRules {
 			if strings.Contains(modelLower, pattern) {
-				vendorID = getOrCreateVendor(vendorName, vendorMap)
+				vendorID = getOrInferVendor(vendorName, vendorMap)
 				break
 			}
 		}
 
 		// 创建模型元数据
 		metaMap[modelName] = &Model{
-			ModelName: modelName,
-			VendorID:  vendorID,
-			Status:    1,
-			NameRule:  NameRuleExact,
+			ModelName:      modelName,
+			VendorID:       vendorID,
+			Status:         1,
+			NameRule:       NameRuleExact,
+			AuthorityLevel: AuthorityLevelFallback,
 		}
 	}
 }
 
-// 查找或创建供应商
-func getOrCreateVendor(vendorName string, vendorMap map[int]*Vendor) int {
-	// 查找现有供应商
+// getOrInferVendor resolves a known vendor for read-side pricing output without
+// creating database rows. Persisted vendor metadata remains admin/sync-owned;
+// default inference is only a fallback projection for models without metadata.
+func getOrInferVendor(vendorName string, vendorMap map[int]*Vendor) int {
 	for id, vendor := range vendorMap {
 		if vendor.Name == vendorName {
 			return id
 		}
 	}
 
-	// 创建新供应商
-	newVendor := &Vendor{
+	id := defaultInferredVendorID(vendorName, vendorMap)
+	vendorMap[id] = &Vendor{
+		Id:     id,
 		Name:   vendorName,
 		Status: 1,
 		Icon:   getDefaultVendorIcon(vendorName),
 	}
+	return id
+}
 
-	if err := newVendor.Insert(); err != nil {
-		return 0
+func defaultInferredVendorID(vendorName string, vendorMap map[int]*Vendor) int {
+	var hash uint32 = 2166136261
+	for _, char := range vendorName {
+		hash ^= uint32(char)
+		hash *= 16777619
 	}
-
-	vendorMap[newVendor.Id] = newVendor
-	return newVendor.Id
+	id := -int(hash%900000 + 10000)
+	for {
+		if vendor, exists := vendorMap[id]; !exists || vendor.Name == vendorName {
+			return id
+		}
+		id--
+	}
 }
 
 // 获取供应商默认图标

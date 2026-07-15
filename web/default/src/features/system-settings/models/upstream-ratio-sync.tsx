@@ -27,10 +27,12 @@ import { Button } from '@/components/ui/button'
 import {
   fetchUpstreamRatios,
   getUpstreamChannels,
-  updateSystemOption,
+  saveModelPricing,
 } from '../api'
 import type {
   DifferencesMap,
+  ModelPricingBatchRequest,
+  ModelPricingConfig,
   RatioType,
   UpstreamChannel,
   UpstreamConfig,
@@ -56,7 +58,6 @@ import {
   XAI_OFFICIAL_CHANNEL_ID,
 } from './constants'
 import {
-  NUMERIC_SYNC_FIELDS,
   RATIO_SYNC_FIELDS,
   getPreferredSyncField,
   type ResolutionsMap,
@@ -121,18 +122,6 @@ function getBillingCategory(ratioType: string): 'price' | 'ratio' | 'tiered' {
   return 'ratio'
 }
 
-function optionKeyBySyncField(ratioType: string): string {
-  const explicit: Record<string, string> = {
-    billing_mode: 'billing_setting.billing_mode',
-    billing_expr: 'billing_setting.billing_expr',
-  }
-  if (explicit[ratioType]) return explicit[ratioType]
-  return ratioType
-    .split('_')
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join('')
-}
-
 function parseJsonRecord<T>(raw: string | undefined | null): Record<string, T> {
   try {
     return JSON.parse(raw || '{}') as Record<string, T>
@@ -158,6 +147,46 @@ function deleteResolutionField(
     next[model] = newModelRes
   }
   return next
+}
+
+function buildPricingConfigPatch(
+  ratios: Record<string, number | string>
+): ModelPricingConfig {
+  if (ratios.model_price !== undefined) {
+    return { mode: 'per-request', price: Number(ratios.model_price) }
+  }
+  if (
+    ratios.billing_mode === 'tiered_expr' ||
+    ratios.billing_expr !== undefined
+  ) {
+    return {
+      mode: 'tiered_expr',
+      billing_expr: String(ratios.billing_expr ?? ''),
+    }
+  }
+  return {
+    mode: 'per-token',
+    ratio:
+      ratios.model_ratio === undefined ? undefined : Number(ratios.model_ratio),
+    completion_ratio:
+      ratios.completion_ratio === undefined
+        ? undefined
+        : Number(ratios.completion_ratio),
+    cache_ratio:
+      ratios.cache_ratio === undefined ? undefined : Number(ratios.cache_ratio),
+    create_cache_ratio:
+      ratios.create_cache_ratio === undefined
+        ? undefined
+        : Number(ratios.create_cache_ratio),
+    image_ratio:
+      ratios.image_ratio === undefined ? undefined : Number(ratios.image_ratio),
+    audio_ratio:
+      ratios.audio_ratio === undefined ? undefined : Number(ratios.audio_ratio),
+    audio_completion_ratio:
+      ratios.audio_completion_ratio === undefined
+        ? undefined
+        : Number(ratios.audio_completion_ratio),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -238,13 +267,15 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
   })
 
   const { mutate: syncMutate, isPending: isSyncPending } = useMutation({
-    mutationFn: async (updates: Array<{ key: string; value: string }>) => {
-      for (const update of updates) {
-        await updateSystemOption(update)
+    mutationFn: async (request: ModelPricingBatchRequest) => {
+      const response = await saveModelPricing(request)
+      if (!response.success) {
+        throw new Error(response.message || t('Failed to sync prices'))
       }
+      return response
     },
     onSuccess: () => {
-      toast.success(t('Prices synced successfully'))
+      queryClient.invalidateQueries({ queryKey: ['model-pricing'] })
       queryClient.invalidateQueries({ queryKey: ['system-options'] })
 
       setDifferences((prevDiffs) => {
@@ -404,61 +435,59 @@ export function UpstreamRatioSync({ modelRatios }: UpstreamRatioSyncProps) {
 
   const performSync = useCallback(
     async (currentRatios: ParsedRatios): Promise<boolean> => {
-      const finalRatios: Record<string, Record<string, number | string>> = {
-        ModelRatio: { ...currentRatios.ModelRatio },
-        CompletionRatio: { ...currentRatios.CompletionRatio },
-        CacheRatio: { ...currentRatios.CacheRatio },
-        CreateCacheRatio: { ...currentRatios.CreateCacheRatio },
-        ImageRatio: { ...currentRatios.ImageRatio },
-        AudioRatio: { ...currentRatios.AudioRatio },
-        AudioCompletionRatio: { ...currentRatios.AudioCompletionRatio },
-        ModelPrice: { ...currentRatios.ModelPrice },
-        'billing_setting.billing_mode': {
-          ...currentRatios['billing_setting.billing_mode'],
-        },
-        'billing_setting.billing_expr': {
-          ...currentRatios['billing_setting.billing_expr'],
-        },
-      }
-
-      Object.entries(resolutions).forEach(([model, ratios]) => {
-        const selectedTypes = Object.keys(ratios)
-        const hasPrice = selectedTypes.includes('model_price')
-        const hasRatio = selectedTypes.some((rt) =>
-          RATIO_SYNC_FIELDS.includes(rt as RatioType)
-        )
-
-        if (hasPrice) {
-          delete finalRatios.ModelRatio[model]
-          delete finalRatios.CompletionRatio[model]
-          delete finalRatios.CacheRatio[model]
-          delete finalRatios.CreateCacheRatio[model]
-          delete finalRatios.ImageRatio[model]
-          delete finalRatios.AudioRatio[model]
-          delete finalRatios.AudioCompletionRatio[model]
-        }
-        if (hasRatio) {
-          delete finalRatios.ModelPrice[model]
+      const upserts = Object.entries(resolutions).map(([modelName, ratios]) => {
+        let currentConfig: ModelPricingConfig
+        if (
+          currentRatios['billing_setting.billing_mode'][modelName] ===
+          'tiered_expr'
+        ) {
+          currentConfig = {
+            mode: 'tiered_expr',
+            billing_expr:
+              currentRatios['billing_setting.billing_expr'][modelName] ?? '',
+          }
+        } else if (currentRatios.ModelPrice[modelName] !== undefined) {
+          currentConfig = {
+            mode: 'per-request',
+            price: currentRatios.ModelPrice[modelName],
+          }
+        } else {
+          currentConfig = {
+            mode: 'per-token',
+            ratio: currentRatios.ModelRatio[modelName],
+            completion_ratio: currentRatios.CompletionRatio[modelName],
+            cache_ratio: currentRatios.CacheRatio[modelName],
+            create_cache_ratio: currentRatios.CreateCacheRatio[modelName],
+            image_ratio: currentRatios.ImageRatio[modelName],
+            audio_ratio: currentRatios.AudioRatio[modelName],
+            audio_completion_ratio:
+              currentRatios.AudioCompletionRatio[modelName],
+          }
         }
 
-        Object.entries(ratios).forEach(([ratioType, value]) => {
-          const optionKey = optionKeyBySyncField(ratioType)
-          finalRatios[optionKey][model] = NUMERIC_SYNC_FIELDS.has(ratioType)
-            ? Number(value)
-            : value
-        })
+        const patch = buildPricingConfigPatch(ratios)
+        const config =
+          patch.mode !== currentConfig.mode
+            ? patch
+            : ({
+                ...currentConfig,
+                ...Object.fromEntries(
+                  Object.entries(patch).filter(
+                    ([, value]) => value !== undefined
+                  )
+                ),
+              } as ModelPricingConfig)
+        return { model_name: modelName, config }
       })
 
-      const updates = Object.entries(finalRatios).map(([key, value]) => ({
-        key,
-        value: JSON.stringify(value, null, 2),
-      }))
-
       return new Promise<boolean>((resolve) => {
-        syncMutate(updates, {
-          onSuccess: () => resolve(true),
-          onError: () => resolve(false),
-        })
+        syncMutate(
+          { upserts, restore: [] },
+          {
+            onSuccess: () => resolve(true),
+            onError: () => resolve(false),
+          }
+        )
       })
     },
     [resolutions, syncMutate]

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -50,6 +51,10 @@ type OfficialPricingSyncResult struct {
 	Counts       map[string]int                   `json:"counts"`
 	Errors       map[string]string                `json:"errors,omitempty"`
 	MetadataSync *OfficialModelMetadataSyncResult `json:"metadata_sync,omitempty"`
+	FreshCount   int                              `json:"fresh_count"`
+	CarriedCount int                              `json:"carried_count"`
+	StaleCount   int                              `json:"stale_count"`
+	RemovedCount int                              `json:"removed_count"`
 }
 
 type OfficialModelMetadataSyncResult struct {
@@ -135,6 +140,11 @@ func SyncOfficialPricing(ctx context.Context) (*OfficialPricingSyncResult, error
 		return result, err
 	}
 	rows := officialPricingRowsFromEntries(snapshotID, entries)
+	rows, err = mergeOfficialPricingRows(snapshotID, rows, result.Errors, result)
+	if err != nil {
+		_ = model.RecordFailedOfficialPricingSnapshot(snapshotID, officialPricingSourcesText(sources), err)
+		return result, err
+	}
 	if len(rows) == 0 {
 		err = fmt.Errorf("official pricing sync produced no rows")
 		_ = model.RecordFailedOfficialPricingSnapshot(snapshotID, officialPricingSourcesText(sources), err)
@@ -143,19 +153,26 @@ func SyncOfficialPricing(ctx context.Context) (*OfficialPricingSyncResult, error
 	if err := model.ReplaceActiveOfficialPricing(snapshotID, officialPricingSourcesText(sources), rows); err != nil {
 		return result, err
 	}
-	if err := model.LoadActiveOfficialPricingIntoRuntime(); err != nil {
-		return result, err
+	var reconciliationErrors []error
+	metadataResult, metadataErr := syncOfficialModelMetadataRows(rows)
+	if metadataErr != nil {
+		result.Errors["metadata"] = metadataErr.Error()
+		reconciliationErrors = append(reconciliationErrors, fmt.Errorf("metadata sync: %w", metadataErr))
+	} else {
+		result.MetadataSync = metadataResult
 	}
-	metadataResult, err := syncOfficialModelMetadataRows(rows)
-	if err != nil {
-		return result, err
+	if migrationErr := model.MigrateModelPricingOverridesFromLegacy(); migrationErr != nil {
+		result.Errors["migration"] = migrationErr.Error()
+		reconciliationErrors = append(reconciliationErrors, fmt.Errorf("legacy pricing migration: %w", migrationErr))
 	}
-	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
-		return result, err
+	if refreshErr := model.RefreshPricingRuntime(); refreshErr != nil {
+		result.Errors["runtime"] = refreshErr.Error()
+		reconciliationErrors = append(reconciliationErrors, fmt.Errorf("runtime refresh: %w", refreshErr))
 	}
-	model.RefreshPricing()
-	result.MetadataSync = metadataResult
 	result.EntriesCount = len(rows)
+	if len(reconciliationErrors) > 0 {
+		return result, fmt.Errorf("official pricing snapshot %s was committed, but reconciliation failed; automatic retry is pending: %w", snapshotID, errors.Join(reconciliationErrors...))
+	}
 	return result, nil
 }
 
@@ -181,10 +198,9 @@ func SyncOfficialModelMetadata(ctx context.Context) (*OfficialModelMetadataSyncR
 	if err != nil {
 		return nil, err
 	}
-	if err := model.LoadModelPricingConfigsIntoRuntime(); err != nil {
+	if err := model.RefreshPricingRuntime(); err != nil {
 		return nil, err
 	}
-	model.RefreshPricing()
 	return metadataResult, nil
 }
 
@@ -232,12 +248,76 @@ func FetchOfficialPricing(ctx context.Context, snapshotID string, sources []Offi
 		result.Counts[source.Provider] = len(entries)
 		allEntries = append(allEntries, entries...)
 	}
-	if len(result.Errors) > 0 {
+	// Partial success is allowed: one broken official page should not block the
+	// rest of the directory refresh. Only fail hard when every source fails.
+	if len(allEntries) == 0 {
 		return nil, result, fmt.Errorf("official pricing source failures: %v", result.Errors)
 	}
 	allEntries = dedupeOfficialPricing(allEntries)
 	result.EntriesCount = len(allEntries)
 	return allEntries, result, nil
+}
+
+func mergeOfficialPricingRows(snapshotID string, rows []model.OfficialModelPrice, failedProviders map[string]string, result *OfficialPricingSyncResult) ([]model.OfficialModelPrice, error) {
+	previous, err := model.GetActiveOfficialPricingRows()
+	if err != nil {
+		return nil, err
+	}
+	result.FreshCount = len(rows)
+	if len(previous) == 0 {
+		return rows, nil
+	}
+
+	seen := make(map[string]struct{}, len(rows))
+	for _, row := range rows {
+		seen[row.Provider+"\x00"+row.ModelName] = struct{}{}
+	}
+	missingNames := make([]string, 0)
+	for _, row := range previous {
+		if _, failed := failedProviders[row.Provider]; failed {
+			continue
+		}
+		if _, exists := seen[row.Provider+"\x00"+row.ModelName]; !exists {
+			missingNames = append(missingNames, row.ModelName)
+		}
+	}
+	enabledNames, err := model.GetEnabledAbilityModelNames(missingNames)
+	if err != nil {
+		return nil, err
+	}
+
+	merged := append([]model.OfficialModelPrice(nil), rows...)
+	for _, row := range previous {
+		key := row.Provider + "\x00" + row.ModelName
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		_, providerFailed := failedProviders[row.Provider]
+		_, locallyEnabled := enabledNames[row.ModelName]
+		if !providerFailed && !locallyEnabled {
+			result.RemovedCount++
+			continue
+		}
+		preserved := row
+		preserved.ID = 0
+		preserved.SnapshotID = snapshotID
+		preserved.Active = true
+		if !providerFailed {
+			preserved.Stale = true
+			if preserved.LastConfirmedAt == 0 {
+				preserved.LastConfirmedAt = preserved.UpdatedAt
+			}
+		}
+		merged = append(merged, preserved)
+		seen[key] = struct{}{}
+		result.CarriedCount++
+	}
+	for _, row := range merged {
+		if row.Stale {
+			result.StaleCount++
+		}
+	}
+	return merged, nil
 }
 
 func fetchOfficialPricingSource(ctx context.Context, client *http.Client, source OfficialPricingSource) ([]OfficialTokenPricing, error) {
@@ -314,6 +394,8 @@ func officialTokenPricingToRow(snapshotID string, entry OfficialTokenPricing) mo
 		CompletionRatio:         roundOfficialRatioValue(completionRatio),
 		CacheRatio:              roundOfficialRatioPointer(cacheRatio),
 		CreateCacheRatio:        roundOfficialRatioPointer(createCacheRatio),
+		Stale:                   false,
+		LastConfirmedAt:         common.GetTimestamp(),
 	}
 }
 
@@ -744,7 +826,13 @@ func ConvertDeepSeekOfficialPricingToRatioData(reader io.Reader) (map[string]any
 	return ConvertOfficialTokenPricingToRatioData(entries)
 }
 
-var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^,\]]+),\s*([^,\]]+),\s*([^\]]+)\]`)
+// OpenAI pricing rows are JS arrays inside TextTokenPricingTables:
+//
+//	legacy 3-price: [model, input, cached_input, output]
+//	current 4-price: [model, input, cached_input, flex_or_dash, output]
+//
+// The final numeric token is always output; the optional middle flex column is ignored.
+var openAIPricingRowPattern = regexp.MustCompile(`\["([^"]+)",\s*([^\]]+)\]`)
 
 func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]OfficialTokenPricing, error) {
 	bodyBytes, err := io.ReadAll(reader)
@@ -758,12 +846,7 @@ func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 	}
 	entries := make([]OfficialTokenPricing, 0, len(matches))
 	for _, match := range matches {
-		input, ok := parseOptionalOfficialPriceToken(match[2])
-		if !ok {
-			continue
-		}
-		cachedInput, hasCachedInput := parseOptionalOfficialPriceToken(match[3])
-		output, ok := parseOptionalOfficialPriceToken(match[4])
+		input, cachedInput, hasCachedInput, output, ok := resolveOpenAIOfficialPriceTokens(match[2])
 		if !ok {
 			continue
 		}
@@ -788,6 +871,53 @@ func ParseOpenAIOfficialTokenPricing(reader io.Reader, sourceURL string) ([]Offi
 		return nil, fmt.Errorf("no valid OpenAI pricing entries found")
 	}
 	return entries, nil
+}
+
+func resolveOpenAIOfficialPriceTokens(rawValues string) (input float64, cachedInput float64, hasCachedInput bool, output float64, ok bool) {
+	tokens := splitOpenAIOfficialPriceTokens(rawValues)
+	switch len(tokens) {
+	case 2:
+		// [input, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		output, ok = parseOptionalOfficialPriceToken(tokens[1])
+		return input, 0, false, output, ok
+	case 3:
+		// [input, cached_input, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		cachedInput, hasCachedInput = parseOptionalOfficialPriceToken(tokens[1])
+		output, ok = parseOptionalOfficialPriceToken(tokens[2])
+		return input, cachedInput, hasCachedInput, output, ok
+	case 4:
+		// [input, cached_input, flex_or_placeholder, output]
+		input, ok = parseOptionalOfficialPriceToken(tokens[0])
+		if !ok {
+			return 0, 0, false, 0, false
+		}
+		cachedInput, hasCachedInput = parseOptionalOfficialPriceToken(tokens[1])
+		output, ok = parseOptionalOfficialPriceToken(tokens[3])
+		return input, cachedInput, hasCachedInput, output, ok
+	default:
+		return 0, 0, false, 0, false
+	}
+}
+
+func splitOpenAIOfficialPriceTokens(rawValues string) []string {
+	parts := strings.Split(rawValues, ",")
+	tokens := make([]string, 0, len(parts))
+	for _, part := range parts {
+		token := strings.TrimSpace(part)
+		if token == "" {
+			continue
+		}
+		tokens = append(tokens, token)
+	}
+	return tokens
 }
 
 func parseOptionalOfficialPriceToken(token string) (float64, bool) {

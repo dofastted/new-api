@@ -1,6 +1,7 @@
 package model
 
 import (
+	"database/sql/driver"
 	"errors"
 	"fmt"
 	"strconv"
@@ -34,9 +35,115 @@ const (
 )
 
 var (
-	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
-	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
+	ErrSubscriptionOrderNotFound           = errors.New("subscription order not found")
+	ErrSubscriptionOrderStatusInvalid      = errors.New("subscription order status invalid")
+	ErrSubscriptionProviderGroupNotAllowed = errors.New("subscription provider group not allowed")
 )
+
+type JSONStringList []string
+
+func NewJSONStringList(values []string) JSONStringList {
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		item := strings.TrimSpace(value)
+		if item == "" {
+			continue
+		}
+		if _, ok := seen[item]; ok {
+			continue
+		}
+		seen[item] = struct{}{}
+		result = append(result, item)
+	}
+	return JSONStringList(result)
+}
+
+func (l JSONStringList) Normalized() JSONStringList {
+	return NewJSONStringList([]string(l))
+}
+
+func (l JSONStringList) Strings() []string {
+	normalized := l.Normalized()
+	result := make([]string, len(normalized))
+	copy(result, normalized)
+	return result
+}
+
+func (l JSONStringList) Allows(value string) bool {
+	items := l.Normalized()
+	if len(items) == 0 {
+		return true
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
+}
+
+func (l JSONStringList) Value() (driver.Value, error) {
+	items := l.Normalized()
+	if len(items) == 0 {
+		return "", nil
+	}
+	data, err := common.Marshal(items.Strings())
+	if err != nil {
+		return nil, err
+	}
+	return string(data), nil
+}
+
+func (l *JSONStringList) Scan(value any) error {
+	switch v := value.(type) {
+	case nil:
+		*l = nil
+		return nil
+	case string:
+		return l.scanString(v)
+	case []byte:
+		return l.scanString(string(v))
+	default:
+		return fmt.Errorf("unsupported JSONStringList scan type %T", value)
+	}
+}
+
+func (l *JSONStringList) scanString(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		*l = nil
+		return nil
+	}
+	var values []string
+	if err := common.Unmarshal([]byte(raw), &values); err != nil {
+		return err
+	}
+	*l = NewJSONStringList(values)
+	return nil
+}
+
+func (l JSONStringList) MarshalJSON() ([]byte, error) {
+	return common.Marshal(l.Strings())
+}
+
+func (l *JSONStringList) UnmarshalJSON(data []byte) error {
+	raw := strings.TrimSpace(string(data))
+	if raw == "" || raw == "null" {
+		*l = nil
+		return nil
+	}
+	var values []string
+	if err := common.Unmarshal(data, &values); err != nil {
+		return err
+	}
+	*l = NewJSONStringList(values)
+	return nil
+}
 
 const (
 	subscriptionPlanCacheNamespace     = "new-api:subscription_plan:v1"
@@ -178,6 +285,9 @@ type SubscriptionPlan struct {
 	// Downgrade user group on expiry (empty = revert to the group held before purchase)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
 
+	// Provider groups allowed for subscription billing (empty = unrestricted)
+	ProviderGroups JSONStringList `json:"provider_groups" gorm:"type:text"`
+
 	// Total quota (amount in quota units, 0 = unlimited)
 	TotalAmount int64 `json:"total_amount" gorm:"type:bigint;not null;default:0"`
 
@@ -272,6 +382,9 @@ type UserSubscription struct {
 
 	// Downgrade target group on expiry (snapshot from plan; empty = revert to PrevUserGroup)
 	DowngradeGroup string `json:"downgrade_group" gorm:"type:varchar(64);default:''"`
+
+	// Provider groups allowed for subscription billing (snapshot from plan; empty = unrestricted)
+	ProviderGroups JSONStringList `json:"provider_groups" gorm:"type:text"`
 
 	// Whether wallet fallback is allowed after this subscription's quota is exhausted (snapshot from plan)
 	AllowWalletOverflow bool `json:"allow_wallet_overflow"`
@@ -537,6 +650,7 @@ func CreateUserSubscriptionFromPlanTx(tx *gorm.DB, userId int, plan *Subscriptio
 		UpgradeGroup:        upgradeGroup,
 		PrevUserGroup:       prevGroup,
 		DowngradeGroup:      strings.TrimSpace(plan.DowngradeGroup),
+		ProviderGroups:      plan.ProviderGroups.Normalized(),
 		AllowWalletOverflow: allowWalletOverflow,
 		CreatedAt:           common.GetTimestamp(),
 		UpdatedAt:           common.GetTimestamp(),
@@ -867,21 +981,92 @@ func HasActiveUserSubscription(userId int) (bool, error) {
 }
 
 // UserActiveSubscriptionsAllowWalletOverflow returns whether wallet balance may be used
-// after the user's subscription quota is exhausted. A single active subscription that
-// disallows wallet overflow (allow_wallet_overflow = false) blocks the fallback.
-func UserActiveSubscriptionsAllowWalletOverflow(userId int) (bool, error) {
+// after the user's applicable subscription quota is exhausted. A single active,
+// provider-group-applicable subscription that disallows wallet overflow blocks fallback.
+func UserActiveSubscriptionsAllowWalletOverflow(userId int, providerGroup string) (bool, error) {
 	if userId <= 0 {
 		return false, errors.New("invalid userId")
 	}
 	now := common.GetTimestamp()
-	var strictCount int64
-	if err := DB.Model(&UserSubscription{}).
-		Where("user_id = ? AND status = ? AND end_time > ? AND allow_wallet_overflow = ?",
-			userId, "active", now, false).
-		Count(&strictCount).Error; err != nil {
+	var subs []UserSubscription
+	if err := DB.Select([]string{"allow_wallet_overflow", "provider_groups"}).
+		Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
+		Find(&subs).Error; err != nil {
 		return false, err
 	}
-	return strictCount == 0, nil
+	for _, sub := range subs {
+		if !sub.ProviderGroups.Allows(providerGroup) {
+			continue
+		}
+		if !sub.AllowWalletOverflow {
+			return false, nil
+		}
+	}
+	return true, nil
+}
+
+type SubscriptionProviderGroupScope struct {
+	HasActive    bool
+	Unrestricted bool
+	Groups       []string
+}
+
+func (s SubscriptionProviderGroupScope) Restricts() bool {
+	return s.HasActive && !s.Unrestricted && len(s.Groups) > 0
+}
+
+func (s SubscriptionProviderGroupScope) Filter(groups []string) []string {
+	if !s.Restricts() {
+		result := make([]string, len(groups))
+		copy(result, groups)
+		return result
+	}
+	allowed := make(map[string]struct{}, len(s.Groups))
+	for _, group := range s.Groups {
+		allowed[group] = struct{}{}
+	}
+	result := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if _, ok := allowed[strings.TrimSpace(group)]; ok {
+			result = append(result, group)
+		}
+	}
+	return result
+}
+
+func GetActiveSubscriptionProviderGroupScope(userId int) (SubscriptionProviderGroupScope, error) {
+	if userId <= 0 {
+		return SubscriptionProviderGroupScope{}, errors.New("invalid userId")
+	}
+	now := common.GetTimestamp()
+	var subs []UserSubscription
+	if err := DB.Select("provider_groups").
+		Where("user_id = ? AND status = ? AND end_time > ?", userId, "active", now).
+		Order("end_time asc, id asc").
+		Find(&subs).Error; err != nil {
+		return SubscriptionProviderGroupScope{}, err
+	}
+	if len(subs) == 0 {
+		return SubscriptionProviderGroupScope{}, nil
+	}
+	scope := SubscriptionProviderGroupScope{HasActive: true}
+	seen := map[string]struct{}{}
+	for _, sub := range subs {
+		groups := sub.ProviderGroups.Normalized()
+		if len(groups) == 0 {
+			scope.Unrestricted = true
+			scope.Groups = nil
+			return scope, nil
+		}
+		for _, group := range groups {
+			if _, ok := seen[group]; ok {
+				continue
+			}
+			seen[group] = struct{}{}
+			scope.Groups = append(scope.Groups, group)
+		}
+	}
+	return scope, nil
 }
 
 // GetAllUserSubscriptions returns all subscriptions (active and expired) for a user.
@@ -1005,6 +1190,7 @@ type SubscriptionPreConsumeResult struct {
 	AmountTotal        int64
 	AmountUsedBefore   int64
 	AmountUsedAfter    int64
+	ProviderGroups     []string
 }
 
 // ExpireDueSubscriptions marks expired subscriptions and handles group downgrade.
@@ -1166,7 +1352,7 @@ func maybeResetUserSubscriptionWithPlanTx(tx *gorm.DB, sub *UserSubscription, pl
 }
 
 // PreConsumeUserSubscription pre-consumes from any active subscription total quota.
-func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64) (*SubscriptionPreConsumeResult, error) {
+func PreConsumeUserSubscription(requestId string, userId int, modelName string, quotaType int, amount int64, providerGroup string) (*SubscriptionPreConsumeResult, error) {
 	if userId <= 0 {
 		return nil, errors.New("invalid userId")
 	}
@@ -1177,6 +1363,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		return nil, errors.New("amount must be > 0")
 	}
 	now := GetDBTimestamp()
+	providerGroup = strings.TrimSpace(providerGroup)
 
 	returnValue := &SubscriptionPreConsumeResult{}
 
@@ -1199,6 +1386,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountTotal = sub.AmountTotal
 			returnValue.AmountUsedBefore = sub.AmountUsed
 			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.ProviderGroups = sub.ProviderGroups.Strings()
 			return nil
 		}
 
@@ -1212,8 +1400,13 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 		if len(subs) == 0 {
 			return errors.New("no active subscription")
 		}
+		matchedProviderGroup := providerGroup == ""
 		for _, candidate := range subs {
 			sub := candidate
+			if providerGroup != "" && !sub.ProviderGroups.Allows(providerGroup) {
+				continue
+			}
+			matchedProviderGroup = true
 			plan, err := getSubscriptionPlanByIdTx(tx, sub.PlanId)
 			if err != nil {
 				return err
@@ -1246,6 +1439,7 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 					returnValue.AmountTotal = sub.AmountTotal
 					returnValue.AmountUsedBefore = sub.AmountUsed
 					returnValue.AmountUsedAfter = sub.AmountUsed
+					returnValue.ProviderGroups = sub.ProviderGroups.Strings()
 					return nil
 				}
 				return err
@@ -1259,7 +1453,11 @@ func PreConsumeUserSubscription(requestId string, userId int, modelName string, 
 			returnValue.AmountTotal = sub.AmountTotal
 			returnValue.AmountUsedBefore = usedBefore
 			returnValue.AmountUsedAfter = sub.AmountUsed
+			returnValue.ProviderGroups = sub.ProviderGroups.Strings()
 			return nil
+		}
+		if !matchedProviderGroup {
+			return fmt.Errorf("%w: %s", ErrSubscriptionProviderGroupNotAllowed, providerGroup)
 		}
 		return fmt.Errorf("subscription quota insufficient, need=%d", amount)
 	})

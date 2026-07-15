@@ -14,6 +14,7 @@ import (
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/setting/config"
 	"github.com/QuantumNous/new-api/setting/operation_setting"
+	"github.com/QuantumNous/new-api/types"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/require"
@@ -24,6 +25,10 @@ type listModelsResponse struct {
 	Success bool               `json:"success"`
 	Data    []dto.OpenAIModels `json:"data"`
 	Object  string             `json:"object"`
+}
+
+type modelListErrorResponse struct {
+	Error types.OpenAIError `json:"error"`
 }
 
 func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
@@ -41,7 +46,7 @@ func setupModelListControllerTestDB(t *testing.T) *gorm.DB {
 	model.DB = db
 	model.LOG_DB = db
 
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}))
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Channel{}, &model.Ability{}, &model.Model{}, &model.Vendor{}, &model.ProviderGroup{}, &model.ProviderGroupAutoRule{}))
 
 	t.Cleanup(func() {
 		sqlDB, err := db.DB()
@@ -123,7 +128,16 @@ func withSelfUseModeDisabled(t *testing.T) {
 	})
 }
 
-func decodeListModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder) map[string]struct{} {
+func withSelfUseModeEnabled(t *testing.T) {
+	t.Helper()
+	original := operation_setting.SelfUseModeEnabled
+	operation_setting.SelfUseModeEnabled = true
+	t.Cleanup(func() {
+		operation_setting.SelfUseModeEnabled = original
+	})
+}
+
+func decodeListModelsPayload(t *testing.T, recorder *httptest.ResponseRecorder) listModelsResponse {
 	t.Helper()
 
 	require.Equal(t, http.StatusOK, recorder.Code)
@@ -131,7 +145,13 @@ func decodeListModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder)
 	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
 	require.True(t, payload.Success)
 	require.Equal(t, "list", payload.Object)
+	return payload
+}
 
+func decodeListModelsResponse(t *testing.T, recorder *httptest.ResponseRecorder) map[string]struct{} {
+	t.Helper()
+
+	payload := decodeListModelsPayload(t, recorder)
 	ids := make(map[string]struct{}, len(payload.Data))
 	for _, item := range payload.Data {
 		ids[item.Id] = struct{}{}
@@ -234,4 +254,150 @@ func TestListModelsTokenLimitIncludesTieredBillingModel(t *testing.T) {
 	require.NotContains(t, ids, "zz-token-tiered-empty-expr-model")
 	require.NotContains(t, ids, "zz-token-tiered-missing-expr-model")
 	require.NotContains(t, ids, "zz-token-unpriced-model")
+}
+
+func TestListModelsAutoIncludesAllProviderAutoRuleGroups(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.ProviderGroup{
+		{Name: "codex-completions", DisplayName: "Codex Completions", Status: model.ProviderGroupStatusEnabled},
+		{Name: "grok", DisplayName: "Grok", Status: model.ProviderGroupStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.ProviderGroupAutoRule{
+		{RouteType: model.ProviderRouteTypeCompletions, CandidateGroup: "codex-completions", Enabled: true, SortOrder: 0},
+		{RouteType: model.ProviderRouteTypeOther, CandidateGroup: "grok", Enabled: true, SortOrder: 1},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "codex-completions", Model: "gpt-5.5", ChannelId: 25, Enabled: true},
+		{Group: "grok", Model: "grok-4.3", ChannelId: 37, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "gpt-5.5")
+	require.Contains(t, ids, "grok-4.3")
+}
+
+func TestListModelsAutoAppliesProviderFamilyFilters(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.ProviderGroup{
+		{Name: "codex-completions", DisplayName: "Codex Completions", Status: model.ProviderGroupStatusEnabled},
+		{Name: "codex-pro", DisplayName: "Codex Pro", Status: model.ProviderGroupStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.ProviderGroupAutoRule{
+		{RouteType: model.ProviderRouteTypeCompletions, CandidateGroup: "codex-completions", Enabled: true, SortOrder: 0},
+		{RouteType: model.ProviderRouteTypeResponses, CandidateGroup: "codex-pro", Enabled: true, SortOrder: 1},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "codex-completions", Model: "gpt-5.5", ChannelId: 25, Enabled: true},
+		{Group: "codex-pro", Model: "gpt-5.5-pro", ChannelId: 26, Enabled: true},
+	}).Error)
+
+	nonCodexRecorder := httptest.NewRecorder()
+	nonCodexCtx, _ := gin.CreateTestContext(nonCodexRecorder)
+	nonCodexCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(nonCodexCtx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(nonCodexCtx, constant.ContextKeyTokenGroup, "auto")
+
+	ListModels(nonCodexCtx, constant.ChannelTypeOpenAI)
+
+	nonCodexIDs := decodeListModelsResponse(t, nonCodexRecorder)
+	require.Contains(t, nonCodexIDs, "gpt-5.5")
+	require.NotContains(t, nonCodexIDs, "gpt-5.5-pro")
+
+	codexRecorder := httptest.NewRecorder()
+	codexCtx, _ := gin.CreateTestContext(codexRecorder)
+	codexCtx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	codexCtx.Request.Header.Set("User-Agent", "Codex CLI/1.0")
+	common.SetContextKey(codexCtx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(codexCtx, constant.ContextKeyTokenGroup, "auto")
+
+	ListModels(codexCtx, constant.ChannelTypeOpenAI)
+
+	codexIDs := decodeListModelsResponse(t, codexRecorder)
+	require.Contains(t, codexIDs, "gpt-5.5")
+	require.Contains(t, codexIDs, "gpt-5.5-pro")
+}
+
+func TestListModelsDirectProviderFamilyGroupRequiresMatchingClient(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&model.Ability{Group: "codex-pro", Model: "gpt-5.5-pro", ChannelId: 26, Enabled: true}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "codex-pro")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	require.Equal(t, http.StatusForbidden, recorder.Code)
+	var payload modelListErrorResponse
+	require.NoError(t, common.Unmarshal(recorder.Body.Bytes(), &payload))
+	require.Equal(t, string(types.ErrorCodeAccessDenied), payload.Error.Code)
+	require.Contains(t, payload.Error.Message, "official Codex CLI")
+}
+
+func TestListModelsDirectProviderGroupUsesOnlyThatGroup(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "grok", Model: "grok-4.3", ChannelId: 37, Enabled: true},
+		{Group: "codex-completions", Model: "gpt-5.5", ChannelId: 25, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "grok")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	ids := decodeListModelsResponse(t, recorder)
+	require.Contains(t, ids, "grok-4.3")
+	require.NotContains(t, ids, "gpt-5.5")
+}
+
+func TestListModelsAutoMergesDuplicateModelIDs(t *testing.T) {
+	withSelfUseModeEnabled(t)
+	db := setupModelListControllerTestDB(t)
+	require.NoError(t, db.Create(&[]model.ProviderGroup{
+		{Name: "codex-completions", DisplayName: "Codex Completions", Status: model.ProviderGroupStatusEnabled},
+		{Name: "grok", DisplayName: "Grok", Status: model.ProviderGroupStatusEnabled},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.ProviderGroupAutoRule{
+		{RouteType: model.ProviderRouteTypeCompletions, CandidateGroup: "codex-completions", Enabled: true, SortOrder: 0},
+		{RouteType: model.ProviderRouteTypeOther, CandidateGroup: "grok", Enabled: true, SortOrder: 1},
+	}).Error)
+	require.NoError(t, db.Create(&[]model.Ability{
+		{Group: "codex-completions", Model: "shared-model", ChannelId: 25, Enabled: true},
+		{Group: "grok", Model: "shared-model", ChannelId: 37, Enabled: true},
+	}).Error)
+
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	common.SetContextKey(ctx, constant.ContextKeyUserGroup, "default")
+	common.SetContextKey(ctx, constant.ContextKeyTokenGroup, "auto")
+
+	ListModels(ctx, constant.ChannelTypeOpenAI)
+
+	payload := decodeListModelsPayload(t, recorder)
+	count := 0
+	for _, item := range payload.Data {
+		if item.Id == "shared-model" {
+			count++
+		}
+	}
+	require.Equal(t, 1, count)
 }

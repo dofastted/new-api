@@ -4214,6 +4214,26 @@
     "并确认自行承担部署": "confirm that I bear legal responsibility arising from deployment",
     "运营和收费行为产生的法律责任": "operation and charging behavior",
     "，": ", ",
-    "、": ", "
+    "、": ", ",
+    "{{count}} 个手动模型价格与最新官方价格不同。": "Giá thủ công của {{count}} mô hình khác với giá chính thức mới nhất.",
+    "价格字段": "Trường giá",
+    "使用官方价格": "Dùng giá chính thức",
+    "保留手动价格": "Giữ giá thủ công",
+    "在完成选择前，系统继续使用手动价格计费。": "Giá thủ công vẫn có hiệu lực cho đến khi bạn lựa chọn.",
+    "处理价格冲突失败": "Không thể xử lý xung đột giá",
+    "完整官方配置": "Cấu hình chính thức đầy đủ",
+    "完整手动配置": "Cấu hình thủ công đầy đủ",
+    "官方价格不可用": "Giá chính thức không khả dụng",
+    "官方值": "Giá trị chính thức",
+    "审核价格变化": "Xem lại thay đổi giá",
+    "审核官方价格变化": "Xem lại thay đổi giá chính thức",
+    "已保留手动价格": "Đã giữ giá thủ công",
+    "已恢复官方价格": "Đã khôi phục giá chính thức",
+    "手动值": "Giá trị thủ công",
+    "无值": "Không có giá trị",
+    "输出倍率": "Hệ số đầu ra",
+    "图片倍率": "Hệ số hình ảnh",
+    "音频输出倍率": "Hệ số đầu ra âm thanh",
+    "计费表达式": "Biểu thức tính phí"
   }
 }

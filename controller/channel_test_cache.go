@@ -2,7 +2,6 @@ package controller
 
 import (
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
 )
@@ -11,10 +10,6 @@ type channelTestCachedResult = service.ChannelTestCachedResult
 
 func channelTestCacheKey(channelID int, modelName string, endpointType string, isStream bool) string {
 	return service.ChannelTestCacheKey(channelID, modelName, endpointType, isStream)
-}
-
-func getCachedChannelTestResult(cacheKey string) (channelTestCachedResult, bool) {
-	return service.GetCachedChannelTestResult(cacheKey)
 }
 
 func setCachedChannelTestResult(cacheKey string, result channelTestCachedResult) {
@@ -63,12 +58,4 @@ func channelTestCachedResultFromTestResult(result testResult, consumedTime float
 		Time:     consumedTime,
 		TestedAt: common.GetTimestamp(),
 	}
-}
-
-func shouldBlockManualClaudeChannelHealthProbe(channel *model.Channel) bool {
-	return service.ShouldBlockManualClaudeChannelHealthProbe(channel)
-}
-
-func claudeChannelHealthProbeBlockedResult() channelTestCachedResult {
-	return service.ClaudeChannelHealthProbeBlockedResult()
 }

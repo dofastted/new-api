@@ -17,9 +17,63 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 
-import React from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { Banner, Button, Space, Spin } from '@douyinfe/semi-ui';
+import { useTranslation } from 'react-i18next';
 import ModelPricingEditor from './components/ModelPricingEditor';
+import {
+  buildCanonicalPricingOptions,
+  fetchModelPricing,
+} from './modelPricingApi';
 
 export default function ModelSettingsVisualEditor(props) {
-  return <ModelPricingEditor options={props.options} refresh={props.refresh} />;
+  const { t } = useTranslation();
+  const [pricingViews, setPricingViews] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  const loadPricing = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setPricingViews(await fetchModelPricing());
+    } catch (loadError) {
+      setPricingViews(null);
+      setError(loadError.message || t('加载模型价格失败'));
+    } finally {
+      setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    loadPricing();
+  }, [loadPricing]);
+
+  const options = useMemo(
+    () => buildCanonicalPricingOptions(pricingViews || [], props.options),
+    [pricingViews, props.options],
+  );
+  const refresh = useCallback(async () => {
+    await Promise.all([loadPricing(), props.refresh?.()]);
+  }, [loadPricing, props.refresh]);
+
+  if (error) {
+    return (
+      <Space vertical align='start'>
+        <Banner type='danger' description={error} />
+        <Button onClick={loadPricing} loading={loading}>
+          {t('重试')}
+        </Button>
+      </Space>
+    );
+  }
+  if (!pricingViews) return <Spin spinning={loading} />;
+
+  return (
+    <ModelPricingEditor
+      options={options}
+      pricingViews={pricingViews}
+      refresh={refresh}
+    />
+  );
 }

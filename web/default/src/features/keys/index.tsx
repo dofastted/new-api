@@ -20,11 +20,11 @@ import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
 
-import { CCSwitchOnboardingGuide } from './components/cc-switch-onboarding-guide'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
 import { ApiKeysPrimaryButtons } from './components/api-keys-primary-buttons'
 import { ApiKeysProvider } from './components/api-keys-provider'
 import { ApiKeysTable } from './components/api-keys-table'
+import { CCSwitchOnboardingGuide } from './components/cc-switch-onboarding-guide'
 
 export function ApiKeys() {
   const { t } = useTranslation()
@@ -36,7 +36,7 @@ export function ApiKeys() {
           <ApiKeysPrimaryButtons />
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
-          <div className='space-y-4'>
+          <div className='flex h-full min-h-0 flex-col gap-3 sm:gap-4'>
             <CCSwitchOnboardingGuide />
             <ApiKeysTable />
           </div>
