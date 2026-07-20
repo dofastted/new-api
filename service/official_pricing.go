@@ -28,6 +28,7 @@ const (
 	OfficialPricingProviderGemini   = "gemini"
 	OfficialPricingProviderGLM      = "glm"
 	OfficialPricingProviderDeepSeek = "deepseek"
+	OfficialPricingProviderKimi     = "kimi"
 
 	OfficialPricingOpenAIURL   = "https://developers.openai.com/api/docs/pricing.md"
 	OfficialPricingClaudeURL   = "https://platform.claude.com/docs/en/about-claude/pricing.md"
@@ -35,6 +36,7 @@ const (
 	OfficialPricingGeminiURL   = "https://ai.google.dev/gemini-api/docs/pricing"
 	OfficialPricingGLMURL      = "https://docs.bigmodel.cn/cn/guide/models/text/glm-4.5"
 	OfficialPricingDeepSeekURL = "https://api-docs.deepseek.com/quick_start/pricing"
+	OfficialPricingKimiURL     = "https://platform.kimi.ai/docs/pricing/chat-k3.md"
 	maxOfficialPricingBytes    = 10 << 20
 )
 
@@ -128,6 +130,7 @@ func DefaultOfficialPricingSources() []OfficialPricingSource {
 		{Provider: OfficialPricingProviderGemini, Name: "Gemini 官方价格", URL: OfficialPricingGeminiURL},
 		{Provider: OfficialPricingProviderGLM, Name: "GLM 官方价格", URL: OfficialPricingGLMURL},
 		{Provider: OfficialPricingProviderDeepSeek, Name: "DeepSeek 官方价格", URL: OfficialPricingDeepSeekURL},
+		{Provider: OfficialPricingProviderKimi, Name: "Kimi 官方价格", URL: OfficialPricingKimiURL},
 	}
 }
 
@@ -352,6 +355,8 @@ func fetchOfficialPricingSource(ctx context.Context, client *http.Client, source
 		return ParseGLMOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	case OfficialPricingProviderDeepSeek:
 		return ParseDeepSeekOfficialTokenPricing(bytes.NewReader(body), source.URL)
+	case OfficialPricingProviderKimi:
+		return ParseKimiOfficialTokenPricing(bytes.NewReader(body), source.URL)
 	default:
 		return nil, fmt.Errorf("unsupported official pricing provider: %s", source.Provider)
 	}
@@ -616,6 +621,8 @@ func officialPricingProviderVendor(provider string) (officialVendorMetadata, boo
 		return officialVendorMetadata{Name: "智谱", Icon: "Zhipu.Color"}, true
 	case OfficialPricingProviderDeepSeek:
 		return officialVendorMetadata{Name: "DeepSeek", Icon: "DeepSeek.Color"}, true
+	case OfficialPricingProviderKimi:
+		return officialVendorMetadata{Name: "Moonshot", Icon: "Moonshot"}, true
 	default:
 		return officialVendorMetadata{}, false
 	}
@@ -824,6 +831,54 @@ func ConvertDeepSeekOfficialPricingToRatioData(reader io.Reader) (map[string]any
 		return nil, err
 	}
 	return ConvertOfficialTokenPricingToRatioData(entries)
+}
+
+func ConvertKimiOfficialPricingToRatioData(reader io.Reader) (map[string]any, error) {
+	entries, err := ParseKimiOfficialTokenPricing(reader, OfficialPricingKimiURL)
+	if err != nil {
+		return nil, err
+	}
+	return ConvertOfficialTokenPricingToRatioData(entries)
+}
+
+var (
+	kimiPricingRowPattern   = regexp.MustCompile(`(?s)\[\s*"(kimi-[^"]+)"\s*,\s*"1M tokens"\s*,(.*?)\]`)
+	kimiPricingPricePattern = regexp.MustCompile(`(?:\{\s*"\$"\s*\}|\$)\s*([0-9]+(?:\.[0-9]+)?)`)
+)
+
+func ParseKimiOfficialTokenPricing(reader io.Reader, sourceURL string) ([]OfficialTokenPricing, error) {
+	bodyBytes, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Kimi pricing response: %w", err)
+	}
+	rows := kimiPricingRowPattern.FindAllStringSubmatch(string(bodyBytes), -1)
+	entries := make([]OfficialTokenPricing, 0, len(rows))
+	for _, row := range rows {
+		prices := kimiPricingPricePattern.FindAllStringSubmatch(row[2], -1)
+		if len(prices) < 3 {
+			continue
+		}
+		cacheRead, cacheOK := parseOptionalOfficialPriceToken(prices[0][1])
+		input, inputOK := parseOptionalOfficialPriceToken(prices[1][1])
+		output, outputOK := parseOptionalOfficialPriceToken(prices[2][1])
+		if !cacheOK || !inputOK || !outputOK || input == 0 {
+			continue
+		}
+		cacheRatio := cacheRead / input
+		entries = append(entries, OfficialTokenPricing{
+			Provider:            OfficialPricingProviderKimi,
+			Model:               strings.TrimSpace(row[1]),
+			SourceURL:           sourceURL,
+			InputUSDPerMTok:     input,
+			OutputUSDPerMTok:    output,
+			CacheReadUSDPerMTok: &cacheRead,
+			CacheReadRatio:      &cacheRatio,
+		})
+	}
+	if len(entries) == 0 {
+		return nil, fmt.Errorf("no valid Kimi pricing entries found")
+	}
+	return entries, nil
 }
 
 // OpenAI pricing rows are JS arrays inside TextTokenPricingTables:

@@ -311,6 +311,65 @@ func TestParseGeminiOfficialTokenPricingCollapsedOfficialTextUsesStandardPrices(
 	assert.Equal(t, 0.1, *entry.CacheReadRatio)
 }
 
+func TestConvertKimiOfficialPricingToRatioData(t *testing.T) {
+	body := `
+<DocTable
+  rows={[
+["kimi-k3", "1M tokens", <>{"$"}0.30</>, <>{"$"}3.00</>, <>{"$"}15.00</>, "1,048,576 tokens"],
+]}
+/>
+`
+
+	entries, err := ParseKimiOfficialTokenPricing(strings.NewReader(body), OfficialPricingKimiURL)
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	entry := entries[0]
+	assert.Equal(t, OfficialPricingProviderKimi, entry.Provider)
+	assert.Equal(t, "kimi-k3", entry.Model)
+	assert.Equal(t, OfficialPricingKimiURL, entry.SourceURL)
+	assert.Equal(t, 3.0, entry.InputUSDPerMTok)
+	assert.Equal(t, 15.0, entry.OutputUSDPerMTok)
+	require.NotNil(t, entry.CacheReadUSDPerMTok)
+	assert.Equal(t, 0.30, *entry.CacheReadUSDPerMTok)
+	require.NotNil(t, entry.CacheReadRatio)
+	assert.InDelta(t, 0.1, *entry.CacheReadRatio, 1e-12)
+
+	converted, err := ConvertKimiOfficialPricingToRatioData(strings.NewReader(body))
+	require.NoError(t, err)
+	assert.Equal(t, 1.5, converted["model_ratio"].(map[string]any)["kimi-k3"])
+	assert.Equal(t, 5.0, converted["completion_ratio"].(map[string]any)["kimi-k3"])
+	assert.Equal(t, 0.1, converted["cache_ratio"].(map[string]any)["kimi-k3"])
+}
+
+func TestOfficialModelMetadataSyncCreatesKimiVendor(t *testing.T) {
+	setupOfficialMetadataServiceTestDB(t)
+
+	cacheRatio := 0.1
+	require.NoError(t, model.DB.Create(&model.OfficialModelPrice{
+		Provider:        OfficialPricingProviderKimi,
+		ModelName:       "kimi-k3",
+		SourceURL:       OfficialPricingKimiURL,
+		ModelRatio:      1.5,
+		CompletionRatio: 5,
+		CacheRatio:      &cacheRatio,
+		Active:          true,
+	}).Error)
+
+	result, err := SyncOfficialModelMetadata(context.Background())
+	require.NoError(t, err)
+	assert.Equal(t, 1, result.CreatedModels)
+	assert.Equal(t, 1, result.CreatedVendors)
+
+	var vendor model.Vendor
+	require.NoError(t, model.DB.Where("name = ?", "Moonshot").First(&vendor).Error)
+	assert.Equal(t, "Moonshot", vendor.Icon)
+
+	var synced model.Model
+	require.NoError(t, model.DB.Where("model_name = ?", "kimi-k3").First(&synced).Error)
+	assert.Equal(t, vendor.Id, synced.VendorID)
+	assert.Equal(t, 1, synced.SyncOfficial)
+}
+
 func TestConvertGLMOfficialPricingToRatioData(t *testing.T) {
 	body := `
 # GLM-4.5
