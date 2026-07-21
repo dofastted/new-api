@@ -183,6 +183,30 @@ func TestAdaptorUsesAnthropicToOpenAIRouteForOpenAIChatRequests(t *testing.T) {
 	assert.NotNil(t, converted)
 }
 
+func TestAdaptorRoutesNativeMultiProtocolUpstream(t *testing.T) {
+	config := &dto.AdvancedCustomConfig{Routes: []dto.AdvancedCustomRoute{
+		{IncomingPath: "/v1/responses", UpstreamPath: "/v1/responses", Converter: dto.AdvancedCustomConverterNone},
+		{IncomingPath: "/v1/chat/completions", UpstreamPath: "/v1/chat/completions", Converter: dto.AdvancedCustomConverterNone},
+		{IncomingPath: "/v1/messages", UpstreamPath: "/v1/messages", Converter: dto.AdvancedCustomConverterNone},
+	}}
+	for _, path := range []string{"/v1/responses", "/v1/chat/completions", "/v1/messages"} {
+		t.Run(path, func(t *testing.T) {
+			adaptor := &Adaptor{}
+			info := advancedCustomRelayInfo(config)
+			info.ChannelBaseUrl = "https://sub.example"
+			info.RequestURLPath = path
+
+			requestURL, err := adaptor.GetRequestURL(info)
+			require.NoError(t, err)
+			assert.Equal(t, "https://sub.example"+path, requestURL)
+
+			header := http.Header{}
+			require.NoError(t, adaptor.SetupRequestHeader(advancedCustomGinContext(path), &header, info))
+			assert.Equal(t, "Bearer sk-test", header.Get("Authorization"))
+		})
+	}
+}
+
 func TestAdaptorReturnsErrorWhenNoRouteMatchesPath(t *testing.T) {
 	adaptor := &Adaptor{}
 	info := advancedCustomRelayInfo(&dto.AdvancedCustomConfig{

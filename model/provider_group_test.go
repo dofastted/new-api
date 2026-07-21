@@ -136,6 +136,16 @@ func TestProviderGroupRequiredClientFamilyUsesStoredPolicyBeforeNameFallback(t *
 	require.True(t, ok)
 	assert.Equal(t, ProviderClientFamilyCodex, family)
 
+	require.NoError(t, DB.Create(&ProviderGroup{
+		Name:                 "codex-pro",
+		DisplayName:          "codex-pro",
+		Status:               ProviderGroupStatusEnabled,
+		UsageRatio:           1,
+		RequiredClientFamily: ProviderClientFamilyAny,
+	}).Error)
+	_, ok = ProviderGroupRequiredClientFamily("codex-pro")
+	assert.False(t, ok, "explicit any-client policy must override the legacy name gate")
+
 	family, ok = ProviderGroupRequiredClientFamily("claude-max-legacy")
 	require.True(t, ok)
 	assert.Equal(t, ProviderClientFamilyClaudeCode, family)
@@ -234,6 +244,15 @@ func TestProviderRouteTypesForAdvancedCustomOpenAIChatUpstream(t *testing.T) {
 	})
 
 	assert.Equal(t, []string{ProviderRouteTypeCompletions, ProviderRouteTypeMessages}, ProviderRouteTypesForChannelValue(channel))
+}
+
+func TestProviderRouteTypesForCodexChannel(t *testing.T) {
+	channel := Channel{Type: constant.ChannelTypeCodex}
+	assert.Equal(t, []string{ProviderRouteTypeResponses}, ProviderRouteTypesForChannelValue(channel))
+	assert.True(t, ChannelSupportsRequestPath(&channel, "/v1/responses"))
+	assert.True(t, ChannelSupportsRequestPath(&channel, "/v1/responses/compact"))
+	assert.False(t, ChannelSupportsRequestPath(&channel, "/v1/chat/completions"))
+	assert.False(t, ChannelSupportsRequestPath(&channel, "/v1/messages"))
 }
 
 func TestProviderRouteTypeForPath(t *testing.T) {

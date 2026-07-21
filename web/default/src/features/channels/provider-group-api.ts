@@ -39,6 +39,7 @@ export type ProviderGroup = {
   description: string
   status: number
   usage_ratio: number
+  required_client_family?: string
   is_auto: boolean
   sort_order: number
   created_time: number

@@ -65,6 +65,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { getChannels, searchChannels } from '@/features/channels/api'
@@ -100,6 +101,7 @@ type MetadataDraft = {
   display_name: string
   description: string
   usage_ratio: number
+  required_client_family: string
   status: number
 }
 
@@ -125,6 +127,7 @@ function buildMetadataDraft(group: ProviderGroup): MetadataDraft {
     display_name: group.display_name || group.name,
     description: group.description || '',
     usage_ratio: group.usage_ratio || 1,
+    required_client_family: group.required_client_family || '',
     status: group.status,
   }
 }
@@ -133,6 +136,7 @@ function metadataEqual(a: MetadataDraft, b: MetadataDraft): boolean {
   return (
     a.display_name === b.display_name &&
     a.description === b.description &&
+    a.required_client_family === b.required_client_family &&
     a.usage_ratio === b.usage_ratio &&
     a.status === b.status
   )
@@ -320,7 +324,7 @@ export function ProviderGroups() {
       </SectionPageLayout.Actions>
       <SectionPageLayout.Content>
         <FormNavigationGuard when={detailDirty} />
-        <div className='grid min-h-0 flex-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1 lg:overflow-hidden'>
+        <div className='grid h-full min-h-0 flex-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(260px,320px)_minmax(0,1fr)] lg:grid-rows-1 lg:overflow-hidden'>
           <Card size='sm' className='min-h-[320px] lg:h-full lg:min-h-0'>
             <CardHeader className='shrink-0 space-y-3 border-b'>
               <div className='flex items-center justify-between gap-3'>
@@ -795,6 +799,7 @@ function ProviderGroupDetail({
           description: string
           status: number
           usage_ratio: number
+          required_client_family: string
         }
         members?: ProviderGroupChannel[]
       } = {}
@@ -803,6 +808,7 @@ function ProviderGroupDetail({
           display_name: metadata.display_name.trim() || group.name,
           description: metadata.description,
           status: metadata.status,
+          required_client_family: metadata.required_client_family,
           usage_ratio: metadata.usage_ratio || 1,
         }
       }
@@ -1358,7 +1364,7 @@ function ProviderGroupDetail({
                     </div>
                     <div className='text-muted-foreground text-xs'>
                       {t(
-                        'Display name, billing multiplier, description, and routing status.'
+                        'Display name, billing multiplier, client access policy, description, and routing status.'
                       )}
                     </div>
                   </div>
@@ -1401,6 +1407,38 @@ function ProviderGroupDetail({
                           }))
                         }
                       />
+                    </label>
+                    <label className='space-y-1 text-xs md:col-span-2'>
+                      <span className='font-medium'>
+                        {t('Client access policy')}
+                      </span>
+                      <NativeSelect
+                        value={metadata.required_client_family}
+                        onChange={(event) =>
+                          setMetadata((current) => ({
+                            ...current,
+                            required_client_family: event.target.value,
+                          }))
+                        }
+                      >
+                        <NativeSelectOption value=''>
+                          {t('Automatic (legacy group-name policy)')}
+                        </NativeSelectOption>
+                        <NativeSelectOption value='any'>
+                          {t('Any compatible client')}
+                        </NativeSelectOption>
+                        <NativeSelectOption value='codex'>
+                          {t('Official Codex CLI only')}
+                        </NativeSelectOption>
+                        <NativeSelectOption value='claude_code'>
+                          {t('Official Claude Code only')}
+                        </NativeSelectOption>
+                      </NativeSelect>
+                      <span className='text-muted-foreground block'>
+                        {t(
+                          'Codex Pro names default to Codex CLI only. Choose any compatible client to allow other clients through Auto routing.'
+                        )}
+                      </span>
                     </label>
                     <label className='space-y-1 text-xs md:col-span-2'>
                       <span className='font-medium'>{t('Description')}</span>

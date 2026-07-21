@@ -241,6 +241,20 @@ func TestGetRequestAutoGroupKeepsCodexProForCodexBodyMarker(t *testing.T) {
 	assert.Equal(t, []string{"codex", "codex-pro"}, groups)
 }
 
+func TestGetRequestAutoGroupKeepsExplicitAnyClientCodexPro(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	withAutoGroups(t,
+		`["codex-pro","openai"]`,
+		`{"codex-pro":"Codex Pro","openai":"OpenAI"}`,
+	)
+	require.NoError(t, model.DB.Model(&model.ProviderGroup{}).
+		Where("name = ?", "codex-pro").
+		Update("required_client_family", model.ProviderClientFamilyAny).Error)
+
+	ctx := newAutoGroupContext("/v1/responses", `{"model":"gpt-5.6-sol","input":"hi"}`)
+	assert.Equal(t, []string{"codex-pro", "openai"}, GetRequestAutoGroup(ctx, "default"))
+}
+
 func TestProviderGroupAccessErrorUsesStoredClientFamilyPolicy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	clearProviderGroupTables(t)

@@ -193,10 +193,8 @@ func GetRandomSatisfiedChannel(group string, model string, retry int, requestPat
 	return nil, errors.New("channel not found")
 }
 
-// filterCachedAbilitiesByRequestPath restricts candidates by request path. Only Advanced
-// Custom (type 58) channels are path-checked: they are kept only when one of their
-// configured routes matches requestPath. All other channel types always pass.
-// When requestPath is empty (non-relay callers) filtering is skipped.
+// filterCachedAbilitiesByRequestPath restricts candidates by membership policy
+// and hard channel endpoint capabilities. When requestPath is empty, filtering is skipped.
 // Caller must hold channelSyncLock (read lock). The cached slice is never mutated.
 func filterCachedAbilitiesByRequestPath(group string, abilities []cachedAbility, requestPath string) []cachedAbility {
 	if requestPath == "" || len(abilities) == 0 {
@@ -212,11 +210,7 @@ func filterCachedAbilitiesByRequestPath(group string, abilities []cachedAbility,
 		if !ProviderGroupChannelSupportsPath(group, ability.channelID, requestPath) {
 			continue
 		}
-		if channel.Type != constant.ChannelTypeAdvancedCustom {
-			filtered = append(filtered, ability)
-			continue
-		}
-		if config := channel2advancedCustomConfig[ability.channelID]; config != nil && config.SupportsPath(requestPath) {
+		if ChannelSupportsRequestPath(channel, requestPath) {
 			filtered = append(filtered, ability)
 		}
 	}

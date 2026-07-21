@@ -298,17 +298,8 @@ func isResponsesPath(requestPath string) bool {
 }
 
 // channelSupportsRequestPath reports whether a channel can serve the request path.
-// Only Advanced Custom (type 58) channels are path-checked; all other channel types
-// always pass. A type-58 channel is usable only when one of its routes matches.
 func channelSupportsRequestPath(channel *model.Channel, requestPath string) bool {
-	if channel == nil {
-		return false
-	}
-	if channel.Type != constant.ChannelTypeAdvancedCustom {
-		return true
-	}
-	config := channel.GetOtherSettings().AdvancedCustom
-	return config != nil && config.SupportsPath(requestPath)
+	return model.ChannelSupportsRequestPath(channel, requestPath)
 }
 
 // getModelFromRequest 从请求中读取模型信息

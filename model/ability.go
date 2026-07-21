@@ -7,8 +7,6 @@ import (
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
-	"github.com/QuantumNous/new-api/constant"
-	"github.com/QuantumNous/new-api/dto"
 	"github.com/samber/lo"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -146,10 +144,8 @@ func GetChannel(group string, model string, retry int, requestPath string, exclu
 	return &channel, err
 }
 
-// filterAbilitiesByRequestPath restricts candidates by request path for the DB
-// (non-memory-cache) selection path. Only Advanced Custom (type 58) channels are
-// path-checked: kept only when one of their routes matches requestPath; all other
-// channel types always pass. When requestPath is empty, filtering is skipped.
+// filterAbilitiesByRequestPath restricts candidates by membership policy and
+// hard channel endpoint capabilities. When requestPath is empty, filtering is skipped.
 func filterAbilitiesByRequestPath(abilities []Ability, requestPath string) []Ability {
 	if requestPath == "" || len(abilities) == 0 {
 		return abilities
@@ -171,11 +167,9 @@ func filterAbilitiesByRequestPath(abilities []Ability, requestPath string) []Abi
 		return abilities
 	}
 
-	advancedConfigs := make(map[int]*dto.AdvancedCustomConfig)
+	channelsByID := make(map[int]*Channel, len(channels))
 	for _, channel := range channels {
-		if channel.Type == constant.ChannelTypeAdvancedCustom {
-			advancedConfigs[channel.Id] = channel.GetOtherSettings().AdvancedCustom
-		}
+		channelsByID[channel.Id] = channel
 	}
 
 	filtered := make([]Ability, 0, len(abilities))
@@ -183,12 +177,8 @@ func filterAbilitiesByRequestPath(abilities []Ability, requestPath string) []Abi
 		if !ProviderGroupChannelSupportsPath(ability.Group, ability.ChannelId, requestPath) {
 			continue
 		}
-		config, isAdvancedCustom := advancedConfigs[ability.ChannelId]
-		if !isAdvancedCustom {
-			filtered = append(filtered, ability)
-			continue
-		}
-		if config != nil && config.SupportsPath(requestPath) {
+		channel, ok := channelsByID[ability.ChannelId]
+		if !ok || ChannelSupportsRequestPath(channel, requestPath) {
 			filtered = append(filtered, ability)
 		}
 	}

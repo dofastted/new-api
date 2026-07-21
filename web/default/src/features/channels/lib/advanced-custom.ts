@@ -184,6 +184,32 @@ export const ADVANCED_CUSTOM_TEMPLATE_OPTIONS: AdvancedCustomTemplateOption[] =
       },
     },
     {
+      value: 'openai_multi_protocol',
+      label: 'OpenAI Multi-Protocol',
+      config: {
+        advanced_routes: [
+          {
+            incoming_path: '/v1/responses',
+            upstream_path: '/v1/responses',
+            converter: 'none',
+            auth: bearerHeaderAuth(),
+          },
+          {
+            incoming_path: '/v1/chat/completions',
+            upstream_path: '/v1/chat/completions',
+            converter: 'none',
+            auth: bearerHeaderAuth(),
+          },
+          {
+            incoming_path: '/v1/messages',
+            upstream_path: '/v1/messages',
+            converter: 'none',
+            auth: bearerHeaderAuth(),
+          },
+        ],
+      },
+    },
+    {
       value: 'official_openai_responses',
       label: 'Official OpenAI Responses',
       config: {

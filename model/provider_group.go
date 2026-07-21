@@ -31,6 +31,7 @@ const (
 const (
 	ProviderClientFamilyClaudeCode = "claude_code"
 	ProviderClientFamilyCodex      = "codex"
+	ProviderClientFamilyAny        = "any"
 )
 
 var reservedUserProviderGroupNames = map[string]struct{}{
@@ -260,6 +261,9 @@ func ProviderRouteTypesForChannel(channel Channel) string {
 }
 
 func ProviderRouteTypesForChannelValue(channel Channel) []string {
+	if channel.Type == constant.ChannelTypeCodex {
+		return []string{ProviderRouteTypeResponses}
+	}
 	if channel.Type != constant.ChannelTypeAdvancedCustom {
 		return []string{
 			ProviderRouteTypeCompletions,
@@ -296,6 +300,25 @@ func ProviderRouteTypesForChannelValue(channel Channel) []string {
 		return ordered
 	}
 	return result
+}
+
+// ChannelSupportsRequestPath applies hard channel-format capabilities in
+// addition to the provider-group membership route policy.
+func ChannelSupportsRequestPath(channel *Channel, requestPath string) bool {
+	if channel == nil {
+		return false
+	}
+	if requestPath == "" {
+		return true
+	}
+	if channel.Type == constant.ChannelTypeCodex {
+		return ProviderRouteTypeForPath(requestPath) == ProviderRouteTypeResponses
+	}
+	if channel.Type != constant.ChannelTypeAdvancedCustom {
+		return true
+	}
+	config := channel.GetOtherSettings().AdvancedCustom
+	return config != nil && config.SupportsPath(requestPath)
 }
 
 func ListOnlineProviderGroupOptions() ([]ProviderGroupOption, error) {
@@ -388,6 +411,9 @@ func ProviderGroupRequiredClientFamily(name string) (string, bool) {
 		var group ProviderGroup
 		if err := DB.Select("required_client_family").Where("name = ? AND status = ?", name, ProviderGroupStatusEnabled).First(&group).Error; err == nil {
 			family := strings.TrimSpace(group.RequiredClientFamily)
+			if family == ProviderClientFamilyAny {
+				return "", false
+			}
 			if family != "" {
 				return family, true
 			}
@@ -551,13 +577,19 @@ func ApplyProviderGroupConfiguration(id int, update ProviderGroupConfigurationUp
 		if status != ProviderGroupStatusEnabled && status != ProviderGroupStatusDisabled {
 			return nil, fmt.Errorf("invalid provider group status")
 		}
+		clientFamily := strings.TrimSpace(update.Metadata.RequiredClientFamily)
+		switch clientFamily {
+		case "", ProviderClientFamilyAny, ProviderClientFamilyClaudeCode, ProviderClientFamilyCodex:
+		default:
+			return nil, fmt.Errorf("invalid required client family")
+		}
 		statusChanged = status != group.Status
 		metadataUpdates = map[string]interface{}{
 			"display_name":           displayName,
 			"description":            update.Metadata.Description,
 			"status":                 status,
 			"usage_ratio":            usageRatio,
-			"required_client_family": update.Metadata.RequiredClientFamily,
+			"required_client_family": clientFamily,
 			"updated_time":           now,
 		}
 		if update.Metadata.SortOrder != nil {

@@ -211,7 +211,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	if resp != nil {
 		httpResp = resp.(*http.Response)
-		info.IsStream = info.IsStream || strings.HasPrefix(httpResp.Header.Get("Content-Type"), "text/event-stream")
+		info.IsStream = shouldUseClaudeStreamResponse(info, httpResp)
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			// reset status code 重置状态码
@@ -229,4 +229,19 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 
 	service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	return nil
+}
+func shouldUseClaudeStreamResponse(info *relaycommon.RelayInfo, resp *http.Response) bool {
+	if info == nil {
+		return false
+	}
+	if info.IsStream {
+		return true
+	}
+	// Advanced Custom routes describe the upstream protocol explicitly. Some
+	// compatible Messages providers return a JSON body with an incorrect SSE
+	// content type for stream:false; trust the client request in that case.
+	if info.ChannelType == constant.ChannelTypeAdvancedCustom {
+		return false
+	}
+	return resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 }
