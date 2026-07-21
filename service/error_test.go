@@ -150,6 +150,42 @@ func TestRelayErrorHandlerKeepsInvalidJSONBodyInDebugLog(t *testing.T) {
 	require.Contains(t, logBuffer.String(), body)
 }
 
+func TestRelayErrorHandlerMapsUpstreamRequestTooLarge(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusRequestEntityTooLarge,
+		Body:       io.NopCloser(strings.NewReader("<html>request entity too large</html>")),
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.Equal(t, http.StatusRequestEntityTooLarge, newAPIError.StatusCode)
+	require.Equal(t, types.ErrorCodeRequestBodyTooLarge, newAPIError.GetErrorCode())
+	require.True(t, types.IsSkipRetryError(newAPIError))
+	require.Contains(t, newAPIError.Error(), "use file_id/file_url")
+}
+
+func TestRelayErrorHandlerMapsUpstreamRequestTooLargeWhenBodyReadFails(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusRequestEntityTooLarge,
+		Body:       failCloser{err: fmt.Errorf("read failed")},
+	}
+
+	newAPIError := RelayErrorHandler(context.Background(), resp, false)
+
+	require.NotNil(t, newAPIError)
+	require.Equal(t, http.StatusRequestEntityTooLarge, newAPIError.StatusCode)
+	require.Equal(t, types.ErrorCodeRequestBodyTooLarge, newAPIError.GetErrorCode())
+	require.True(t, types.IsSkipRetryError(newAPIError))
+}
+
+type failCloser struct {
+	err error
+}
+
+func (f failCloser) Read([]byte) (int, error) { return 0, f.err }
+func (f failCloser) Close() error             { return nil }
+
 func withDebugEnabled(t *testing.T, enabled bool) {
 	t.Helper()
 

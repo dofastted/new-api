@@ -126,6 +126,9 @@ func GetAndValidateResponsesRequest(c *gin.Context) (*dto.OpenAIResponsesRequest
 	if request.Input == nil {
 		return nil, errors.New("input is required")
 	}
+	if attachmentErr := validateResponsesAttachments(request.Input, request.Prompt); attachmentErr != nil {
+		return nil, attachmentErr
+	}
 	return request, nil
 }
 
@@ -136,6 +139,9 @@ func GetAndValidateResponsesCompactionRequest(c *gin.Context) (*dto.OpenAIRespon
 	}
 	if request.Model == "" {
 		return nil, errors.New("model is required")
+	}
+	if attachmentErr := validateResponsesAttachments(request.Input); attachmentErr != nil {
+		return nil, attachmentErr
 	}
 	return request, nil
 }

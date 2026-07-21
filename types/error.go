@@ -65,6 +65,8 @@ const (
 
 	// client request error
 	ErrorCodeReadRequestBodyFailed ErrorCode = "read_request_body_failed"
+	ErrorCodeRequestBodyTooLarge   ErrorCode = "request_body_too_large"
+	ErrorCodeAttachmentTooLarge    ErrorCode = "attachment_too_large"
 	ErrorCodeConvertRequestFailed  ErrorCode = "convert_request_failed"
 	ErrorCodeAccessDenied          ErrorCode = "access_denied"
 

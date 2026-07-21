@@ -85,6 +85,15 @@ func ClaudeErrorWrapperLocal(err error, code string, statusCode int) *dto.Claude
 
 func RelayErrorHandler(ctx context.Context, resp *http.Response, showBodyWhenFail bool) (newApiErr *types.NewAPIError) {
 	newApiErr = types.InitOpenAIError(types.ErrorCodeBadResponseStatusCode, resp.StatusCode)
+	if resp.StatusCode == http.StatusRequestEntityTooLarge {
+		CloseResponseBodyGracefully(resp)
+		return types.NewErrorWithStatusCode(
+			errors.New("request exceeds the upstream HTTP body size limit; reduce inline attachments or use file_id/file_url"),
+			types.ErrorCodeRequestBodyTooLarge,
+			http.StatusRequestEntityTooLarge,
+			types.ErrOptionWithSkipRetry(),
+		)
+	}
 
 	responseBody, err := io.ReadAll(resp.Body)
 	if err != nil {
