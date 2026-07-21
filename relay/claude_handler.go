@@ -212,6 +212,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	if resp != nil {
 		httpResp = resp.(*http.Response)
 		info.IsStream = shouldUseClaudeStreamResponse(info, httpResp)
+		normalizeClaudeResponseContentType(info, httpResp)
 		if httpResp.StatusCode != http.StatusOK {
 			newAPIError = service.RelayErrorHandler(c.Request.Context(), httpResp, false)
 			// reset status code 重置状态码
@@ -244,4 +245,13 @@ func shouldUseClaudeStreamResponse(info *relaycommon.RelayInfo, resp *http.Respo
 		return false
 	}
 	return resp != nil && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
+}
+
+func normalizeClaudeResponseContentType(info *relaycommon.RelayInfo, resp *http.Response) {
+	if info == nil || resp == nil || info.IsStream || info.ChannelType != constant.ChannelTypeAdvancedCustom {
+		return
+	}
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		resp.Header.Set("Content-Type", "application/json")
+	}
 }

@@ -27,3 +27,23 @@ func TestShouldUseClaudeStreamResponse(t *testing.T) {
 		assert.True(t, shouldUseClaudeStreamResponse(info, sseResponse))
 	})
 }
+
+func TestNormalizeClaudeResponseContentType(t *testing.T) {
+	t.Run("advanced custom non-stream response becomes JSON", func(t *testing.T) {
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeAdvancedCustom}}
+		response := &http.Response{Header: http.Header{"Content-Type": []string{"text/event-stream; charset=utf-8"}}}
+
+		normalizeClaudeResponseContentType(info, response)
+
+		assert.Equal(t, "application/json", response.Header.Get("Content-Type"))
+	})
+
+	t.Run("stream response keeps SSE content type", func(t *testing.T) {
+		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeAdvancedCustom}, IsStream: true}
+		response := &http.Response{Header: http.Header{"Content-Type": []string{"text/event-stream; charset=utf-8"}}}
+
+		normalizeClaudeResponseContentType(info, response)
+
+		assert.Equal(t, "text/event-stream; charset=utf-8", response.Header.Get("Content-Type"))
+	})
+}
